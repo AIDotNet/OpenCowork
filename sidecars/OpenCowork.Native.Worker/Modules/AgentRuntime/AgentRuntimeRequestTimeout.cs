@@ -9,7 +9,8 @@ using System.Text.Json;
 // The request deadline covers response headers. Every provider sends with
 // HttpCompletionOption.ResponseHeadersRead, so that countdown is dropped when headers arrive.
 // Body reads then use a separate reset-on-line/frame stream-idle deadline: healthy streams can run
-// indefinitely, while a provider that silently stalls cannot retain a Job slot forever.
+// indefinitely, while a provider that silently stalls cannot retain a Job slot forever. Reads taken
+// while a server-side image call is rendering get a longer deadline, since that silence is expected.
 //
 // This is also where transport faults are classified. Everything raised here happens before any
 // response body is read, so a failure at this point is always safe to replay — no events have
@@ -19,6 +20,12 @@ internal static class AgentRuntimeRequestTimeout
     // Mirrors HttpClient's historical default so behaviour is unchanged when unset.
     public const int DefaultTimeoutSeconds = 100;
     public const int DefaultStreamIdleTimeoutSeconds = 120;
+
+    // Server-side image generation renders the whole image before the provider emits anything,
+    // so a stream carrying an in-flight image call is legitimately silent for minutes — longer
+    // still when partial images are off. Applying the text deadline there kills healthy runs, so
+    // idle reads taken while an image call is open get their own, much longer deadline.
+    public const int DefaultImageStreamIdleTimeoutSeconds = 900;
 
     /// <summary>
     /// Reads the configured request timeout from the provider payload. Returns null when the
@@ -32,18 +39,40 @@ internal static class AgentRuntimeRequestTimeout
         return seconds > 0 ? TimeSpan.FromSeconds(seconds) : null;
     }
 
-    public static TimeSpan? ResolveStreamIdle(JsonElement provider)
+    public static TimeSpan? ResolveStreamIdle(
+        JsonElement provider,
+        bool imageGenerationInFlight = false)
     {
-        var seconds = JsonHelpers.GetIntNullable(provider, "streamIdleTimeoutSeconds")
-            ?? ReadEnvironmentStreamIdleTimeout()
-            ?? DefaultStreamIdleTimeoutSeconds;
+        var seconds = imageGenerationInFlight
+            ? ResolveImageStreamIdleSeconds(provider)
+            : ResolveTextStreamIdleSeconds(provider);
         return seconds > 0 ? TimeSpan.FromSeconds(seconds) : null;
     }
 
-    private static int? ReadEnvironmentStreamIdleTimeout()
+    private static int ResolveTextStreamIdleSeconds(JsonElement provider)
     {
-        var raw = Environment.GetEnvironmentVariable(
-            "OPEN_COWORK_AGENT_STREAM_IDLE_TIMEOUT_SECONDS");
+        return JsonHelpers.GetIntNullable(provider, "streamIdleTimeoutSeconds")
+            ?? ReadEnvironmentInt("OPEN_COWORK_AGENT_STREAM_IDLE_TIMEOUT_SECONDS")
+            ?? DefaultStreamIdleTimeoutSeconds;
+    }
+
+    private static int ResolveImageStreamIdleSeconds(JsonElement provider)
+    {
+        var configured = JsonHelpers.GetIntNullable(provider, "imageStreamIdleTimeoutSeconds")
+            ?? ReadEnvironmentInt("OPEN_COWORK_AGENT_IMAGE_STREAM_IDLE_TIMEOUT_SECONDS");
+        if (configured is { } explicitSeconds)
+        {
+            return explicitSeconds;
+        }
+        var text = ResolveTextStreamIdleSeconds(provider);
+        // A disabled text deadline stays disabled; otherwise an image call never gets less
+        // headroom than plain text, whatever the user raised the text deadline to.
+        return text > 0 ? Math.Max(text, DefaultImageStreamIdleTimeoutSeconds) : 0;
+    }
+
+    private static int? ReadEnvironmentInt(string name)
+    {
+        var raw = Environment.GetEnvironmentVariable(name);
         return int.TryParse(raw, out var value) ? value : null;
     }
 
@@ -51,9 +80,10 @@ internal static class AgentRuntimeRequestTimeout
         StreamReader reader,
         JsonElement provider,
         string providerLabel,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool imageGenerationInFlight = false)
     {
-        var configured = ResolveStreamIdle(provider);
+        var configured = ResolveStreamIdle(provider, imageGenerationInFlight);
         if (configured is not { } timeout)
         {
             return await reader.ReadLineAsync(cancellationToken);
@@ -69,8 +99,9 @@ internal static class AgentRuntimeRequestTimeout
             when (idle.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"{providerLabel} stream produced no data for {timeout.TotalSeconds:0}s. " +
-                "Set streamIdleTimeoutSeconds to 0 to disable the stream-idle deadline.",
+                $"{providerLabel} stream produced no data for {timeout.TotalSeconds:0}s" +
+                $"{DescribeIdleStage(imageGenerationInFlight)}. " +
+                DescribeIdleRemedy(imageGenerationInFlight),
                 ex);
         }
     }
@@ -80,9 +111,10 @@ internal static class AgentRuntimeRequestTimeout
         ArraySegment<byte> buffer,
         JsonElement provider,
         string providerLabel,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool imageGenerationInFlight = false)
     {
-        var configured = ResolveStreamIdle(provider);
+        var configured = ResolveStreamIdle(provider, imageGenerationInFlight);
         if (configured is not { } timeout)
         {
             return await socket.ReceiveAsync(buffer, cancellationToken);
@@ -98,10 +130,24 @@ internal static class AgentRuntimeRequestTimeout
             when (idle.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"{providerLabel} WebSocket produced no frame for {timeout.TotalSeconds:0}s. " +
-                "Set streamIdleTimeoutSeconds to 0 to disable the stream-idle deadline.",
+                $"{providerLabel} WebSocket produced no frame for {timeout.TotalSeconds:0}s" +
+                $"{DescribeIdleStage(imageGenerationInFlight)}. " +
+                DescribeIdleRemedy(imageGenerationInFlight),
                 ex);
         }
+    }
+
+    private static string DescribeIdleStage(bool imageGenerationInFlight)
+    {
+        return imageGenerationInFlight ? " while generating an image" : string.Empty;
+    }
+
+    private static string DescribeIdleRemedy(bool imageGenerationInFlight)
+    {
+        return imageGenerationInFlight
+            ? "Raise imageStreamIdleTimeoutSeconds (0 waits indefinitely), or enable partial " +
+                "images so the provider reports progress while it renders."
+            : "Set streamIdleTimeoutSeconds to 0 to disable the stream-idle deadline.";
     }
 
     public static async Task<string> ReadErrorBodyAsync(

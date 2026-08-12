@@ -10,7 +10,10 @@ function readSize(revision = 0): TerminalSize {
   return {
     columns: Math.max(36, process.stdout.columns ?? 80),
     revision,
-    rows: Math.max(16, process.stdout.rows ?? 24)
+    // Keep the floor below any realistic terminal: reporting more rows than the terminal
+    // actually has makes the fullscreen frame taller than the alt screen, so its top —
+    // the transcript — scrolls off irrecoverably.
+    rows: Math.max(8, process.stdout.rows ?? 24)
   }
 }
 

@@ -73,16 +73,17 @@ internal static class RuntimeJobCoordinator
         var runId = ReadString(parameters, "runId");
         var requestedId = NormalizeIdentifier(requestedJobId);
         string jobId;
-        if (string.Equals(method, "agent/run", StringComparison.Ordinal))
+        if (string.Equals(method, "agent/run", StringComparison.Ordinal) ||
+            string.Equals(method, "agent/session-send", StringComparison.Ordinal))
         {
             if (runId is null)
             {
                 throw new InvalidOperationException(
-                    "agent/run Jobs require params.runId so durable events can address the Job.");
+                    $"{method} Jobs require params.runId so durable events can address the Job.");
             }
             if (requestedId is not null && !string.Equals(requestedId, runId, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException("agent/run requires jobId to match params.runId.");
+                throw new InvalidOperationException($"{method} requires jobId to match params.runId.");
             }
             jobId = runId;
         }

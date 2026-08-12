@@ -57,7 +57,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             reader,
             provider,
             "OpenAI Responses",
-            state.CancellationToken)) is not null)
+            state.CancellationToken,
+            parseState.ImageGenerationStarted)) is not null)
         {
             if (line.Length == 0)
             {
@@ -145,7 +146,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                             buffer,
                             provider,
                             "OpenAI Responses",
-                            state.CancellationToken)
+                            state.CancellationToken,
+                            parseState.ImageGenerationStarted)
                         : await socket.ReceiveAsync(buffer, firstMessageCts.Token);
                 }
                 catch (OperationCanceledException ex) when (

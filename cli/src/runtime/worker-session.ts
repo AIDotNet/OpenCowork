@@ -39,6 +39,8 @@ export interface WorkerSessionOptions {
   permissionMode: PermissionMode
   runId: string
   sessionId: string
+  /** Caps agent loop turns for non-interactive runs; 0/undefined means unlimited. */
+  maxTurns?: number
   planRevision?: {
     title: string
     filePath?: string
@@ -59,6 +61,7 @@ export interface WorkerRunRequest extends JsonRecord {
   provider: JsonRecord
   compressionProvider?: JsonRecord
   tools: WorkerToolDefinition[]
+  webSearch?: JsonRecord
   workingFolder: string
   maxIterations: number
   forceApproval: boolean
@@ -422,8 +425,132 @@ export const PLAN_MODE_ALLOWED_TOOLS = [
   'TaskGet',
   'TaskUpdate',
   'TaskList',
-  'Task'
+  'Task',
+  // Read-only research tools remain available while planning.
+  'Skill',
+  'WebSearch',
+  'WebFetch'
 ] as const
+
+/**
+ * Web tools execute natively in the Worker (AgentRuntimeWebSearchExecutor /
+ * AgentRuntimeWebFetchExecutor); the CLI only advertises them and forwards the shared
+ * web-search settings in the run request. Schemas mirror the desktop definitions.
+ */
+export const WEB_SEARCH_TOOL_DEFINITION: WorkerToolDefinition = {
+  name: 'WebSearch',
+  description:
+    "Search the web using the user's configured provider. The model cannot choose or override the provider.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'The search query to execute' },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum number of results to return',
+        default: 5
+      },
+      searchMode: {
+        type: 'string',
+        description: 'Search mode (web, news, etc.)',
+        enum: ['web', 'news'],
+        default: 'web'
+      }
+    },
+    required: ['query']
+  }
+}
+
+export const WEB_FETCH_TOOL_DEFINITION: WorkerToolDefinition = {
+  name: 'WebFetch',
+  description:
+    'Fetch one or more URLs and return page content. Accepts url or urls (string or string array) and defaults to markdown.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string', description: 'A single URL to fetch' },
+      urls: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        description: 'A list of URLs to fetch'
+      },
+      format: {
+        type: 'string',
+        enum: ['markdown', 'text', 'html'],
+        default: 'markdown',
+        description: 'Output format, defaults to markdown'
+      }
+    },
+    additionalProperties: false
+  }
+}
+
+export interface SkillCatalogEntry {
+  name: string
+  description: string
+}
+
+/**
+ * Skill execution lives in the Worker (AgentRuntimeSkillExecutor, ~/.agents/skills). The
+ * definition mirrors the desktop Skill tool: the catalog is embedded in the description
+ * and constrains SkillName so providers cannot invent skill names.
+ */
+export function buildSkillToolDefinition(skills: SkillCatalogEntry[]): WorkerToolDefinition {
+  const skillList =
+    skills.length > 0
+      ? [
+          '',
+          'Currently available skills:',
+          ...skills.map((skill) => `- ${skill.name}: ${skill.description}`)
+        ].join('\n')
+      : '\n\nNo skills are currently installed.'
+  return {
+    name: 'Skill',
+    description: `Load a skill by name to get detailed instructions or domain knowledge for a specialized task. Returns the full content of the skill's SKILL.md file as context.
+
+You have access to **Skills** — curated guides for specific workflows.
+Only use the Skill tool when the user's request clearly matches a listed skill, or when the user explicitly asks for a skill.
+Do not call Skill for ordinary coding, file editing, searching, debugging, or repository navigation requests unless a listed skill is obviously the best fit.
+
+### How to use Skills
+1. **Match carefully**: Use a skill only when the request clearly aligns with one of the available skills in the session context.
+2. **Load first when relevant**: If a listed skill is clearly applicable, call the Skill tool before other tools.
+3. **Read carefully**: After loading, read the Skill's content thoroughly before taking any action.
+4. **Follow strictly**: Execute the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach.
+5. **Retry on failure**: If a Skill's script fails, fix the issue and re-run the same script command when appropriate.
+6. If the user's message begins with "[Skill: <name>]", immediately call that Skill as your first action.${skillList}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        SkillName: {
+          type: 'string',
+          description: 'The name of the skill to load. Must match one of the available skills.',
+          ...(skills.length > 0 ? { enum: skills.map((skill) => skill.name) } : {})
+        }
+      },
+      required: ['SkillName']
+    }
+  }
+}
+
+/** Shared web-search settings mapped to the Worker's run-request webSearch config. */
+export function buildWebSearchRunConfig(settings: JsonRecord): JsonRecord | undefined {
+  if (settings.webSearchEnabled !== true) return undefined
+  const provider = stringValue(settings.webSearchProvider) || 'tavily'
+  const apiKey = stringValue(settings.webSearchApiKey)
+  const searchEngine = stringValue(settings.webSearchEngine)
+  const maxResults = Number(settings.webSearchMaxResults)
+  const timeout = Number(settings.webSearchTimeout)
+  return {
+    enabled: true,
+    provider,
+    ...(apiKey ? { apiKey } : {}),
+    ...(searchEngine ? { searchEngine } : {}),
+    maxResults: Number.isFinite(maxResults) && maxResults > 0 ? Math.floor(maxResults) : 5,
+    timeout: Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 30_000
+  }
+}
 
 export const CORE_WORKER_TOOL_DEFINITIONS = CORE_TOOL_DEFINITIONS
 
@@ -888,7 +1015,11 @@ export function buildWorkerRunRequest(
   provider.sessionId = options.sessionId
   if (provider.type === 'openai-responses') provider.responsesSessionScope = 'agent-main'
 
-  const tools = mergeToolDefinitions(extraTools)
+  const webSearch = buildWebSearchRunConfig(settings)
+  const tools = mergeToolDefinitions([
+    ...(webSearch ? [WEB_SEARCH_TOOL_DEFINITION, WEB_FETCH_TOOL_DEFINITION] : []),
+    ...extraTools
+  ])
 
   // The terminal status must describe the effective Worker policy. A desktop-global
   // autoApprove flag must not silently turn a CLI session displaying "manual" into fullAccess.
@@ -911,9 +1042,10 @@ export function buildWorkerRunRequest(
     provider,
     ...(compressionProvider ? { compressionProvider } : {}),
     tools,
+    ...(webSearch ? { webSearch } : {}),
     capabilitySnapshot,
     workingFolder: options.cwd,
-    maxIterations: 0,
+    maxIterations: options.maxTurns && options.maxTurns > 0 ? options.maxTurns : 0,
     forceApproval: false,
     permissionMode: autoApprove
       ? 'fullAccess'

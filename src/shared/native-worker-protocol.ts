@@ -1,0 +1,111 @@
+/**
+ * Native Worker wire-protocol layer shared by every host process (Electron main and the
+ * standalone CLI). Both clients speak the same transport: 4-byte big-endian length-prefixed
+ * MessagePack frames over dual local IPC sockets (control + event). Keeping the framing
+ * and protocol constants in one module prevents the desktop and CLI clients from drifting.
+ *
+ * The CLI package cannot import outside its tsconfig rootDir, so this file is vendored
+ * into cli/src/vendor/ by cli/scripts/sync-shared.mjs. Edit this copy, then re-run the
+ * sync (it also runs automatically before CLI typecheck/build).
+ *
+ * Node-only module (uses Buffer); do not import from renderer code.
+ */
+
+export { WORKER_PROTOCOL_VERSION } from './worker-contracts/generated/contracts'
+
+export const FRAME_HEADER_BYTES = 4
+export const MAX_FRAME_BYTES = 256 * 1024 * 1024
+
+export const WORKER_HEARTBEAT_INTERVAL_MS = 15_000
+export const WORKER_HEARTBEAT_TIMEOUT_MS = 5_000
+export const WORKER_CONNECT_TIMEOUT_MS = 10_000
+export const WORKER_CONNECT_RETRY_DELAY_MS = 35
+
+/** Wraps one encoded MessagePack payload in a length-prefixed IPC frame. */
+export function createWorkerFrame(payload: Uint8Array): Buffer {
+  if (payload.byteLength <= 0 || payload.byteLength > MAX_FRAME_BYTES) {
+    throw new Error(`Invalid native worker request length: ${payload.byteLength}`)
+  }
+  const frame = Buffer.allocUnsafe(FRAME_HEADER_BYTES + payload.byteLength)
+  frame.writeUInt32BE(payload.byteLength, 0)
+  Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength).copy(
+    frame,
+    FRAME_HEADER_BYTES
+  )
+  return frame
+}
+
+/**
+ * Reads a frame-length header and validates it. Returns the body length, or throws for
+ * lengths outside the protocol bounds (both clients must fail identically here).
+ */
+export function readWorkerFrameLength(header: Buffer): number {
+  const length = header.readUInt32BE(0)
+  if (length <= 0 || length > MAX_FRAME_BYTES) {
+    throw new Error(`Invalid native worker frame length: ${length}`)
+  }
+  return length
+}
+
+/**
+ * Incremental decoder for length-prefixed worker frames. Socket chunks are queued as-is
+ * and only joined once a full frame has arrived; concatenating the whole backlog on
+ * every chunk would be O(n²) for large frames and block the host process.
+ */
+export class WorkerFrameDecoder {
+  private chunks: Buffer[] = []
+  private buffered = 0
+  private pendingFrameLength = -1
+
+  /**
+   * Feeds one socket chunk and invokes onFrame for every frame it completes. Throws on
+   * an out-of-bounds frame length; the caller decides whether that tears down the whole
+   * worker (control socket) or only resets the reconnectable event socket.
+   */
+  push(chunk: Buffer, onFrame: (payload: Buffer) => void): void {
+    this.chunks.push(chunk)
+    this.buffered += chunk.length
+
+    while (true) {
+      if (this.pendingFrameLength < 0) {
+        if (this.buffered < FRAME_HEADER_BYTES) return
+        this.pendingFrameLength = readWorkerFrameLength(this.consume(FRAME_HEADER_BYTES))
+      }
+      if (this.buffered < this.pendingFrameLength) return
+      const payload = this.consume(this.pendingFrameLength)
+      this.pendingFrameLength = -1
+      onFrame(payload)
+    }
+  }
+
+  reset(): void {
+    this.chunks = []
+    this.buffered = 0
+    this.pendingFrameLength = -1
+  }
+
+  private consume(count: number): Buffer {
+    // Fast path: the frame is fully contained in the head chunk — no copy.
+    const first = this.chunks[0]
+    if (first && first.length >= count) {
+      const output = first.subarray(0, count)
+      if (first.length === count) this.chunks.shift()
+      else this.chunks[0] = first.subarray(count)
+      this.buffered -= count
+      return output
+    }
+
+    const output = Buffer.allocUnsafe(count)
+    let offset = 0
+    while (offset < count) {
+      const chunk = this.chunks[0]
+      const take = Math.min(chunk.length, count - offset)
+      chunk.copy(output, offset, 0, take)
+      offset += take
+      if (take === chunk.length) this.chunks.shift()
+      else this.chunks[0] = chunk.subarray(take)
+    }
+    this.buffered -= count
+    return output
+  }
+}

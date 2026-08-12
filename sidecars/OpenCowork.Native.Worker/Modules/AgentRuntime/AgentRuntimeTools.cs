@@ -39,6 +39,7 @@ internal static class AgentRuntimeTools
             run.Cancel("shutdown");
         }
         ActiveRuns.Clear();
+        AgentRuntimeSessionHost.Clear();
         // Background sub-agent/team children are not in ActiveRuns; cancel them through
         // the sub-agent registry so their global concurrency slots drain on shutdown.
         AgentRuntimeSubAgentCancellationScope.CancelAll("shutdown");
@@ -53,6 +54,7 @@ internal static class AgentRuntimeTools
         var capability = JsonHelpers.GetString(parameters, "capability") ?? string.Empty;
         var supported = capability is
             "agent.run" or
+            "agent.session-host" or
             "desktop.input" or
             "provider.openai-chat" or
             "provider.openai-responses" or

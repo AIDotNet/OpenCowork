@@ -1,6 +1,7 @@
 ﻿import { randomUUID } from 'node:crypto'
-import { realpathSync } from 'node:fs'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import type {
   AgentOption,
   AgentRuntime,
@@ -13,6 +14,7 @@ import type {
   ContextCompressionResult,
   ContextSnapshot,
   FileReferenceCandidate,
+  McpStatusSummary,
   Message,
   ModelCatalog,
   ModelConfiguration,
@@ -49,7 +51,13 @@ import {
 } from '../lib/file-references.js'
 import { stripTerminalPreviewControls } from '../lib/text.js'
 import { buildEditDiff } from '../lib/tool-diff.js'
-import { NativeWorkerClient, type NativeWorkerProbe } from './native-worker-client.js'
+import { HostAdapterRegistry } from './host-adapters.js'
+import { CliMcpHost, parseMcpServerConfigs } from './mcp-host.js'
+import {
+  NativeWorkerClient,
+  getCurrentRid,
+  type NativeWorkerProbe
+} from './native-worker-client.js'
 import {
   loadAgentCatalog,
   loadModelCatalog,
@@ -62,12 +70,14 @@ import {
 import { loadProviderSetupCatalog, persistProviderSetup } from './provider-setup.js'
 import { parseSessionTitle, SESSION_TITLE_SYSTEM_PROMPT } from './session-title.js'
 import {
+  buildSkillToolDefinition,
   buildWorkerCompressionRequest,
   buildWorkerRunRequest,
   buildWorkerTitleRequest,
   resolveReasoningEffort,
   resolveThinkingEnabled,
   resolveWorkerCompressionSettings,
+  type SkillCatalogEntry,
   type WorkerMessage,
   type WorkerToolDefinition,
   type WorkerSessionOptions
@@ -98,12 +108,6 @@ type PendingTitleRun = {
   lastSequence: number
   resolve(value: string): void
   text: string
-}
-
-type ActiveRunReadyWaiter = {
-  reject(error: Error): void
-  resolve(): void
-  runId: string
 }
 
 type StoredFileSnapshot = {
@@ -194,14 +198,92 @@ export interface OpenCoworkWorkerRuntimeOptions {
   appVersion: string
   cwd: string
   effort?: string
+  maxTurns?: number
   model?: string
   permissionMode: PermissionMode
   providerId?: string
   workerPath?: string
 }
 
+export interface DoctorCheck {
+  label: string
+  status: 'ok' | 'warn' | 'error'
+  detail: string
+}
+
+/**
+ * npm installs write a `.version` marker (`<version>\n<rid>`) next to the Worker binary.
+ * A rid mismatch means the wrong platform archive was unpacked (e.g. an x64 Worker on an
+ * arm64 machine), which surfaces at runtime as opaque spawn or dyld errors.
+ */
+function checkWorkerArchitecture(executable: string): DoctorCheck {
+  const label = 'Worker binary'
+  const rid = getCurrentRid()
+  try {
+    const marker = readFileSync(join(dirname(executable), '.version'), 'utf8')
+    const installedRid = marker.trim().split('\n')[1]?.trim()
+    if (!installedRid) {
+      return { label, status: 'warn', detail: 'install marker exists but lists no platform' }
+    }
+    if (installedRid !== rid) {
+      return {
+        label,
+        status: 'error',
+        detail: `installed for ${installedRid} but this machine is ${rid}; run: cowork update --repair`
+      }
+    }
+    return { label, status: 'ok', detail: `matches this machine (${rid})` }
+  } catch {
+    return { label, status: 'ok', detail: `no install marker (local build), machine is ${rid}` }
+  }
+}
+
+function checkProviderAvailability(catalog: ModelCatalog): DoctorCheck {
+  const label = 'Provider'
+  if (catalog.active) {
+    return {
+      label,
+      status: 'ok',
+      detail: `${catalog.active.providerName} / ${catalog.active.modelName} (${catalog.totalModels} model(s) enabled)`
+    }
+  }
+  return {
+    label,
+    status: catalog.totalModels > 0 ? 'warn' : 'error',
+    detail:
+      catalog.totalModels > 0
+        ? 'models are enabled but none is selected; run: cowork config'
+        : 'no provider configured; run: cowork config'
+  }
+}
+
+function checkSkillsDirectory(): DoctorCheck {
+  const label = 'Skills directory'
+  const skillsDirectory = join(homedir(), '.agents', 'skills')
+  try {
+    const entries = readdirSync(skillsDirectory, { withFileTypes: true })
+    const skillFolders = entries.filter((entry) => entry.isDirectory()).length
+    return {
+      label,
+      status: 'ok',
+      detail: `${skillsDirectory} readable, ${skillFolders} skill folder(s)`
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') {
+      return { label, status: 'ok', detail: `${skillsDirectory} not present (no custom skills)` }
+    }
+    return {
+      label,
+      status: 'warn',
+      detail: `${skillsDirectory} is not readable: ${error instanceof Error ? error.message : String(error)}`
+    }
+  }
+}
+
 export interface WorkerRuntimeDoctorResult extends NativeWorkerProbe {
   configuredModel: string
+  checks: DoctorCheck[]
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -743,12 +825,23 @@ function readAnthropicThinkingBudget(model: JsonRecord): number | null {
   return Number.isFinite(budget) && budget > 0 ? Math.floor(budget) : null
 }
 
+// Message content is never mutated after a WorkerMessage is constructed (histories are
+// replaced wholesale on loop_end/compression), so the serialized size can be cached per
+// object. The WeakMap lets replaced histories drop out with garbage collection, keeping
+// status/context refreshes O(new messages) instead of O(history) JSON.stringify calls.
+const messageSerializedSizeCache = new WeakMap<WorkerMessage, number>()
+
 function messageSerializedSize(message: WorkerMessage): number {
+  const cached = messageSerializedSizeCache.get(message)
+  if (cached !== undefined) return cached
+  let size: number
   try {
-    return JSON.stringify(message.content).length
+    size = JSON.stringify(message.content).length
   } catch {
-    return flattenContent(message.content).length
+    size = flattenContent(message.content).length
   }
+  messageSerializedSizeCache.set(message, size)
+  return size
 }
 
 function estimateMessageContextTokens(messages: WorkerMessage[]): number {
@@ -829,6 +922,10 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private sessionCreation: Promise<void> | null = null
   private pendingPlanContext: PendingPlanContext = {}
   private activeCodeGraphToolNames = new Set<string>()
+  private readonly mcpHost = new CliMcpHost()
+  private readonly hostAdapters = new HostAdapterRegistry()
+  private activeMcpToolNames = new Set<string>()
+  private mcpCatalogWarned = false
   private activeSignal: AbortSignal | null = null
   private historyPersistence: Promise<void> | null = null
   private resumeOperation: Promise<ResumeResult> | null = null
@@ -883,6 +980,92 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         this.wake()
       })
     )
+    this.registerHostAdapters()
+  }
+
+  /**
+   * Reverse-request capability is declared here once: each adapter owns its methods,
+   * its per-turn tool definitions, and how its pending requests settle on turn end or
+   * Worker-side cancel. Registration order controls tool-definition order in agent/run.
+   */
+  private registerHostAdapters(): void {
+    this.hostAdapters.register({
+      name: 'ask-user',
+      methods: ['ask-user/request'],
+      handleRequest: (id, method, params) => {
+        this.pendingReverse.set(id, { id, method })
+        const request = normalizeAskUserRequest(id, params)
+        if (!request) {
+          void this.completeReverse(id, undefined, 'Invalid AskUserQuestion payload')
+          return
+        }
+        this.push({ type: 'askUser.request', request })
+      },
+      turnEndCompletion: () => ({ error: 'CLI turn ended before the user answered' }),
+      handleCancel: (id) => this.push({ type: 'askUser.cancel', requestId: id })
+    })
+
+    this.hostAdapters.register({
+      name: 'plan',
+      methods: ['plan/ui-update'],
+      handleRequest: (id, method, params) => {
+        this.pendingReverse.set(id, { id, method })
+        const plan = normalizePlanSnapshot(params.plan)
+        if (!plan) {
+          void this.completeReverse(id, undefined, 'Invalid plan/ui-update payload')
+          return
+        }
+        const action =
+          params.action === 'exit' || params.action === 'sync' ? params.action : 'enter'
+        this.push({ type: 'plan.update', action, plan })
+        void this.completeReverse(id, { ok: true })
+      }
+    })
+
+    this.hostAdapters.register({
+      name: 'approval',
+      methods: ['approval/request'],
+      handleRequest: (id, method, params) => this.handleApprovalRequest(id, method, params),
+      turnEndCompletion: () => ({ result: { approved: false, reason: 'CLI turn ended' } }),
+      handleCancel: (id) => this.push({ type: 'permission.cancel', requestId: id })
+    })
+
+    this.hostAdapters.register({
+      name: 'codegraph',
+      methods: ['codegraph:tool'],
+      loadToolDefinitions: (signal) => this.loadCodeGraphToolDefinitions(signal),
+      handleRequest: (id, method, params) => {
+        this.pendingReverse.set(id, { id, method })
+        void this.forwardCodeGraphRequest(id, params)
+      },
+      turnEndCompletion: () => ({
+        result: {
+          success: true,
+          text: 'CodeGraph request cancelled because the CLI turn ended.',
+          isError: false,
+          errorKind: 'cancelled'
+        }
+      })
+    })
+
+    this.hostAdapters.register({
+      name: 'skills',
+      methods: [],
+      loadToolDefinitions: (signal) => this.loadSkillToolDefinitions(signal)
+    })
+
+    this.hostAdapters.register({
+      name: 'mcp',
+      methods: ['mcp:call-tool', 'mcp:read-resource'],
+      loadToolDefinitions: (signal) => this.loadMcpToolDefinitions(signal),
+      handleRequest: (id, method, params) => {
+        this.pendingReverse.set(id, { id, method })
+        void this.forwardMcpRequest(id, method, params)
+      },
+      turnEndCompletion: () => ({
+        result: { success: false, error: 'MCP request cancelled because the CLI turn ended.' }
+      })
+    })
   }
 
   configure(config: Partial<RuntimeSessionConfig>): void {
@@ -1729,7 +1912,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
     try {
       const requestContextTexts = await this.buildFileReferenceContext(references, signal)
-      const extraTools = await this.loadCodeGraphToolDefinitions(signal)
+      const extraTools = await this.hostAdapters.loadToolDefinitions(signal)
       const sessionOptions = this.createSessionOptions(runId)
       const { request, modelLabel } = buildWorkerRunRequest(
         sessionOptions,
@@ -1767,18 +1950,11 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     } finally {
       signal.removeEventListener('abort', handleAbort)
       for (const [id, request] of this.pendingReverse) {
-        if (request.method === 'approval/request') {
-          void this.completeReverse(id, { approved: false, reason: 'CLI turn ended' })
-        } else if (request.method === 'ask-user/request') {
-          void this.completeReverse(id, undefined, 'CLI turn ended before the user answered')
-        } else if (request.method === 'codegraph:tool') {
-          void this.completeReverse(id, {
-            success: true,
-            text: 'CodeGraph request cancelled because the CLI turn ended.',
-            isError: false,
-            errorKind: 'cancelled'
-          })
-        }
+        const completion = this.hostAdapters
+          .resolve(request.method)
+          ?.turnEndCompletion?.(request.method)
+        if (!completion) continue
+        void this.completeReverse(id, completion.result, completion.error)
       }
       this.activeRunId = null
       this.assistantId = null
@@ -2236,7 +2412,44 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const probe = await this.client.probe()
     const runId = `cli-doctor-${randomUUID()}`
     const { modelLabel } = buildWorkerRunRequest(this.createSessionOptions(runId), [])
-    return { ...probe, configuredModel: modelLabel }
+    const checks: DoctorCheck[] = [
+      checkWorkerArchitecture(probe.executable),
+      checkProviderAvailability(this.getModelCatalog()),
+      await this.checkMcpConfiguration(),
+      checkSkillsDirectory()
+    ]
+    return { ...probe, configuredModel: modelLabel, checks }
+  }
+
+  /** Validates that the shared mcp-servers.json parses and reports the server inventory. */
+  private async checkMcpConfiguration(): Promise<DoctorCheck> {
+    const label = 'MCP configuration'
+    try {
+      const rawConfigs = await this.client.request<unknown>('mcp/config-list', {}, 30_000)
+      const configs = parseMcpServerConfigs(rawConfigs)
+      if (Array.isArray(rawConfigs) && rawConfigs.length > configs.length) {
+        return {
+          label,
+          status: 'warn',
+          detail: `${configs.length} of ${rawConfigs.length} entries in mcp-servers.json are usable; the rest are missing an id or use an unknown transport`
+        }
+      }
+      const enabled = configs.filter((config) => config.enabled).length
+      return {
+        label,
+        status: 'ok',
+        detail:
+          configs.length === 0
+            ? 'no MCP servers configured'
+            : `${configs.length} server(s) configured, ${enabled} enabled`
+      }
+    } catch (error) {
+      return {
+        label,
+        status: 'error',
+        detail: `mcp-servers.json could not be read: ${error instanceof Error ? error.message : String(error)}`
+      }
+    }
   }
 
   async dispose(): Promise<void> {
@@ -2244,6 +2457,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       await this.client.request('agent/cancel', { runId: this.activeRunId }, 10_000).catch(() => {})
     }
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
+    await this.mcpHost.dispose().catch(() => undefined)
     await this.client.stop()
   }
 
@@ -2388,6 +2602,9 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       permissionMode: this.config.permissionMode,
       runId,
       sessionId: this.sessionId,
+      ...(this.options.maxTurns && this.options.maxTurns > 0
+        ? { maxTurns: this.options.maxTurns }
+        : {}),
       ...(this.pendingPlanContext.planExecution
         ? { planExecution: this.pendingPlanContext.planExecution }
         : {}),
@@ -2660,6 +2877,133 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         throw error
       })
     return this.sessionCreation
+  }
+
+  /** List skills known to the Worker (~/.agents/skills plus bundled skills). */
+  async listSkills(signal?: AbortSignal): Promise<SkillCatalogEntry[]> {
+    const result = await this.client.request<unknown>('skills/list', {}, 30_000, signal)
+    const rawEntries = Array.isArray(result)
+      ? result
+      : isRecord(result) && Array.isArray(result.skills)
+        ? result.skills
+        : []
+    return rawEntries
+      .filter(isRecord)
+      .map((entry) => ({
+        name: stringValue(entry.name).trim(),
+        description: stringValue(entry.description).trim()
+      }))
+      .filter((entry) => entry.name)
+      .sort((left, right) =>
+        left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+      )
+  }
+
+  /**
+   * Advertise the Skill tool with the Worker's current catalog. Execution happens in the
+   * Worker (AgentRuntimeSkillExecutor); a missing catalog is not an error — the tool is
+   * simply not advertised for this turn.
+   */
+  private async loadSkillToolDefinitions(signal?: AbortSignal): Promise<WorkerToolDefinition[]> {
+    try {
+      const skills = await this.listSkills(signal)
+      if (skills.length === 0) return []
+      return [buildSkillToolDefinition(skills)]
+    } catch (error) {
+      if (signal?.aborted) throw error
+      return []
+    }
+  }
+
+  /**
+   * Sync the CLI-hosted MCP servers with the shared Worker-persisted configuration and
+   * return the tool definitions to advertise for this turn. The Worker executes these by
+   * reverse request; this CLI process is the connected MCP client host.
+   */
+  private async loadMcpToolDefinitions(signal?: AbortSignal): Promise<WorkerToolDefinition[]> {
+    this.activeMcpToolNames.clear()
+    try {
+      const rawConfigs = await this.client.request<unknown>('mcp/config-list', {}, 30_000, signal)
+      await this.mcpHost.sync(parseMcpServerConfigs(rawConfigs))
+      const tools = this.mcpHost.getToolDefinitions()
+      for (const tool of tools) this.activeMcpToolNames.add(tool.name)
+      return tools
+    } catch (error) {
+      if (signal?.aborted) throw error
+      if (!this.mcpCatalogWarned) {
+        this.mcpCatalogWarned = true
+        this.pushSystem(
+          `MCP server catalog unavailable: ${error instanceof Error ? error.message : String(error)}`,
+          'warning'
+        )
+      }
+      return []
+    }
+  }
+
+  async getMcpStatus(signal?: AbortSignal): Promise<McpStatusSummary> {
+    const rawConfigs = await this.client.request<unknown>('mcp/config-list', {}, 30_000, signal)
+    const configs = parseMcpServerConfigs(rawConfigs)
+    await this.mcpHost.sync(configs)
+    const hosted = new Map(this.mcpHost.getServerStates().map((state) => [state.config.id, state]))
+    return {
+      servers: configs.map((config) => {
+        const state = hosted.get(config.id)
+        return {
+          id: config.id,
+          name: config.name,
+          transport: config.transport,
+          enabled: config.enabled,
+          projectBound: Boolean(config.projectId),
+          status: state?.status ?? 'disconnected',
+          error: state?.error,
+          toolCount: state?.toolCount ?? 0,
+          resourceCount: state?.resourceCount ?? 0
+        }
+      }),
+      hostedToolCount: this.mcpHost.getToolDefinitions().length
+    }
+  }
+
+  async setMcpServerEnabled(id: string, enabled: boolean): Promise<void> {
+    const result = await this.client.request<JsonRecord>(
+      'mcp/config-update',
+      { id, patch: { enabled } },
+      30_000
+    )
+    if (isRecord(result) && result.success === false) {
+      throw new Error(stringValue(result.error) || 'Failed to update the MCP server')
+    }
+  }
+
+  private async forwardMcpRequest(id: string, method: string, params: JsonRecord): Promise<void> {
+    try {
+      if (method === 'mcp:call-tool') {
+        const serverId = stringValue(params.serverId)
+        const toolName = stringValue(params.toolName)
+        if (!serverId || !toolName) {
+          throw new Error('mcp:call-tool requires serverId and toolName')
+        }
+        const args = isRecord(params.args) ? params.args : {}
+        const result = await this.mcpHost.callTool(serverId, toolName, args)
+        await this.completeReverse(id, { success: true, result })
+        return
+      }
+      const serverId = stringValue(params.serverId)
+      if (!serverId) throw new Error('mcp:read-resource requires serverId')
+      const result = await this.mcpHost.readResource(serverId, {
+        uri: stringValue(params.uri) || undefined,
+        resourceName: stringValue(params.resourceName) || undefined
+      })
+      await this.completeReverse(id, { success: true, result })
+    } catch (error) {
+      // The Worker consumes success/error from the reverse-response result payload, so a
+      // failed MCP call is reported there instead of as an IPC-level error.
+      await this.completeReverse(id, {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
 
   private async loadCodeGraphToolDefinitions(
@@ -3078,44 +3422,18 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const method = stringValue(value.method)
     const params = isRecord(value.params) ? value.params : {}
     if (!id || !method) return
-    if (method === 'ask-user/request') {
-      const request = normalizeAskUserRequest(id, params)
-      if (!request) {
-        this.pendingReverse.set(id, { id, method })
-        void this.completeReverse(id, undefined, 'Invalid AskUserQuestion payload')
-        return
-      }
-      this.pendingReverse.set(id, { id, method })
-      this.push({ type: 'askUser.request', request })
-      return
-    }
-
-    if (method === 'plan/ui-update') {
-      const plan = normalizePlanSnapshot(params.plan)
-      if (!plan) {
-        this.pendingReverse.set(id, { id, method })
-        void this.completeReverse(id, undefined, 'Invalid plan/ui-update payload')
-        return
-      }
-      this.pendingReverse.set(id, { id, method })
-      const action = params.action === 'exit' || params.action === 'sync' ? params.action : 'enter'
-      this.push({ type: 'plan.update', action, plan })
-      void this.completeReverse(id, { ok: true })
-      return
-    }
-
-    if (method === 'codegraph:tool') {
-      this.pendingReverse.set(id, { id, method })
-      void this.forwardCodeGraphRequest(id, params)
-      return
-    }
-
-    if (method !== 'approval/request') {
+    const adapter = this.hostAdapters.resolve(method)
+    if (!adapter?.handleRequest) {
+      // Fail unregistered methods explicitly so the Worker never hangs on a
+      // reverse request the CLI cannot serve.
       this.pendingReverse.set(id, { id, method })
       void this.completeReverse(id, undefined, `Unsupported CLI host request: ${method}`)
       return
     }
+    adapter.handleRequest(id, method, params)
+  }
 
+  private handleApprovalRequest(id: string, method: string, params: JsonRecord): void {
     const tool = isRecord(params.toolCall) ? params.toolCall : {}
     const toolName = stringValue(tool.name) || 'Tool'
     const editTool = toolName === 'Write' || toolName === 'Edit' || toolName === 'NotebookEdit'
@@ -3152,10 +3470,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const id = stringValue(value.id)
     const pending = id ? this.pendingReverse.get(id) : undefined
     if (id) this.pendingReverse.delete(id)
-    if (!pending) return
-    if (pending.method === 'ask-user/request') this.push({ type: 'askUser.cancel', requestId: id })
-    if (pending.method === 'approval/request')
-      this.push({ type: 'permission.cancel', requestId: id })
+    if (!pending || !id) return
+    this.hostAdapters.resolve(pending.method)?.handleCancel?.(id, pending.method)
   }
 
   private async forwardCodeGraphRequest(id: string, params: JsonRecord): Promise<void> {
@@ -3221,6 +3537,30 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   }
 
   private push(event: UiEvent): void {
+    // Coalesce high-rate stream deltas into the queued tail entry so a consumer that wakes
+    // less often than the provider streams receives one merged delta instead of one queue
+    // item per token. Queued entries have not been yielded yet, so mutation is safe.
+    const tail = this.queue.at(-1)
+    if (tail && tail.type === event.type) {
+      if (
+        event.type === 'assistant.delta' &&
+        tail.type === 'assistant.delta' &&
+        tail.id === event.id
+      ) {
+        tail.text += event.text
+        this.wake()
+        return
+      }
+      if (
+        event.type === 'assistant.thinking' &&
+        tail.type === 'assistant.thinking' &&
+        tail.id === event.id
+      ) {
+        tail.thinking += event.thinking
+        this.wake()
+        return
+      }
+    }
     this.queue.push(event)
     this.wake()
   }

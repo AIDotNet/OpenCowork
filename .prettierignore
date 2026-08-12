@@ -6,5 +6,6 @@ tsconfig.json
 tsconfig.*.json
 resources/native-worker/
 resources/codegraph-worker/
+cli/src/vendor/
 **/bin/
 **/obj/

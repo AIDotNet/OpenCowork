@@ -9,6 +9,8 @@ import { ShimmerText } from './shimmer-text.js'
 import { Spinner } from './spinner.js'
 
 interface TranscriptProps {
+  /** Per-message detail expansion (click / future per-message toggle) on top of the global Ctrl-O state. */
+  expandedMessageIds?: ReadonlySet<string>
   hideStreamingStatus?: boolean
   messages: Message[]
   showDetails: boolean
@@ -309,6 +311,7 @@ function formatImageSize(size: number): string {
 }
 
 export function Transcript({
+  expandedMessageIds,
   hideStreamingStatus = false,
   messages,
   showDetails,
@@ -321,7 +324,7 @@ export function Transcript({
           key={message.id}
           hideStreamingStatus={hideStreamingStatus}
           message={message}
-          showDetails={showDetails}
+          showDetails={showDetails || (expandedMessageIds?.has(message.id) ?? false)}
           width={width}
         />
       ))}

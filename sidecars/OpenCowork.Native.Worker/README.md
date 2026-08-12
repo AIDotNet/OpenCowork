@@ -75,6 +75,11 @@ stream-idle deadline for SSE/WebSocket reads and stalled non-success response bo
 `streamIdleTimeoutSeconds` on a provider request, or
 `OPEN_COWORK_AGENT_STREAM_IDLE_TIMEOUT_SECONDS` globally; zero disables these body/idle deadlines.
 
+Reads taken while a server-side `image_generation` call is open use a separate 900-second
+deadline, because the provider stays silent for the whole render. Override it with
+`imageStreamIdleTimeoutSeconds` on the request or
+`OPEN_COWORK_AGENT_IMAGE_STREAM_IDLE_TIMEOUT_SECONDS` globally; zero waits indefinitely.
+
 ## Module Rules
 
 - Modules implement `IWorkerModule`; only `Hosting/WorkerModuleCatalog.cs` decides which modules

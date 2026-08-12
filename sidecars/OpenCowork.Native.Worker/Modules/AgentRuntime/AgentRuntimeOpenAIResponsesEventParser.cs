@@ -79,6 +79,17 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 await ProcessPartialImageAsync(root, parseState, state, context, startedAt);
                 break;
 
+            // The render itself is silent, so these mark the stream as "waiting on an image" for
+            // the idle deadline even on gateways that never send the output_item.added item.
+            case "response.image_generation_call.in_progress":
+            case "response.image_generation_call.generating":
+                await TryEmitImageGenerationStartedAsync(root, parseState, state, context);
+                break;
+
+            case "response.image_generation_call.completed":
+                await ProcessImageGenerationDoneAsync(root, parseState, state, context, startedAt);
+                break;
+
             case "response.completed":
             case "response.done":
                 var finalResponse = root.TryGetProperty("response", out var response)

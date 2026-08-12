@@ -30,6 +30,10 @@ internal sealed record AgentRuntimeCapabilityResult(bool Supported);
 
 internal sealed record AgentRuntimeRunResult(bool Started, string RunId);
 
+internal sealed record AgentRuntimeSessionOpenResult(bool Ok, string SessionId, int MessageCount);
+
+internal sealed record AgentRuntimeSessionCloseResult(bool Ok, string SessionId, bool Closed);
+
 internal sealed record AgentRuntimeCancelResult(bool Cancelled, string? RunId);
 
 internal sealed record AgentRuntimeSubAgentCancelResult(bool Cancelled, int Count);

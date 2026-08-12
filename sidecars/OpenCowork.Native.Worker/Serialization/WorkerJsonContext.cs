@@ -16,6 +16,8 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(AgentRuntimeCompatibility))]
 [JsonSerializable(typeof(AgentRuntimeCapabilityResult))]
 [JsonSerializable(typeof(AgentRuntimeRunResult))]
+[JsonSerializable(typeof(AgentRuntimeSessionOpenResult))]
+[JsonSerializable(typeof(AgentRuntimeSessionCloseResult))]
 [JsonSerializable(typeof(AgentRuntimeCancelResult))]
 [JsonSerializable(typeof(AgentRuntimeSubAgentCancelResult))]
 [JsonSerializable(typeof(AgentRuntimeStopResult))]

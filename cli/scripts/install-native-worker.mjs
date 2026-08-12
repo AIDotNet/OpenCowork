@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type -- plain Node script */
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
@@ -80,7 +81,10 @@ async function verifyChecksum(archivePath) {
 
 async function install() {
   if (process.env.OPEN_COWORK_SKIP_NATIVE_DOWNLOAD === '1') return
-  if (isInstalled()) {
+  const forceReinstall = process.argv.includes('--force')
+  if (forceReinstall) {
+    rmSync(workerRoot, { force: true, recursive: true })
+  } else if (isInstalled()) {
     printCoworkShortcut()
     return
   }
@@ -141,6 +145,15 @@ function printCoworkShortcut() {
 }
 
 install().catch((error) => {
+  // Fail the npm install loudly: a missing Worker makes every cowork invocation fail
+  // later with a much less actionable error than this one.
   console.error(`Failed to install OpenCowork Native Worker: ${error.message}`)
+  console.error('')
+  console.error('The OpenCowork CLI cannot run without the Native Worker binary.')
+  console.error('To retry the download after fixing network access or proxy settings:')
+  console.error('  cowork update --repair')
+  console.error(`  (or re-run: node ${join(packageRoot, 'scripts', 'install-native-worker.mjs')} --force)`)
+  console.error('To install from a mirror, set OPEN_COWORK_NATIVE_WORKER_BASE_URL or')
+  console.error('OPEN_COWORK_NATIVE_WORKER_URL and reinstall.')
   process.exitCode = 1
 })

@@ -206,7 +206,6 @@ function MarkdownCodeBlock({ token, width }: { token: Tokens.Code; width: number
   const language = normalizeLanguage(token.lang)
   const source = sanitizeMarkdown(token.text).replace(/\t/gu, '  ')
   const rendered = React.useMemo(() => highlightedCode(source, language), [language, source])
-  const innerWidth = Math.max(1, width - 2)
 
   return (
     <Box flexDirection="column" width={width}>

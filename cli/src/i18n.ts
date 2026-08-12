@@ -43,7 +43,14 @@ const englishResources = {
       model: 'Select an enabled model for this session',
       prompt: 'Initial prompt to place in the editor',
       permissionMode: 'Initial permission mode',
-      tui: 'Terminal renderer'
+      tui: 'Terminal renderer',
+      repair: 'Reinstall the Native Worker binary for this machine',
+      print: 'Run one prompt without the interactive UI and print the result',
+      outputFormat: 'Print-mode output format',
+      maxTurns: 'Maximum agent loop turns before the run stops',
+      timeout: 'Abort a print-mode run after this many seconds',
+      continue: 'Continue the most recent CLI session in this folder',
+      resume: 'Resume a specific stored CLI session by id'
     },
     commands: {
       update: 'Update OpenCowork CLI to the latest version',
@@ -51,11 +58,19 @@ const englishResources = {
     },
     errors: {
       update: 'Update failed. Run: npm install -g @aidotnet/opencowork@latest',
+      repair:
+        'Native Worker reinstall failed. Check network access, then retry: cowork update --repair',
       configTty: 'Provider setup requires a TTY. Run cowork config in an interactive terminal.',
       provider:
         'Provider “{{provider}}” is not enabled, authenticated, or configured with chat models.',
       model: 'Model “{{model}}” is not enabled{{providerSuffix}}.',
-      interactiveTty: 'Interactive mode requires a TTY. Run opencowork --help for options.'
+      interactiveTty: 'Interactive mode requires a TTY. Run opencowork --help for options.',
+      maxTurns: '--max-turns requires a positive integer.',
+      timeout: '--timeout requires a positive number of seconds.',
+      printPrompt: 'Print mode needs a prompt: cowork -p "prompt" or echo "prompt" | cowork -p',
+      printModel: 'No model configured. Run: cowork config',
+      continueResume: '--continue and --resume cannot be combined.',
+      noResumableSession: 'No resumable CLI session found for this folder.'
     },
     output: {
       providerReady: 'Provider ready: {{provider}} / {{model}}',
@@ -68,7 +83,9 @@ const englishResources = {
       agentRuntime: 'Agent runtime: {{runtime}} {{version}}',
       routes: 'Routes: {{value}}',
       configuredModel: 'Configured model: {{value}}',
-      ready: 'Status: ready'
+      ready: 'Status: ready',
+      doctorIssues: 'Status: issues found',
+      repairDone: 'Native Worker reinstalled.'
     },
     help: {
       title: 'Interactive shortcuts:',
@@ -125,6 +142,7 @@ const englishResources = {
       effort: 'Choose reasoning effort supported by the active model',
       exit: 'Exit OpenCowork',
       help: 'Show interactive shortcuts',
+      mcp: 'Show MCP server status; enable or disable servers',
       model: 'Switch the active model',
       new: 'Start a new Native Worker session',
       permissions: 'View or set the session permission mode',
@@ -132,6 +150,7 @@ const englishResources = {
       provider: 'Quickly configure an AI provider',
       rewind: 'Restore a previous conversation turn and optional tracked changes',
       resume: 'Resume a completed CLI session',
+      skills: 'List skills available to the Native Worker',
       status: 'Show session, model, and runtime status',
       tasks: 'Toggle the current session task list',
       tui: 'Show renderer status or restart syntax'
@@ -190,7 +209,14 @@ const chineseResources = {
       model: '为本次会话选择已启用的模型',
       prompt: '放入编辑器的初始提示词',
       permissionMode: '初始权限模式',
-      tui: '终端渲染器'
+      tui: '终端渲染器',
+      repair: '为本机重新安装 Native Worker 二进制文件',
+      print: '不启动交互界面，运行一条提示词并输出结果',
+      outputFormat: 'print 模式的输出格式',
+      maxTurns: 'Agent 循环的最大轮数上限',
+      timeout: 'print 模式运行超过该秒数后中止',
+      continue: '继续当前目录下最近的 CLI 会话',
+      resume: '按 ID 恢复指定的已存储 CLI 会话'
     },
     commands: {
       update: '将 OpenCowork CLI 更新到最新版本',
@@ -198,10 +224,17 @@ const chineseResources = {
     },
     errors: {
       update: '更新失败。请运行：npm install -g @aidotnet/opencowork@latest',
+      repair: 'Native Worker 重装失败。请检查网络后重试：cowork update --repair',
       configTty: 'Provider 配置需要 TTY。请在交互式终端中运行 cowork config。',
       provider: 'Provider “{{provider}}” 未启用、未认证，或没有配置聊天模型。',
       model: '模型“{{model}}”未启用{{providerSuffix}}。',
-      interactiveTty: '交互模式需要 TTY。请运行 opencowork --help 查看选项。'
+      interactiveTty: '交互模式需要 TTY。请运行 opencowork --help 查看选项。',
+      maxTurns: '--max-turns 需要一个正整数。',
+      timeout: '--timeout 需要一个正的秒数。',
+      printPrompt: 'print 模式需要提示词：cowork -p "提示词" 或 echo "提示词" | cowork -p',
+      printModel: '尚未配置模型。请运行：cowork config',
+      continueResume: '--continue 与 --resume 不能同时使用。',
+      noResumableSession: '当前目录下没有可恢复的 CLI 会话。'
     },
     output: {
       providerReady: 'Provider 已就绪：{{provider}} / {{model}}',
@@ -214,7 +247,9 @@ const chineseResources = {
       agentRuntime: 'Agent Runtime：{{runtime}} {{version}}',
       routes: '路由数：{{value}}',
       configuredModel: '已配置模型：{{value}}',
-      ready: '状态：就绪'
+      ready: '状态：就绪',
+      doctorIssues: '状态：发现问题',
+      repairDone: 'Native Worker 已重新安装。'
     },
     help: {
       title: '交互快捷键：',
@@ -278,6 +313,7 @@ const chineseResources = {
       effort: '选择当前模型支持的推理强度',
       exit: '退出 OpenCowork',
       help: '显示交互快捷键',
+      mcp: '查看 MCP 服务器状态；启用或停用服务器',
       model: '切换当前模型',
       new: '启动新的 Native Worker 会话',
       permissions: '查看或设置会话权限模式',
@@ -285,6 +321,7 @@ const chineseResources = {
       provider: '快速配置 AI Provider',
       rewind: '恢复之前的对话轮次和可选的跟踪变更',
       resume: '恢复已完成的 CLI 会话',
+      skills: '列出 Native Worker 可用的技能',
       status: '显示会话、模型和运行时状态',
       tasks: '切换当前会话的任务列表',
       tui: '显示渲染器状态或重启语法'
@@ -437,12 +474,31 @@ const chineseResources = {
       newCustom: '新的自定义 Provider',
       quickPreset: '快速预设',
       noKeyRequired: '已配置 · 不需要 Key',
+      presetNoKey: '无需 API Key',
       keySaved: '已配置 · Key 已保存',
       needsKey: '需要 API Key',
       name: 'Provider 名称',
       baseUrl: 'Base URL',
       modelId: '模型 ID',
       configure: '配置 Provider',
+      reviewTitle: '确认并保存',
+      welcomeTitle: '欢迎使用 OpenCowork CLI',
+      welcomeSubtitle: '开始第一轮对话前先连接模型 Provider · 与 OpenCowork 桌面端共享',
+      welcomeEnter: 'Enter  打开该页面并粘贴 API Key',
+      welcomeOther: 'P      选择其他 Provider',
+      welcomeSkip: 'Esc    暂时跳过 · 之后可运行 /provider',
+      recommended: '推荐',
+      routinPitch: '一把 API Key 直连 GPT、Claude、Gemini、DeepSeek 等模型',
+      keyPage: 'API Key',
+      openKeyPage: 'Ctrl+O 打开页面',
+      browserOpened: '已在浏览器中打开该页面。',
+      browserFailed: '当前环境无法打开浏览器 — 请手动访问上面的链接创建 Key。',
+      groupConfigured: '你的 Provider',
+      groupPresets: '快速预设',
+      groupCustom: '自定义端点',
+      step: '第 {{current}} / {{total}} 步',
+      endpointPending: '端点待填写',
+      modelPending: '模型待填写',
       noMatches: '没有匹配“{{query}}”的 Provider。',
       listFooter: '输入搜索 · ↑↓ 移动 · Enter 选择 · Esc 取消',
       saved: '已保存',
@@ -541,10 +597,12 @@ const chineseResources = {
       checkingWorker: '正在检查 Native Worker…',
       configurationSaved: '配置已保存到 OpenCowork',
       resumingSession: '正在恢复会话…',
+      resumedSession: '已恢复会话 · {{count}} 条规范消息',
       summarizingConversation: '正在总结对话…',
       restoringCode: '正在恢复代码…',
       restoringCodeConversation: '正在恢复代码和对话…',
-      restoringConversation: '正在恢复对话…'
+      restoringConversation: '正在恢复对话…',
+      updateAvailable: 'OpenCowork {{version}} 已发布 · 运行 `cowork update` 升级'
     },
     transcript: {
       thoughtFor: '思考了 {{seconds}} 秒',

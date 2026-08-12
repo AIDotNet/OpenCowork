@@ -9,6 +9,7 @@ import {
   findFileReferenceMention,
   MAX_PROMPT_FILE_REFERENCES
 } from '../lib/file-references.js'
+import { matchesKey } from '../lib/keymap.js'
 import {
   fitText,
   graphemes,
@@ -17,6 +18,7 @@ import {
   nextWordEnd,
   previousWordStart
 } from '../lib/text.js'
+import { containsMouseSequence } from '../terminal/mouse.js'
 import { theme } from '../theme.js'
 import type {
   FileReferenceCandidate,
@@ -49,6 +51,25 @@ interface PromptHistoryEntry {
 // deadlines must outlive a PromptInput component instance.
 let lastCtrlCAt = 0
 let lastEscapeAt = 0
+
+// Bracketed paste (DECSET 2004) markers. Ink strips one leading ESC from the chunk it
+// hands to useInput, so the ESC prefix is optional. A large paste spans several stdin
+// chunks: only the first carries the start marker and only the last the end marker.
+// eslint-disable-next-line no-control-regex -- ESC is the paste marker prefix
+const PASTE_START = /(?:\u001B)?\[200~/u
+// eslint-disable-next-line no-control-regex -- ESC is the paste marker prefix
+const PASTE_END = /(?:\u001B)?\[201~/u
+
+function sanitizePastedText(text: string): string {
+  return (
+    text
+      .replace(/\r\n?/gu, '\n')
+      // eslint-disable-next-line no-control-regex -- stripping escape sequences is the point
+      .replace(/\u001B\[[0-9;?]*[A-Za-z~]/gu, '')
+      // eslint-disable-next-line no-control-regex -- filtering raw control bytes is the point
+      .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/gu, '')
+  )
+}
 
 function formatImageSize(size: number): string {
   if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`
@@ -133,6 +154,7 @@ export function PromptInput({
   const killRingRef = useRef<string[]>([])
   const stashRef = useRef<EditorSnapshot | null>(null)
   const undoRef = useRef<EditorSnapshot[]>([])
+  const pasteBufferRef = useRef<string | null>(null)
   const characters = useMemo(() => graphemes(value), [value])
   const menuOpen = value.startsWith('/') && !value.includes(' ') && !menuSuppressed
   const activeFileMention = useMemo(() => findFileReferenceMention(value, cursor), [cursor, value])
@@ -351,6 +373,37 @@ export function PromptInput({
       const currentCursor = currentEditor.cursor
       const currentReferences = currentEditor.references
       const currentCharacters = graphemes(currentValue)
+
+      // Bracketed paste frames take priority over every key binding: while a paste is
+      // open, each chunk belongs to the paste until the end marker arrives, so control
+      // characters inside pasted content can never trigger shortcuts.
+      if (pasteBufferRef.current !== null) {
+        const endMatch = PASTE_END.exec(input)
+        if (!endMatch) {
+          pasteBufferRef.current += input
+          return
+        }
+        const pasted = sanitizePastedText(pasteBufferRef.current + input.slice(0, endMatch.index))
+        pasteBufferRef.current = null
+        if (!isRunning && pasted) replaceRange(currentCursor, currentCursor, pasted)
+        return
+      }
+      const pasteStart = PASTE_START.exec(input)
+      if (pasteStart) {
+        const afterStart = input.slice(pasteStart.index + pasteStart[0].length)
+        const pasteEnd = PASTE_END.exec(afterStart)
+        if (!pasteEnd) {
+          pasteBufferRef.current = afterStart
+          return
+        }
+        const pasted = sanitizePastedText(afterStart.slice(0, pasteEnd.index))
+        if (!isRunning && pasted) replaceRange(currentCursor, currentCursor, pasted)
+        return
+      }
+
+      // SGR mouse reports are consumed by the app-level handler; never insert them as text.
+      if (containsMouseSequence(input)) return
+
       const rawCtrlCCount = input.split('\u0003').length - 1
       const rawEscapeCount = input.split('\u001b').length - 1
       if ((key.ctrl && input === 'c') || rawCtrlCCount > 0) {
@@ -381,16 +434,16 @@ export function PromptInput({
         return
       }
 
-      if ((key.ctrl && input.toLowerCase() === 'l') || input === '\u000c') {
+      if (matchesKey('redraw', input, key) || input === '\u000c') {
         onRedraw()
         return
       }
 
-      if (key.ctrl && input.toLowerCase() === 'o') {
+      if (matchesKey('toggleDetails', input, key)) {
         onToggleDetails()
         return
       }
-      if (key.ctrl && input.toLowerCase() === 't') {
+      if (matchesKey('toggleTasks', input, key)) {
         onToggleTasks()
         return
       }
@@ -400,12 +453,12 @@ export function PromptInput({
       if (isRunning) return
       if (!key.escape) lastEscapeAt = 0
 
-      if ((key.ctrl && input.toLowerCase() === 'v') || input === '\u0016') {
+      if (matchesKey('pasteImage', input, key) || input === '\u0016') {
         pasteClipboardImage()
         return
       }
 
-      if (key.ctrl && input === 's') {
+      if (matchesKey('stashPrompt', input, key)) {
         if (currentValue || currentReferences.length > 0) {
           stashRef.current = currentEditor
           mutate('', 0, [])
@@ -447,7 +500,7 @@ export function PromptInput({
         replaceRange(currentCursor, currentCursor, killRingRef.current[0] ?? '')
         return
       }
-      if (key.ctrl && input === '_') {
+      if (matchesKey('undo', input, key)) {
         const previous = undoRef.current.pop()
         if (previous) {
           editorRef.current = previous
@@ -457,11 +510,11 @@ export function PromptInput({
         return
       }
 
-      if (key.tab && key.shift) {
+      if (matchesKey('cycleMode', input, key)) {
         onCycleMode()
         return
       }
-      if (key.meta && input.toLowerCase() === 'p') {
+      if (matchesKey('openModel', input, key)) {
         onOpenModel()
         return
       }

@@ -217,6 +217,7 @@ export type ProviderSetupProtocol =
   | 'openai-responses'
 
 export interface ProviderSetupOption {
+  apiKeyUrl?: string
   baseUrl: string
   builtinId?: string
   defaultModelId: string
@@ -227,6 +228,7 @@ export interface ProviderSetupOption {
   name: string
   providerId?: string
   providerType: ProviderSetupProtocol
+  recommended?: boolean
   requiresApiKey: boolean
   source: 'existing' | 'preset' | 'custom'
 }
@@ -235,6 +237,8 @@ export interface ProviderSetupCatalog {
   configuredCount: number
   dataDirectory: string
   options: ProviderSetupOption[]
+  /** Option the first-run wizard proposes before showing the full provider list. */
+  recommendedKey?: string
 }
 
 export interface ProviderSetupInput {
@@ -529,7 +533,28 @@ export interface AgentRuntime {
   approvePlan?(plan: PlanSnapshot, mode: PlanApprovalMode): Promise<void>
   revisePlan?(plan: PlanSnapshot, feedback: string): Promise<void>
   getCodeGraphStatus?(): Promise<CodeGraphStatus>
+  getMcpStatus?(signal?: AbortSignal): Promise<McpStatusSummary>
+  setMcpServerEnabled?(id: string, enabled: boolean): Promise<void>
+  listSkills?(signal?: AbortSignal): Promise<Array<{ name: string; description: string }>>
   dispose(): Promise<void>
+}
+
+export interface McpServerStatusEntry {
+  id: string
+  name: string
+  transport: 'stdio' | 'sse' | 'streamable-http'
+  enabled: boolean
+  /** Bound to a desktop project; the CLI hosts only globally enabled servers. */
+  projectBound: boolean
+  status: 'disconnected' | 'connecting' | 'connected' | 'error'
+  error?: string
+  toolCount: number
+  resourceCount: number
+}
+
+export interface McpStatusSummary {
+  servers: McpServerStatusEntry[]
+  hostedToolCount: number
 }
 
 export type PermissionDecision = 'allow_once' | 'allow_session' | 'deny'

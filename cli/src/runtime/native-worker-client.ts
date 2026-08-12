@@ -6,13 +6,16 @@ import { existsSync, rmSync } from 'node:fs'
 import { createConnection, type Socket } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  WORKER_PROTOCOL_VERSION,
+  WorkerFrameDecoder,
+  WORKER_HEARTBEAT_INTERVAL_MS as HEARTBEAT_INTERVAL_MS,
+  WORKER_CONNECT_TIMEOUT_MS as CONNECT_TIMEOUT_MS,
+  WORKER_CONNECT_RETRY_DELAY_MS,
+  createWorkerFrame as createFrame
+} from '../vendor/native-worker-protocol.js'
 
-const FRAME_HEADER_BYTES = 4
-const MAX_FRAME_BYTES = 256 * 1024 * 1024
-const CONNECT_TIMEOUT_MS = 10_000
 const REQUEST_TIMEOUT_MS = 60_000
-const HEARTBEAT_INTERVAL_MS = 15_000
-const WORKER_PROTOCOL_VERSION = 2
 
 type PendingRequest = {
   method: string
@@ -108,17 +111,7 @@ function waitForJobPoll(signal: AbortSignal | undefined, delayMs: number): Promi
   })
 }
 
-function createFrame(payload: Uint8Array): Buffer {
-  const frame = Buffer.allocUnsafe(FRAME_HEADER_BYTES + payload.byteLength)
-  frame.writeUInt32BE(payload.byteLength, 0)
-  Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength).copy(
-    frame,
-    FRAME_HEADER_BYTES
-  )
-  return frame
-}
-
-function getCurrentRid(): string {
+export function getCurrentRid(): string {
   if (process.platform === 'darwin') return process.arch === 'arm64' ? 'osx-arm64' : 'osx-x64'
   if (process.platform === 'win32') return process.arch === 'arm64' ? 'win-arm64' : 'win-x64'
   if (process.platform === 'linux') return process.arch === 'arm64' ? 'linux-arm64' : 'linux-x64'
@@ -217,7 +210,9 @@ async function connectToEndpoint(endpoint: string, child: ChildProcess): Promise
       })
     } catch (error) {
       lastError = asError(error)
-      await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, 35))
+      await new Promise<void>((resolveDelay) =>
+        setTimeout(resolveDelay, WORKER_CONNECT_RETRY_DELAY_MS)
+      )
     }
   }
 
@@ -233,12 +228,8 @@ export class NativeWorkerClient {
   private readonly hostId = `cli-${randomUUID().replaceAll('-', '')}`
   private executable: string | null = null
   private startPromise: Promise<void> | null = null
-  private readChunks: Buffer[] = []
-  private readBufferedBytes = 0
-  private pendingFrameLength = -1
-  private eventReadChunks: Buffer[] = []
-  private eventReadBufferedBytes = 0
-  private eventPendingFrameLength = -1
+  private frameDecoder = new WorkerFrameDecoder()
+  private eventFrameDecoder = new WorkerFrameDecoder()
   private eventReconnect: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private pending = new Map<number, PendingRequest>()
@@ -349,12 +340,12 @@ export class NativeWorkerClient {
     signal?: AbortSignal
   ): Promise<T> {
     const source = isRecord(params) ? params : {}
-    const runId =
-      method === 'agent/run' && typeof source.runId === 'string' && source.runId.trim()
-        ? source.runId.trim()
-        : method === 'agent/run'
-          ? randomUUID()
-          : null
+    // Run-addressed jobs must use jobId === params.runId so durable events can address
+    // the job. agent/session-send shares agent/run's stream and cancel semantics.
+    const runAddressed = method === 'agent/run' || method === 'agent/session-send'
+    const runId = runAddressed
+      ? (typeof source.runId === 'string' && source.runId.trim()) || randomUUID()
+      : null
     const jobId = runId ?? randomUUID()
     let submission: JobSubmission
     try {
@@ -629,24 +620,10 @@ export class NativeWorkerClient {
   }
 
   private handleSocketData(chunk: Buffer): void {
-    this.readChunks.push(chunk)
-    this.readBufferedBytes += chunk.length
-
-    while (true) {
-      if (this.pendingFrameLength < 0) {
-        if (this.readBufferedBytes < FRAME_HEADER_BYTES) return
-        const header = this.consumeBytes(FRAME_HEADER_BYTES)
-        const length = header.readUInt32BE(0)
-        if (length <= 0 || length > MAX_FRAME_BYTES) {
-          this.handleDisconnect(new Error(`Invalid native worker frame length: ${length}`))
-          return
-        }
-        this.pendingFrameLength = length
-      }
-      if (this.readBufferedBytes < this.pendingFrameLength) return
-      const payload = this.consumeBytes(this.pendingFrameLength)
-      this.pendingFrameLength = -1
-      this.handleFrame(payload, 'control')
+    try {
+      this.frameDecoder.push(chunk, (payload) => this.handleFrame(payload, 'control'))
+    } catch (error) {
+      this.handleDisconnect(asError(error))
     }
   }
 
@@ -661,9 +638,7 @@ export class NativeWorkerClient {
     this.eventSocket = null
     socket.removeAllListeners()
     socket.destroy()
-    this.eventReadChunks = []
-    this.eventReadBufferedBytes = 0
-    this.eventPendingFrameLength = -1
+    this.eventFrameDecoder.reset()
     this.scheduleEventReconnect()
   }
 
@@ -698,75 +673,11 @@ export class NativeWorkerClient {
   }
 
   private handleEventSocketData(chunk: Buffer): void {
-    this.eventReadChunks.push(chunk)
-    this.eventReadBufferedBytes += chunk.length
-
-    while (true) {
-      if (this.eventPendingFrameLength < 0) {
-        if (this.eventReadBufferedBytes < FRAME_HEADER_BYTES) return
-        const header = this.consumeEventBytes(FRAME_HEADER_BYTES)
-        const length = header.readUInt32BE(0)
-        if (length <= 0 || length > MAX_FRAME_BYTES) {
-          if (this.eventSocket) this.resetEventSocket(this.eventSocket)
-          return
-        }
-        this.eventPendingFrameLength = length
-      }
-      if (this.eventReadBufferedBytes < this.eventPendingFrameLength) return
-      const payload = this.consumeEventBytes(this.eventPendingFrameLength)
-      this.eventPendingFrameLength = -1
-      this.handleFrame(payload, 'event')
+    try {
+      this.eventFrameDecoder.push(chunk, (payload) => this.handleFrame(payload, 'event'))
+    } catch {
+      if (this.eventSocket) this.resetEventSocket(this.eventSocket)
     }
-  }
-
-  private consumeEventBytes(count: number): Buffer {
-    const first = this.eventReadChunks[0]
-    if (first && first.length >= count) {
-      const output = first.subarray(0, count)
-      if (first.length === count) this.eventReadChunks.shift()
-      else this.eventReadChunks[0] = first.subarray(count)
-      this.eventReadBufferedBytes -= count
-      return output
-    }
-
-    const output = Buffer.allocUnsafe(count)
-    let offset = 0
-    while (offset < count) {
-      const current = this.eventReadChunks[0]
-      if (!current) throw new Error('Native worker Event IPC frame buffer underflow')
-      const length = Math.min(current.length, count - offset)
-      current.copy(output, offset, 0, length)
-      if (length === current.length) this.eventReadChunks.shift()
-      else this.eventReadChunks[0] = current.subarray(length)
-      offset += length
-    }
-    this.eventReadBufferedBytes -= count
-    return output
-  }
-
-  private consumeBytes(count: number): Buffer {
-    const first = this.readChunks[0]
-    if (first && first.length >= count) {
-      const output = first.subarray(0, count)
-      if (first.length === count) this.readChunks.shift()
-      else this.readChunks[0] = first.subarray(count)
-      this.readBufferedBytes -= count
-      return output
-    }
-
-    const output = Buffer.allocUnsafe(count)
-    let offset = 0
-    while (offset < count) {
-      const current = this.readChunks[0]
-      if (!current) throw new Error('Native worker frame buffer underflow')
-      const length = Math.min(current.length, count - offset)
-      current.copy(output, offset, 0, length)
-      if (length === current.length) this.readChunks.shift()
-      else this.readChunks[0] = current.subarray(length)
-      offset += length
-    }
-    this.readBufferedBytes -= count
-    return output
   }
 
   private handleFrame(payload: Buffer, source: 'control' | 'event'): void {
@@ -838,9 +749,7 @@ export class NativeWorkerClient {
     this.child = null
     this.endpoint = null
     this.eventEndpoint = null
-    this.readChunks = []
-    this.readBufferedBytes = 0
-    this.pendingFrameLength = -1
+    this.frameDecoder.reset()
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
     socket?.removeAllListeners()
@@ -849,9 +758,7 @@ export class NativeWorkerClient {
     eventSocket?.destroy()
     if (this.eventReconnect) clearTimeout(this.eventReconnect)
     this.eventReconnect = null
-    this.eventReadChunks = []
-    this.eventReadBufferedBytes = 0
-    this.eventPendingFrameLength = -1
+    this.eventFrameDecoder.reset()
     if (child && child.exitCode === null && !child.killed) child.kill()
     if (endpoint && process.platform !== 'win32') rmSync(endpoint, { force: true })
     if (eventEndpoint && process.platform !== 'win32') rmSync(eventEndpoint, { force: true })

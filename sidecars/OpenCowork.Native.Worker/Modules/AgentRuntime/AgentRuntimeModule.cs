@@ -14,6 +14,13 @@ internal sealed class AgentRuntimeModule : IWorkerModule
             AgentRuntimeTools.ExecuteJobAsync,
             resultMode: "accepted",
             lanePolicy: "session");
+        context.Register("agent/session-open", AgentRuntimeSessionHost.Open);
+        context.RegisterJob(
+            "agent/session-send",
+            AgentRuntimeSessionHost.SendJobAsync,
+            resultMode: "accepted",
+            lanePolicy: "session");
+        context.Register("agent/session-close", AgentRuntimeSessionHost.Close);
         context.Register("agent/cancel", AgentRuntimeTools.Cancel);
         context.Register("agent/cancel-subagent", AgentRuntimeTools.CancelSubAgent);
         context.Register("agent/request-stop", AgentRuntimeTools.RequestStop);

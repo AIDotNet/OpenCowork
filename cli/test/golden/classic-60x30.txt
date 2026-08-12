@@ -1,0 +1,12 @@
+
+❯ hello world
+
+● Read fixture.txt
+  ⎿ Read 3 lines
+
+● You said: hello world
+───────────────────────────────────────────────────────────
+❯ ▏
+───────────────────────────────────────────────────────────
+  ? for shortcuts · ← for agents ● fixture-model · manual
+  Ctx 42/128k · <1% │ In 42 · Out 7 │ Hit 0% · —

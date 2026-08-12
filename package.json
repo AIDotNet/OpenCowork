@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Open-source desktop platform for multi-agent AI collaboration with local tools and workplace integration",
   "main": "./out/main/index.js",
   "bin": {
@@ -24,9 +24,11 @@
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck:cli": "tsc --noEmit -p cli/tsconfig.json",
+    "typecheck:cli": "npm run cli:sync-shared && tsc --noEmit -p cli/tsconfig.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web && npm run typecheck:cli",
-    "cli:build": "tsc -p cli/tsconfig.json",
+    "cli:sync-shared": "node cli/scripts/sync-shared.mjs",
+    "cli:build": "npm run cli:sync-shared && tsc -p cli/tsconfig.json",
+    "cli:test": "npm run cli:build && node --test \"cli/test/**/*.test.mjs\"",
     "cli:typecheck": "npm run typecheck:cli",
     "cli:pack": "npm run cli:build && npm pack",
     "cli:worker:package": "node ./scripts/package-native-worker.mjs",

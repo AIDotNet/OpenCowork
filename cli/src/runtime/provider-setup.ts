@@ -15,17 +15,21 @@ import {
 } from './provider-catalog.js'
 
 interface QuickProviderPreset {
+  apiKeyUrl?: string
   baseUrl: string
   builtinId: string
   defaultModel: JsonRecord
   description: string
   name: string
   providerType: ProviderSetupProtocol
+  /** Proposed first when nothing is configured yet. Exactly one preset carries this flag. */
+  recommended?: boolean
   requiresApiKey?: boolean
 }
 
 const quickProviderPresets: QuickProviderPreset[] = [
   {
+    apiKeyUrl: 'https://routin.ai/dashboard/api-keys',
     baseUrl: 'https://api.routin.ai/v1',
     builtinId: 'routin-ai',
     defaultModel: {
@@ -41,11 +45,13 @@ const quickProviderPresets: QuickProviderPreset[] = [
         disabledBodyParams: { enable_thinking: false }
       }
     },
-    description: 'Routin AI · OpenAI-compatible endpoint',
+    description: 'One API key for GPT, Claude, Gemini, DeepSeek and more',
     name: 'Routin AI',
-    providerType: 'openai-chat'
+    providerType: 'openai-chat',
+    recommended: true
   },
   {
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
     baseUrl: 'https://api.openai.com/v1',
     builtinId: 'openai',
     defaultModel: {
@@ -68,6 +74,7 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'openai-chat'
   },
   {
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     baseUrl: 'https://api.anthropic.com',
     builtinId: 'anthropic',
     defaultModel: {
@@ -91,6 +98,7 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'anthropic'
   },
   {
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
     baseUrl: 'https://api.deepseek.com/v1',
     builtinId: 'deepseek',
     defaultModel: {
@@ -111,6 +119,7 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'openai-chat'
   },
   {
+    apiKeyUrl: 'https://aistudio.google.com/apikey',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     builtinId: 'google',
     defaultModel: {
@@ -133,6 +142,7 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'gemini-interactions'
   },
   {
+    apiKeyUrl: 'https://openrouter.ai/keys',
     baseUrl: 'https://openrouter.ai/api/v1',
     builtinId: 'openrouter',
     defaultModel: {
@@ -149,6 +159,7 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'openai-chat'
   },
   {
+    apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
     baseUrl: 'https://api.siliconflow.cn/v1',
     builtinId: 'siliconflow',
     defaultModel: {
@@ -285,6 +296,7 @@ function toExistingOption(
   const builtinId = stringValue(provider.builtinId) || undefined
 
   return {
+    ...(quickPreset?.apiKeyUrl ? { apiKeyUrl: quickPreset.apiKeyUrl } : {}),
     baseUrl: stringValue(provider.baseUrl) || quickPreset?.baseUrl || '',
     ...(builtinId ? { builtinId } : {}),
     defaultModelId: stringValue(model?.id) || stringValue(quickPreset?.defaultModel.id),
@@ -295,6 +307,7 @@ function toExistingOption(
     name: stringValue(provider.name) || quickPreset?.name || providerId,
     providerId,
     providerType,
+    ...(quickPreset?.recommended ? { recommended: true } : {}),
     requiresApiKey,
     source: 'existing'
   }
@@ -303,6 +316,7 @@ function toExistingOption(
 function toPresetOption(preset: QuickProviderPreset): ProviderSetupOption {
   const rawModelType = stringValue(preset.defaultModel.type)
   return {
+    ...(preset.apiKeyUrl ? { apiKeyUrl: preset.apiKeyUrl } : {}),
     baseUrl: preset.baseUrl,
     builtinId: preset.builtinId,
     defaultModelId: stringValue(preset.defaultModel.id),
@@ -312,6 +326,7 @@ function toPresetOption(preset: QuickProviderPreset): ProviderSetupOption {
     ...(isProviderProtocol(rawModelType) ? { modelType: rawModelType } : {}),
     name: preset.name,
     providerType: preset.providerType,
+    ...(preset.recommended ? { recommended: true } : {}),
     requiresApiKey: preset.requiresApiKey !== false,
     source: 'preset'
   }
@@ -357,15 +372,18 @@ export function loadProviderSetupCatalog(): ProviderSetupCatalog {
   const configuredCount = existingOptions.filter(
     (option) => option.hasApiKey || !option.requiresApiKey
   ).length
+  const options = [
+    ...existingOptions,
+    ...presetOptions,
+    ...customProviderOptions.map((item) => ({ ...item }))
+  ]
+  const recommended = options.find((option) => option.recommended && !option.hasApiKey)
 
   return {
     configuredCount,
     dataDirectory: configuration.dataDirectory,
-    options: [
-      ...existingOptions,
-      ...presetOptions,
-      ...customProviderOptions.map((item) => ({ ...item }))
-    ]
+    options,
+    ...(recommended ? { recommendedKey: recommended.key } : {})
   }
 }
 

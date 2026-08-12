@@ -84,6 +84,13 @@ const slashCommandDefinitions: SlashCommandDefinition[] = [
     local: true
   },
   {
+    name: '/mcp',
+    descriptionKey: 'cli.commandsMenu.mcp',
+    defaultDescription: 'Show MCP server status; enable or disable servers',
+    completion: '/mcp ',
+    local: true
+  },
+  {
     name: '/model',
     descriptionKey: 'cli.commandsMenu.model',
     defaultDescription: 'Switch the active model',
@@ -124,6 +131,12 @@ const slashCommandDefinitions: SlashCommandDefinition[] = [
     name: '/resume',
     descriptionKey: 'cli.commandsMenu.resume',
     defaultDescription: 'Resume a completed CLI session',
+    local: true
+  },
+  {
+    name: '/skills',
+    descriptionKey: 'cli.commandsMenu.skills',
+    defaultDescription: 'List skills available to the Native Worker',
     local: true
   },
   {

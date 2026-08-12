@@ -439,6 +439,7 @@ internal static class OpenAIChatRuntime
             WorkerLog.Warn(
                 $"stop hook requested block runId={state.RunId} reason={stopHook.Reason}; emitting loop_end without recursive continuation");
         }
+        AgentRuntimeSessionHost.OnRunCompleted(state.SessionId, wireConversation);
         await AgentRuntimeTools.EmitAsync(
             state,
             context,

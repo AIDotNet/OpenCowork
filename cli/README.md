@@ -122,11 +122,18 @@ limit 与 token price。确认第二步后才会把模型选择和配置写回�
 store。
 
 首次使用无需先启动桌面端：运行 `cowork config`（`cowork configure` 也可）即可打开快捷配置
-向导；交互会话内可用 `/provider`，也可从 `/config` 的 Providers 项进入。向导可更新已有的
-API-key provider，也提供 Routin AI、OpenAI、Anthropic、DeepSeek、Google Gemini、OpenRouter、
-SiliconFlow、Ollama 和自定义兼容端点的入口。API Key 始终掩码显示；保存时原子写入与桌面端相同
-的 `~/.open-cowork/ai-provider/`，目录权限为 `0700`、文件权限为 `0600`，不会创建 CLI 专属凭据。
-OAuth/channel provider 仍由桌面端完成登录，向导不会把它们降级成 API-key provider。
+向导；交互会话内可用 `/provider`，也可从 `/config` 的 Providers 项进入。完全没有配置过 provider
+时（首次进入交互会话或 `cowork config`），向导先展示引导页并推荐 Routin AI：`Enter` 会在系统
+浏览器打开 <https://routin.ai/dashboard/api-keys> 并直接进入 API Key 输入步骤，`P` 切换到完整
+provider 列表，`Esc` 跳过。无法启动浏览器的环境（远程 SSH、容器、`OPENCOWORK_CLI_NO_BROWSER=1`）
+会保留链接并提示手动打开，输入 API Key 时按 `Ctrl+O` 可再次尝试打开。
+
+向导可更新已有的 API-key provider，也提供 Routin AI、OpenAI、Anthropic、DeepSeek、Google Gemini、
+OpenRouter、SiliconFlow、Ollama 和自定义兼容端点的入口，列表按「你的 Provider / 快速预设 /
+自定义端点」分组，选中项显示端点、默认模型和协议，编辑步骤显示 `第 N / M 步` 进度。API Key 始终
+掩码显示；保存时原子写入与桌面端相同的 `~/.open-cowork/ai-provider/`，目录权限为 `0700`、文件
+权限为 `0600`，不会创建 CLI 专属凭据。OAuth/channel provider 仍由桌面端完成登录，向导不会把
+它们降级成 API-key provider。
 
 模型目录同时读取桌面端的 Vision 能力标记。支持图片输入的当前模型可以用 `Ctrl+V` 从系统
 剪贴板附加 PNG/JPEG/GIF/WebP 图片；单张上限 20 MB、单次最多 10 张。macOS 使用系统

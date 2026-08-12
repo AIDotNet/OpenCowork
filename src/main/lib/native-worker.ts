@@ -12,6 +12,12 @@ import {
   WORKER_PROTOCOL_VERSION,
   type WorkerHelloResult
 } from '../../shared/worker-contracts/generated/contracts'
+import {
+  WORKER_HEARTBEAT_INTERVAL_MS,
+  WORKER_HEARTBEAT_TIMEOUT_MS,
+  WorkerFrameDecoder,
+  createWorkerFrame as createFrame
+} from '../../shared/native-worker-protocol'
 // Resolved lazily at spawn time (function-level cycle — safe): tells the CodeGraph
 // worker where to load its bundled, updated, or dev tree-sitter grammars from.
 import { resolveCodeGraphGrammarsDir } from './codegraph-assets'
@@ -30,12 +36,10 @@ const NATIVE_WORKER_RESTART_MAX_MS = 30_000
 // Consecutive failed supervised restarts before the manager stops burning CPU
 // and surfaces a fatal state; an explicit ensureStarted() re-arms recovery.
 const NATIVE_WORKER_RESTART_FATAL_ATTEMPTS = 5
-const NATIVE_WORKER_HEARTBEAT_INTERVAL_MS = 15_000
-const NATIVE_WORKER_HEARTBEAT_TIMEOUT_MS = 5_000
+const NATIVE_WORKER_HEARTBEAT_INTERVAL_MS = WORKER_HEARTBEAT_INTERVAL_MS
+const NATIVE_WORKER_HEARTBEAT_TIMEOUT_MS = WORKER_HEARTBEAT_TIMEOUT_MS
 const NATIVE_WORKER_HEARTBEAT_MAX_MISSES = 2
 const NATIVE_WORKER_KILL_ESCALATION_MS = 3_000
-const FRAME_HEADER_BYTES = 4
-const MAX_FRAME_BYTES = 256 * 1024 * 1024
 
 // Read-only methods that are safe to transparently replay on the fresh worker
 // after a crash instead of failing the caller. Mutations never replay: the dead
@@ -291,12 +295,8 @@ class NativeWorkerManager {
   private rawEvents = new EventEmitter()
   private pending = new Map<number, PendingRequest>()
   private replayQueue: PendingRequest[] = []
-  private readChunks: Buffer[] = []
-  private readBufferedBytes = 0
-  private pendingFrameLength = -1
-  private eventReadChunks: Buffer[] = []
-  private eventReadBufferedBytes = 0
-  private eventPendingFrameLength = -1
+  private frameDecoder = new WorkerFrameDecoder()
+  private eventFrameDecoder = new WorkerFrameDecoder()
   private eventReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private startPromise: Promise<void> | null = null
@@ -964,9 +964,7 @@ class NativeWorkerManager {
     this.eventSocket = null
     socket.removeAllListeners()
     socket.destroy()
-    this.eventReadChunks = []
-    this.eventReadBufferedBytes = 0
-    this.eventPendingFrameLength = -1
+    this.eventFrameDecoder.reset()
     console.warn('[NativeWorker] Event IPC disconnected; jobs remain healthy', {
       error: error.message
     })
@@ -1016,109 +1014,22 @@ class NativeWorkerManager {
     }
   }
 
-  // Chunks are queued as-is and only joined once a full frame has arrived;
-  // concatenating the whole backlog on every socket chunk is O(n²) for large
-  // frames and blocks the main thread.
   private handleSocketData(chunk: Buffer): void {
-    this.readChunks.push(chunk)
-    this.readBufferedBytes += chunk.length
-
-    while (true) {
-      if (this.pendingFrameLength < 0) {
-        if (this.readBufferedBytes < FRAME_HEADER_BYTES) return
-        const header = this.consumeBufferedBytes(FRAME_HEADER_BYTES)
-        const length = header.readUInt32BE(0)
-        if (length <= 0 || length > MAX_FRAME_BYTES) {
-          this.closeWorker(new Error(`Invalid native worker frame length: ${length}`))
-          return
-        }
-        this.pendingFrameLength = length
-      }
-
-      if (this.readBufferedBytes < this.pendingFrameLength) return
-      const payload = this.consumeBufferedBytes(this.pendingFrameLength)
-      this.pendingFrameLength = -1
-      this.handleResponseFrame(payload, 'control')
+    try {
+      this.frameDecoder.push(chunk, (payload) => this.handleResponseFrame(payload, 'control'))
+    } catch (error) {
+      this.closeWorker(asError(error))
     }
   }
 
   private handleEventSocketData(chunk: Buffer): void {
-    this.eventReadChunks.push(chunk)
-    this.eventReadBufferedBytes += chunk.length
-
-    while (true) {
-      if (this.eventPendingFrameLength < 0) {
-        if (this.eventReadBufferedBytes < FRAME_HEADER_BYTES) return
-        const header = this.consumeEventBufferedBytes(FRAME_HEADER_BYTES)
-        const length = header.readUInt32BE(0)
-        if (length <= 0 || length > MAX_FRAME_BYTES) {
-          this.resetEventConnection(
-            new Error(`Invalid native worker Event IPC frame length: ${length}`)
-          )
-          return
-        }
-        this.eventPendingFrameLength = length
-      }
-      if (this.eventReadBufferedBytes < this.eventPendingFrameLength) return
-      const payload = this.consumeEventBufferedBytes(this.eventPendingFrameLength)
-      this.eventPendingFrameLength = -1
-      this.handleResponseFrame(payload, 'event')
+    try {
+      this.eventFrameDecoder.push(chunk, (payload) => this.handleResponseFrame(payload, 'event'))
+    } catch (error) {
+      this.resetEventConnection(
+        new Error(`Native worker Event IPC framing error: ${asError(error).message}`)
+      )
     }
-  }
-
-  private consumeEventBufferedBytes(count: number): Buffer {
-    const first = this.eventReadChunks[0]
-    if (first && first.length >= count) {
-      const output = first.subarray(0, count)
-      if (first.length === count) this.eventReadChunks.shift()
-      else this.eventReadChunks[0] = first.subarray(count)
-      this.eventReadBufferedBytes -= count
-      return output
-    }
-
-    const output = Buffer.allocUnsafe(count)
-    let offset = 0
-    while (offset < count) {
-      const current = this.eventReadChunks[0]
-      if (!current) throw new Error('Native worker Event IPC frame buffer underflow')
-      const length = Math.min(current.length, count - offset)
-      current.copy(output, offset, 0, length)
-      if (length === current.length) this.eventReadChunks.shift()
-      else this.eventReadChunks[0] = current.subarray(length)
-      offset += length
-    }
-    this.eventReadBufferedBytes -= count
-    return output
-  }
-
-  private consumeBufferedBytes(count: number): Buffer {
-    const first = this.readChunks[0]
-    if (first.length >= count) {
-      const out = first.subarray(0, count)
-      if (first.length === count) {
-        this.readChunks.shift()
-      } else {
-        this.readChunks[0] = first.subarray(count)
-      }
-      this.readBufferedBytes -= count
-      return out
-    }
-
-    const out = Buffer.allocUnsafe(count)
-    let offset = 0
-    while (offset < count) {
-      const chunk = this.readChunks[0]
-      const take = Math.min(chunk.length, count - offset)
-      chunk.copy(out, offset, 0, take)
-      if (take === chunk.length) {
-        this.readChunks.shift()
-      } else {
-        this.readChunks[0] = chunk.subarray(take)
-      }
-      offset += take
-    }
-    this.readBufferedBytes -= count
-    return out
   }
 
   private handleResponseFrame(payload: Buffer, source: 'control' | 'event'): void {
@@ -1249,9 +1160,7 @@ class NativeWorkerManager {
     this.eventSocket = null
     this.endpoint = null
     this.eventEndpoint = null
-    this.readChunks = []
-    this.readBufferedBytes = 0
-    this.pendingFrameLength = -1
+    this.frameDecoder.reset()
 
     if (child || socket || this.pending.size > 0) {
       const level = this.stopping ? console.log : console.warn
@@ -1270,9 +1179,7 @@ class NativeWorkerManager {
       clearTimeout(this.eventReconnectTimer)
       this.eventReconnectTimer = null
     }
-    this.eventReadChunks = []
-    this.eventReadBufferedBytes = 0
-    this.eventPendingFrameLength = -1
+    this.eventFrameDecoder.reset()
     if (child && !child.killed && child.exitCode === null) {
       child.kill()
       // SIGTERM is advisory: a worker wedged in native code (the usual reason a
@@ -1579,20 +1486,6 @@ export function isCodeGraphWorkerRunning(): boolean {
 // Main-worker status probe (CodeGraph is source-merged into it).
 export function isNativeWorkerRunning(): boolean {
   return nativeWorker?.isRunning === true
-}
-
-function createFrame(payload: Uint8Array): Buffer {
-  if (payload.byteLength <= 0 || payload.byteLength > MAX_FRAME_BYTES) {
-    throw new Error(`Invalid native worker request length: ${payload.byteLength}`)
-  }
-
-  const frame = Buffer.allocUnsafe(FRAME_HEADER_BYTES + payload.byteLength)
-  frame.writeUInt32BE(payload.byteLength, 0)
-  Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength).copy(
-    frame,
-    FRAME_HEADER_BYTES
-  )
-  return frame
 }
 
 function waitForNativeJobPoll(signal: AbortSignal | undefined, delayMs: number): Promise<void> {

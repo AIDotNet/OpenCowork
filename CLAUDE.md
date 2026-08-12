@@ -49,7 +49,7 @@ Eight messaging platform integrations under `src/main/channels/providers/`: Feis
 
 ### Custom skills and agents
 
-Bundled skills live in `resources/skills/` as folders containing a `SKILL.md` metadata file and a `scripts/` subdirectory (typically Python). Bundled agents live in `resources/agents/` as Markdown files with frontmatter (`name`, `description`, `compatibility`). Users can also add custom skills and agents in `~/.open-cowork/skills/` and `~/.open-cowork/agents/` respectively — these are loaded at runtime alongside the bundled ones.
+Bundled skills live in `resources/skills/` as folders containing a `SKILL.md` metadata file and a `scripts/` subdirectory (typically Python). Bundled agents live in `resources/agents/` as Markdown files with frontmatter (`name`, `description`, `compatibility`). Users can also add custom skills in `~/.agents/skills/` (the Native Worker skill catalog directory) and custom agents in `~/.open-cowork/agents/` — these are loaded at runtime alongside the bundled ones.
 
 ### Agent runtime
 

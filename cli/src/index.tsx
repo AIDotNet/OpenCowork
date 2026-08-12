@@ -7,11 +7,24 @@ import { render, useApp } from 'ink'
 import { CliApp } from './app.js'
 import { ProviderSetupPanel } from './components/provider-setup-panel.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
+import { FixtureAgentRuntime, isFixtureRuntimeRequested } from './runtime/fixture-runtime.js'
 import { OpenCoworkWorkerRuntime } from './runtime/open-cowork-worker-runtime.js'
 import { loadProviderSetupCatalog, persistProviderSetup } from './runtime/provider-setup.js'
 import { TerminalScreen } from './terminal/terminal-screen.js'
-import type { ModelSelection, PermissionMode, ProviderSetupCatalog, TuiMode } from './types.js'
-import { offerUpdate, updateCli } from './update.js'
+import type {
+  ModelSelection,
+  PermissionMode,
+  ProviderSetupCatalog,
+  ResumeResult,
+  TuiMode
+} from './types.js'
+import {
+  PRINT_EXIT_CONFIG_ERROR,
+  readStdinPrompt,
+  runPrintMode,
+  type PrintOutputFormat
+} from './print-mode.js'
+import { repairNativeWorker, updateCli } from './update.js'
 import { initializeCliI18n, readLanguageArgument, t } from './i18n.js'
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url))
@@ -48,11 +61,17 @@ const pkg = loadPackageMetadata()
 await initializeCliI18n(readLanguageArgument())
 
 interface CliOptions {
+  continue?: boolean
   doctor: boolean
   language?: string
+  maxTurns?: string
   model?: string
+  outputFormat: PrintOutputFormat
   permissionMode: PermissionMode
+  print: boolean
   provider?: string
+  resume?: string
+  timeout?: string
   tui: TuiMode
   worker?: string
 }
@@ -91,6 +110,7 @@ function ProviderConfigCommand({
     <ProviderSetupPanel
       catalog={catalog}
       maxVisible={Math.max(4, Math.min(12, rows - 12))}
+      onboarding={catalog.configuredCount === 0}
       onCancel={() => {
         onCancel()
         exit()
@@ -144,11 +164,58 @@ program
       .choices(['classic', 'fullscreen'])
       .default('classic')
   )
+  .option(
+    '-p, --print',
+    t('cli.options.print', 'Run one prompt without the interactive UI and print the result'),
+    false
+  )
+  .addOption(
+    new Option(
+      '--output-format <format>',
+      t('cli.options.outputFormat', 'Print-mode output format')
+    )
+      .choices(['text', 'json', 'stream-json'])
+      .default('text')
+  )
+  .option(
+    '--max-turns <count>',
+    t('cli.options.maxTurns', 'Maximum agent loop turns before the run stops')
+  )
+  .option(
+    '--timeout <seconds>',
+    t('cli.options.timeout', 'Abort a print-mode run after this many seconds')
+  )
+  .option(
+    '-c, --continue',
+    t('cli.options.continue', 'Continue the most recent CLI session in this folder')
+  )
+  .option(
+    '--resume <session-id>',
+    t('cli.options.resume', 'Resume a specific stored CLI session by id')
+  )
 
 program
   .command('update')
   .description(t('cli.commands.update', 'Update OpenCowork CLI to the latest version'))
-  .action(async () => {
+  .option(
+    '--repair',
+    t('cli.options.repair', 'Reinstall the Native Worker binary for this machine'),
+    false
+  )
+  .action(async (options: { repair: boolean }) => {
+    if (options.repair) {
+      if (await repairNativeWorker()) {
+        process.stdout.write(`${t('cli.output.repairDone', 'Native Worker reinstalled.')}\n`)
+        return
+      }
+      program.error(
+        t(
+          'cli.errors.repair',
+          'Native Worker reinstall failed. Check network access, then retry: cowork update --repair'
+        )
+      )
+      return
+    }
     if (await updateCli()) return
     program.error(
       t('cli.errors.update', 'Update failed. Run: npm install -g @aidotnet/opencowork@latest')
@@ -207,18 +274,25 @@ program
 `
   )
   .action(async (prompt: string | undefined, options: CliOptions) => {
-    if (!options.doctor && process.stdin.isTTY && process.stdout.isTTY) {
-      await offerUpdate(pkg.version)
+    const maxTurns = options.maxTurns ? Number.parseInt(options.maxTurns, 10) : undefined
+    if (options.maxTurns && (!Number.isFinite(maxTurns) || (maxTurns as number) <= 0)) {
+      program.error(t('cli.errors.maxTurns', '--max-turns requires a positive integer.'), {
+        exitCode: PRINT_EXIT_CONFIG_ERROR
+      })
     }
+    // PTY golden tests swap in a deterministic scripted runtime; everything else —
+    // option validation, screen management, Ink wiring — runs exactly as in production.
+    const fixtureRuntime = isFixtureRuntimeRequested() ? new FixtureAgentRuntime() : null
     const workerRuntime = new OpenCoworkWorkerRuntime({
       appVersion: pkg.version,
       cwd: process.cwd(),
+      maxTurns,
       model: options.model,
       permissionMode: options.permissionMode,
       providerId: options.provider,
       workerPath: options.worker
     })
-    const selectedModel = workerRuntime.getModelCatalog().active
+    const selectedModel = (fixtureRuntime ?? workerRuntime).getModelCatalog().active
     if (options.provider && selectedModel?.providerId !== options.provider) {
       await workerRuntime.dispose()
       program.error(
@@ -226,7 +300,8 @@ program
           'cli.errors.provider',
           'Provider “{{provider}}” is not enabled, authenticated, or configured with chat models.',
           { provider: options.provider }
-        )
+        ),
+        { exitCode: PRINT_EXIT_CONFIG_ERROR }
       )
     }
     if (options.model && selectedModel?.modelId !== options.model) {
@@ -235,8 +310,41 @@ program
         t('cli.errors.model', 'Model “{{model}}” is not enabled{{providerSuffix}}.', {
           model: options.model,
           providerSuffix: options.provider ? ` for provider “${options.provider}”` : ''
-        })
+        }),
+        { exitCode: PRINT_EXIT_CONFIG_ERROR }
       )
+    }
+
+    // Resolve --continue / --resume before any UI or print run so both entry paths
+    // start from the restored canonical history. Uses the existing Worker DB routes
+    // through resumeSession; no session-host support is required.
+    let initialResume: ResumeResult | undefined
+    if (!options.doctor && (options.continue || options.resume)) {
+      if (options.continue && options.resume) {
+        await workerRuntime.dispose()
+        program.error(
+          t('cli.errors.continueResume', '--continue and --resume cannot be combined.'),
+          { exitCode: PRINT_EXIT_CONFIG_ERROR }
+        )
+      }
+      try {
+        let sessionId = options.resume?.trim()
+        if (!sessionId) {
+          const sessions = await workerRuntime.listResumableSessions()
+          sessionId = sessions[0]?.id
+          if (!sessionId) {
+            throw new Error(
+              t('cli.errors.noResumableSession', 'No resumable CLI session found for this folder.')
+            )
+          }
+        }
+        initialResume = await workerRuntime.resumeSession(sessionId)
+      } catch (error) {
+        await workerRuntime.dispose()
+        program.error(error instanceof Error ? error.message : String(error), {
+          exitCode: PRINT_EXIT_CONFIG_ERROR
+        })
+      }
     }
 
     if (options.doctor) {
@@ -257,14 +365,66 @@ program
             `  ${t('cli.output.configuredModel', 'Configured model: {{value}}', {
               value: result.configuredModel
             })}`,
-            `  ${t('cli.output.ready', 'Status: ready')}`,
+            ...result.checks.map((check) => {
+              const symbol = check.status === 'ok' ? '✓' : check.status === 'warn' ? '!' : '✗'
+              return `  ${symbol} ${check.label}: ${check.detail}`
+            }),
+            result.checks.some((check) => check.status === 'error')
+              ? `  ${t('cli.output.doctorIssues', 'Status: issues found')}`
+              : `  ${t('cli.output.ready', 'Status: ready')}`,
             ''
           ].join('\n')
         )
+        if (result.checks.some((check) => check.status === 'error')) process.exitCode = 1
       } finally {
         await workerRuntime.dispose()
       }
       return
+    }
+
+    if (options.print) {
+      const promptText = prompt?.trim() || (!process.stdin.isTTY ? await readStdinPrompt() : '')
+      if (!promptText) {
+        await workerRuntime.dispose()
+        program.error(
+          t(
+            'cli.errors.printPrompt',
+            'Print mode needs a prompt: cowork -p "prompt" or echo "prompt" | cowork -p'
+          ),
+          { exitCode: PRINT_EXIT_CONFIG_ERROR }
+        )
+      }
+      if (!selectedModel) {
+        await workerRuntime.dispose()
+        program.error(t('cli.errors.printModel', 'No model configured. Run: cowork config'), {
+          exitCode: PRINT_EXIT_CONFIG_ERROR
+        })
+      }
+      const timeoutSeconds = options.timeout ? Number.parseFloat(options.timeout) : undefined
+      if (
+        options.timeout &&
+        (!Number.isFinite(timeoutSeconds) || (timeoutSeconds as number) <= 0)
+      ) {
+        await workerRuntime.dispose()
+        program.error(t('cli.errors.timeout', '--timeout requires a positive number of seconds.'), {
+          exitCode: PRINT_EXIT_CONFIG_ERROR
+        })
+      }
+      let printExitCode = PRINT_EXIT_CONFIG_ERROR
+      try {
+        const result = await runPrintMode(workerRuntime, {
+          outputFormat: options.outputFormat,
+          prompt: promptText,
+          timeoutSeconds
+        })
+        printExitCode = result.exitCode
+      } finally {
+        await workerRuntime.dispose()
+      }
+      // Spawned children (MCP servers, the Native Worker) can keep handles open past
+      // dispose. A pipeline needs a deterministic exit, so flush stdout and leave.
+      await new Promise<void>((resolveFlush) => process.stdout.write('', () => resolveFlush()))
+      process.exit(printExitCode)
     }
 
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -292,8 +452,9 @@ program
           cwd={process.cwd()}
           initialPermissionMode={options.permissionMode}
           initialPrompt={prompt ?? ''}
+          initialResume={initialResume}
           onRequestRedraw={requestRedraw}
-          runtime={workerRuntime}
+          runtime={fixtureRuntime ?? workerRuntime}
           tuiMode={options.tui}
           version={pkg.version}
         />,

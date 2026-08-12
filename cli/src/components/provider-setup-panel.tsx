@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { t } from '../i18n.js'
+import { openExternalUrl } from '../lib/open-url.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { ProviderSetupCatalog, ProviderSetupInput, ProviderSetupOption } from '../types.js'
@@ -9,12 +10,15 @@ import { Spinner } from './spinner.js'
 interface ProviderSetupPanelProps {
   catalog: ProviderSetupCatalog
   maxVisible: number
+  /** First run with nothing configured: lead with the recommended provider instead of the list. */
+  onboarding?: boolean
   onCancel(): void
   onSave(input: ProviderSetupInput): Promise<void>
   width: number
 }
 
-type SetupStep = 'provider' | 'name' | 'endpoint' | 'apiKey' | 'model' | 'review'
+type EditorStep = 'name' | 'endpoint' | 'apiKey' | 'model'
+type SetupStep = 'welcome' | 'provider' | EditorStep | 'review'
 
 interface ProviderDraft {
   apiKey: string
@@ -22,6 +26,11 @@ interface ProviderDraft {
   modelId: string
   name: string
   optionKey: string
+}
+
+interface LinkNotice {
+  opened: boolean
+  url: string
 }
 
 function matches(option: ProviderSetupOption, query: string): boolean {
@@ -42,11 +51,20 @@ function protocolLabel(option: ProviderSetupOption): string {
 
 function optionStatus(option: ProviderSetupOption): string {
   if (option.source === 'custom') return t('cli.provider.newCustom', 'new custom provider')
-  if (option.source === 'preset') return t('cli.provider.quickPreset', 'quick preset')
-  if (!option.requiresApiKey) return t('cli.provider.noKeyRequired', 'configured · no key required')
+  if (!option.requiresApiKey) {
+    return option.source === 'existing'
+      ? t('cli.provider.noKeyRequired', 'configured · no key required')
+      : t('cli.provider.presetNoKey', 'no API key needed')
+  }
   return option.hasApiKey
     ? t('cli.provider.keySaved', 'configured · key saved')
     : t('cli.provider.needsKey', 'needs API key')
+}
+
+function groupLabel(option: ProviderSetupOption): string {
+  if (option.source === 'existing') return t('cli.provider.groupConfigured', 'Your providers')
+  if (option.source === 'preset') return t('cli.provider.groupPresets', 'Quick presets')
+  return t('cli.provider.groupCustom', 'Custom endpoints')
 }
 
 function titleFor(step: SetupStep): string {
@@ -54,6 +72,8 @@ function titleFor(step: SetupStep): string {
   if (step === 'endpoint') return t('cli.provider.baseUrl', 'Base URL')
   if (step === 'apiKey') return t('cli.panels.apiKey', 'API key')
   if (step === 'model') return t('cli.provider.modelId', 'Model ID')
+  if (step === 'review') return t('cli.provider.reviewTitle', 'Review and save')
+  if (step === 'welcome') return t('cli.provider.welcomeTitle', 'Welcome to OpenCowork CLI')
   return t('cli.provider.configure', 'Configure provider')
 }
 
@@ -62,6 +82,29 @@ function editorLimit(step: SetupStep): number {
   if (step === 'endpoint') return 2_048
   if (step === 'apiKey') return 8_192
   return 300
+}
+
+/**
+ * The wizard skips fields a preset already answers, so the visible step count differs per
+ * provider. Deriving one ordered sequence keeps forward, back, and the step counter in sync.
+ */
+function stepSequence(option: ProviderSetupOption, onboarding: boolean): SetupStep[] {
+  const steps: SetupStep[] = []
+  if (option.source === 'custom') steps.push('name')
+  if (option.source === 'custom' || !option.baseUrl) steps.push('endpoint')
+  if (option.requiresApiKey && !option.hasApiKey) steps.push('apiKey')
+  // A recommended preset already ships a working model id; first run confirms it on the
+  // review screen instead of asking for it up front.
+  if (!onboarding || !option.defaultModelId) steps.push('model')
+  steps.push('review')
+  return steps
+}
+
+function draftValue(draft: ProviderDraft, step: SetupStep): string {
+  if (step === 'name') return draft.name
+  if (step === 'endpoint') return draft.baseUrl
+  if (step === 'apiKey') return draft.apiKey
+  return draft.modelId
 }
 
 function EditorValue({
@@ -102,17 +145,24 @@ function EditorValue({
 export function ProviderSetupPanel({
   catalog,
   maxVisible,
+  onboarding = false,
   onCancel,
   onSave,
   width
 }: ProviderSetupPanelProps): React.JSX.Element {
-  const [step, setStep] = useState<SetupStep>('provider')
+  const recommended = useMemo(
+    () => catalog.options.find((candidate) => candidate.key === catalog.recommendedKey),
+    [catalog.options, catalog.recommendedKey]
+  )
+  const guided = onboarding && Boolean(recommended)
+  const [step, setStep] = useState<SetupStep>(guided ? 'welcome' : 'provider')
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [draft, setDraft] = useState<ProviderDraft | null>(null)
   const [editor, setEditor] = useState('')
   const [editorCursor, setEditorCursor] = useState(0)
   const [returnToReview, setReturnToReview] = useState(false)
+  const [linkNotice, setLinkNotice] = useState<LinkNotice | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
   const filtered = useMemo(
@@ -122,22 +172,35 @@ export function ProviderSetupPanel({
   const option = draft
     ? catalog.options.find((candidate) => candidate.key === draft.optionKey)
     : undefined
+  const sequence = option ? stepSequence(option, guided) : []
+  const stepIndex = sequence.indexOf(step)
 
   useEffect(() => {
     setSelectedIndex((index) => Math.max(0, Math.min(index, filtered.length - 1)))
   }, [filtered.length])
 
-  const beginEditor = (
-    nextStep: Exclude<SetupStep, 'provider' | 'review'>,
-    value: string
-  ): void => {
+  const beginEditor = (nextStep: EditorStep, value: string): void => {
     setStep(nextStep)
     setEditor(value)
     setEditorCursor(graphemes(value).length)
     setError(undefined)
   }
 
-  const beginSetup = (selected: ProviderSetupOption): void => {
+  const goToStep = (nextStep: SetupStep, nextDraft: ProviderDraft): void => {
+    if (nextStep === 'review' || nextStep === 'provider' || nextStep === 'welcome') {
+      setStep(nextStep)
+      setError(undefined)
+      return
+    }
+    beginEditor(nextStep, draftValue(nextDraft, nextStep))
+  }
+
+  const openApiKeyPage = (target: ProviderSetupOption): void => {
+    if (!target.apiKeyUrl) return
+    setLinkNotice({ opened: openExternalUrl(target.apiKeyUrl), url: target.apiKeyUrl })
+  }
+
+  const beginSetup = (selected: ProviderSetupOption, openKeyPage = false): void => {
     const nextDraft: ProviderDraft = {
       apiKey: '',
       baseUrl: selected.baseUrl,
@@ -148,23 +211,9 @@ export function ProviderSetupPanel({
     setDraft(nextDraft)
     setQuery('')
     setReturnToReview(false)
-    if (selected.source === 'custom') {
-      beginEditor('name', nextDraft.name)
-    } else if (!nextDraft.baseUrl) {
-      beginEditor('endpoint', '')
-    } else if (selected.requiresApiKey && !selected.hasApiKey) {
-      beginEditor('apiKey', '')
-    } else {
-      beginEditor('model', nextDraft.modelId)
-    }
-  }
-
-  const advanceAfterEndpoint = (current: ProviderDraft, selected: ProviderSetupOption): void => {
-    if (selected.requiresApiKey && !selected.hasApiKey && !current.apiKey) {
-      beginEditor('apiKey', current.apiKey)
-    } else {
-      beginEditor('model', current.modelId)
-    }
+    setLinkNotice(null)
+    if (openKeyPage) openApiKeyPage(selected)
+    goToStep(stepSequence(selected, guided)[0], nextDraft)
   }
 
   const finishEditor = (): void => {
@@ -197,30 +246,24 @@ export function ProviderSetupPanel({
       setStep('review')
       return
     }
-    if (step === 'name') {
-      beginEditor('endpoint', nextDraft.baseUrl)
-    } else if (step === 'endpoint') {
-      advanceAfterEndpoint(nextDraft, option)
-    } else if (step === 'apiKey') {
-      beginEditor('model', nextDraft.modelId)
-    } else if (!nextDraft.baseUrl) {
-      beginEditor('endpoint', nextDraft.baseUrl)
-    } else {
-      setStep('review')
-    }
+    goToStep(sequence[stepIndex + 1] ?? 'review', nextDraft)
   }
 
-  const editReviewField = (
-    nextStep: Exclude<SetupStep, 'provider' | 'review'>,
-    value: string
-  ): void => {
+  const editReviewField = (nextStep: EditorStep, value: string): void => {
     setReturnToReview(true)
     beginEditor(nextStep, value)
   }
 
+  const leaveDraft = (): void => {
+    setDraft(null)
+    setLinkNotice(null)
+    setStep(guided ? 'welcome' : 'provider')
+    setError(undefined)
+  }
+
   const backFromEditor = (): void => {
     if (!draft || !option) {
-      setStep('provider')
+      setStep(guided ? 'welcome' : 'provider')
       return
     }
     if (returnToReview) {
@@ -229,22 +272,9 @@ export function ProviderSetupPanel({
       setError(undefined)
       return
     }
-    if (step === 'name') {
-      setDraft(null)
-      setStep('provider')
-    } else if (step === 'endpoint' && option.source === 'custom') {
-      beginEditor('name', draft.name)
-    } else if (step === 'apiKey' && option.source === 'custom') {
-      beginEditor('endpoint', draft.baseUrl)
-    } else if (step === 'model' && option.source === 'custom') {
-      if (option.requiresApiKey) beginEditor('apiKey', draft.apiKey)
-      else beginEditor('endpoint', draft.baseUrl)
-    } else if (step === 'model' && option.requiresApiKey && !option.hasApiKey) {
-      beginEditor('apiKey', draft.apiKey)
-    } else {
-      setDraft(null)
-      setStep('provider')
-    }
+    const previous = stepIndex > 0 ? sequence[stepIndex - 1] : undefined
+    if (previous) goToStep(previous, draft)
+    else leaveDraft()
   }
 
   const save = async (): Promise<void> => {
@@ -273,11 +303,26 @@ export function ProviderSetupPanel({
       return
     }
 
+    if (step === 'welcome') {
+      if (key.escape) {
+        onCancel()
+        return
+      }
+      if (key.return && recommended) {
+        beginSetup(recommended, true)
+        return
+      }
+      if (input.toLocaleLowerCase() === 'p' || key.downArrow || key.tab) setStep('provider')
+      return
+    }
+
     if (step === 'provider') {
       if (key.escape) {
         if (query) {
           setQuery('')
           setSelectedIndex(0)
+        } else if (guided) {
+          setStep('welcome')
         } else {
           onCancel()
         }
@@ -294,6 +339,11 @@ export function ProviderSetupPanel({
       if (key.return) {
         const selected = filtered[selectedIndex]
         if (selected) beginSetup(selected)
+        return
+      }
+      if (key.ctrl && input === 'o') {
+        const selected = filtered[selectedIndex]
+        if (selected) openApiKeyPage(selected)
         return
       }
       if (key.ctrl && input === 'u') {
@@ -315,7 +365,9 @@ export function ProviderSetupPanel({
 
     if (step === 'review') {
       if (key.escape) {
-        if (draft) beginEditor('model', draft.modelId)
+        const previous = stepIndex > 0 ? sequence[stepIndex - 1] : undefined
+        if (previous && draft) goToStep(previous, draft)
+        else leaveDraft()
         return
       }
       const shortcut = input.toLocaleLowerCase()
@@ -334,6 +386,10 @@ export function ProviderSetupPanel({
     }
     if (key.return) {
       finishEditor()
+      return
+    }
+    if (key.ctrl && input === 'o') {
+      if (step === 'apiKey' && option) openApiKeyPage(option)
       return
     }
     if (key.leftArrow || (key.ctrl && input === 'b')) {
@@ -394,13 +450,20 @@ export function ProviderSetupPanel({
     }
   })
 
-  const visibleCount = Math.max(4, maxVisible)
+  const visibleCount = Math.max(3, maxVisible - 2)
   const windowStart = Math.max(
     0,
     Math.min(selectedIndex - Math.floor(visibleCount / 2), filtered.length - visibleCount)
   )
   const visible = filtered.slice(windowStart, windowStart + visibleCount)
   const contentWidth = Math.max(24, width - 6)
+  const stepCounter =
+    stepIndex >= 0 && sequence.length > 1
+      ? t('cli.provider.step', 'Step {{current}} of {{total}}', {
+          current: stepIndex + 1,
+          total: sequence.length
+        })
+      : ''
 
   return (
     <Box
@@ -416,6 +479,7 @@ export function ProviderSetupPanel({
         <Text bold color={theme.primary}>
           {titleFor(step)}
         </Text>
+        {stepCounter ? <Text color={theme.dim}>{`  ${stepCounter}`}</Text> : null}
         {saving ? (
           <Box marginLeft={2}>
             <Spinner />
@@ -424,10 +488,52 @@ export function ProviderSetupPanel({
         ) : null}
       </Box>
       <Text color={theme.muted}>
-        {t('cli.panels.sharedDesktop', 'Shared with OpenCowork desktop · credentials are masked')}
+        {step === 'welcome'
+          ? t(
+              'cli.provider.welcomeSubtitle',
+              'Connect a model provider before your first turn · shared with OpenCowork desktop'
+            )
+          : t(
+              'cli.panels.sharedDesktop',
+              'Shared with OpenCowork desktop · credentials are masked'
+            )}
       </Text>
 
-      {step === 'provider' ? (
+      {step === 'welcome' && recommended ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Box>
+            <Text backgroundColor={theme.primary} color={theme.selectedText}>
+              {` ${t('cli.provider.recommended', 'Recommended')} `}
+            </Text>
+            <Text bold>{`  ${fitText(recommended.name, Math.max(12, contentWidth - 20))}`}</Text>
+          </Box>
+          <Text color={theme.muted}>
+            {fitText(
+              recommended.builtinId === 'routin-ai'
+                ? t('cli.provider.routinPitch', recommended.description)
+                : recommended.description,
+              contentWidth
+            )}
+          </Text>
+          {recommended.apiKeyUrl ? (
+            <Box marginTop={1}>
+              <Text color={theme.dim}>{t('cli.provider.keyPage', 'API keys')} </Text>
+              <Text color={theme.accent}>{fitText(recommended.apiKeyUrl, contentWidth - 10)}</Text>
+            </Box>
+          ) : null}
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={theme.text}>
+              {t('cli.provider.welcomeEnter', 'Enter  open that page and paste your API key')}
+            </Text>
+            <Text color={theme.muted}>
+              {t('cli.provider.welcomeOther', 'P      choose a different provider')}
+            </Text>
+            <Text color={theme.muted}>
+              {t('cli.provider.welcomeSkip', 'Esc    skip for now · run /provider anytime')}
+            </Text>
+          </Box>
+        </Box>
+      ) : step === 'provider' ? (
         <>
           <Box marginTop={1}>
             <Text color={theme.dim}>{t('cli.common.search', 'Search')} </Text>
@@ -444,24 +550,47 @@ export function ProviderSetupPanel({
               visible.map((candidate, visibleIndex) => {
                 const absoluteIndex = windowStart + visibleIndex
                 const selected = absoluteIndex === selectedIndex
+                const showGroup =
+                  visibleIndex === 0 || visible[visibleIndex - 1].source !== candidate.source
                 return (
                   <Box flexDirection="column" key={candidate.key}>
+                    {showGroup ? (
+                      <Text color={theme.dim}>{groupLabel(candidate).toLocaleUpperCase()}</Text>
+                    ) : null}
                     <Box>
                       <Text color={selected ? theme.primary : theme.dim}>
-                        {selected ? '❯' : ' '}
+                        {selected ? '❯ ' : '  '}
                       </Text>
                       <Text bold={selected} color={selected ? theme.text : undefined}>
-                        {fitText(candidate.name, Math.max(12, contentWidth - 25))}
+                        {fitText(candidate.name, Math.max(12, contentWidth - 28))}
                       </Text>
+                      {candidate.recommended ? (
+                        <Text color={theme.primary}>
+                          {'  '}
+                          {t('cli.provider.recommended', 'Recommended')}
+                        </Text>
+                      ) : null}
                       <Text color={candidate.hasApiKey ? theme.success : theme.dim}>
                         {'  '}
                         {optionStatus(candidate)}
                       </Text>
                     </Box>
                     {selected ? (
-                      <Box marginLeft={2}>
+                      <Box flexDirection="column" marginLeft={2}>
                         <Text color={theme.muted}>
                           {fitText(candidate.description, contentWidth - 2)}
+                        </Text>
+                        <Text color={theme.dim}>
+                          {fitText(
+                            [
+                              candidate.baseUrl ||
+                                t('cli.provider.endpointPending', 'endpoint TBD'),
+                              candidate.defaultModelId ||
+                                t('cli.provider.modelPending', 'model TBD'),
+                              protocolLabel(candidate)
+                            ].join(' · '),
+                            contentWidth - 2
+                          )}
                         </Text>
                       </Box>
                     ) : null}
@@ -478,6 +607,9 @@ export function ProviderSetupPanel({
               'cli.provider.listFooter',
               'Type to search · ↑↓ navigate · Enter select · Esc cancel'
             )}
+            {filtered[selectedIndex]?.apiKeyUrl
+              ? ` · ${t('cli.provider.openKeyPage', 'Ctrl+O open page')}`
+              : ''}
           </Text>
         </>
       ) : step === 'review' && draft && option ? (
@@ -564,6 +696,24 @@ export function ProviderSetupPanel({
                       )
                   : t('cli.provider.modelHint', 'Exact model identifier sent to the provider.')}
           </Text>
+          {step === 'apiKey' && option.apiKeyUrl ? (
+            <Box flexDirection="column">
+              <Box>
+                <Text color={theme.dim}>{t('cli.provider.keyPage', 'API keys')} </Text>
+                <Text color={theme.accent}>{fitText(option.apiKeyUrl, contentWidth - 10)}</Text>
+              </Box>
+              {linkNotice ? (
+                <Text color={linkNotice.opened ? theme.success : theme.warning} wrap="wrap">
+                  {linkNotice.opened
+                    ? t('cli.provider.browserOpened', 'Opened the page in your browser.')
+                    : t(
+                        'cli.provider.browserFailed',
+                        'Could not open a browser here — visit the link above to create a key.'
+                      )}
+                </Text>
+              ) : null}
+            </Box>
+          ) : null}
           {error ? (
             <Text color={theme.error} wrap="wrap">
               {error}
@@ -571,6 +721,9 @@ export function ProviderSetupPanel({
           ) : null}
           <Text color={theme.dim}>
             {t('cli.panels.enterContinue', 'Enter continue · Esc back · Ctrl+U clear')}
+            {step === 'apiKey' && option.apiKeyUrl
+              ? ` · ${t('cli.provider.openKeyPage', 'Ctrl+O open page')}`
+              : ''}
           </Text>
         </Box>
       ) : null}

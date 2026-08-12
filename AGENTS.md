@@ -49,7 +49,7 @@ resources/             # Bundled runtime assets (loaded at runtime, not source)
 - **Tool system:** Tools in `src/renderer/src/lib/tools/`, registered in phases (core → skills → sub-agents → teams). Some tools (WebSearch, Browser, CodeGraph) are registered/unregistered dynamically based on user settings.
 - **Session modes:** `chat`, `clarify`, `cowork`, `code`, `acp` — each with distinct prompts/tools/UI. Mode stored per-session in `SessionPromptSnapshot` (`chat-store.ts`).
 - **SQLite schema:** Evolves via additive `ensureColumn` — columns added if absent, never dropped. No migration files.
-- **Data directory:** `~/.open-cowork/` — contains `data.db`, user `prompts/`, `agents/`, `skills/`. Never commit its contents.
+- **Data directory:** `~/.open-cowork/` — contains `data.db`, user `prompts/`, `agents/`. Never commit its contents. User skills live in `~/.agents/skills/` (Native Worker skill catalog).
 
 ## Submodules
 
@@ -129,4 +129,4 @@ When modifying agent behavior:
 - **Tools:** New tools must be registered in `src/renderer/src/lib/tools/index.ts` and follow the existing `ToolHandler` interface (`tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and IPC client.
 - **Runtime:** The agent runtime (`src/main/ipc/native-agent-runtime.ts`) is provider-agnostic. Test with at least two different LLM providers when changing runtime logic.
 - **MCP integration:** Model Context Protocol tools are loaded dynamically. Changes to MCP handling require testing with both connected and disconnected MCP servers.
-- **Skills & agents:** Bundled skills in `resources/skills/` (SKILL.md + scripts/), bundled agents in `resources/agents/` (Markdown + frontmatter). Users add custom ones in `~/.open-cowork/skills/` and `~/.open-cowork/agents/`.
+- **Skills & agents:** Bundled skills in `resources/skills/` (SKILL.md + scripts/), bundled agents in `resources/agents/` (Markdown + frontmatter). Users add custom skills in `~/.agents/skills/` (the Native Worker skill catalog directory) and custom agents in `~/.open-cowork/agents/`.

@@ -1,5 +1,6 @@
+import { spawn } from 'node:child_process'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Static, Text, useApp } from 'ink'
+import { Box, Static, Text, useApp, useInput } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
 import { ConfigPanel } from './components/config-panel.js'
@@ -19,8 +20,16 @@ import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { t } from './i18n.js'
 import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
+import { computeTranscriptWindow } from './lib/message-height.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
+import {
+  containsMouseSequence,
+  isLeftClickPress,
+  parseMouseEvents,
+  wheelDelta
+} from './terminal/mouse.js'
 import { theme } from './theme.js'
+import { checkForUpdate } from './update.js'
 import type {
   AgentRuntime,
   AgentOption,
@@ -59,6 +68,8 @@ interface CliAppProps {
   cwd: string
   initialPermissionMode: PermissionMode
   initialPrompt: string
+  /** Session restored by --continue / --resume before the UI mounted. */
+  initialResume?: ResumeResult
   onRequestRedraw(): void
   runtime: AgentRuntime
   tuiMode: TuiMode
@@ -70,19 +81,19 @@ const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'aut
 function permissionModeNotice(mode: PermissionMode): string {
   switch (mode) {
     case 'acceptEdits':
-      return t('cli.statuses.acceptEditsOn', 'Accept edits mode on ¬∑ Shift+Tab to cycle')
+      return t('cli.statuses.acceptEditsOn', 'Accept edits mode on ù Shift+Tab to cycle')
     case 'plan':
       return t(
         'cli.statuses.planOn',
-        'Plan mode on ¬∑ implementation waits for your approval ¬∑ Shift+Tab to cycle'
+        'Plan mode on ù implementation waits for your approval ù Shift+Tab to cycle'
       )
     case 'auto':
       return t(
         'cli.statuses.autoOn',
-        'Auto mode on ¬∑ tools may run without confirmation ¬∑ Shift+Tab to cycle'
+        'Auto mode on ù tools may run without confirmation ù Shift+Tab to cycle'
       )
     default:
-      return t('cli.statuses.manualOn', 'Manual approval mode ¬∑ Shift+Tab to cycle')
+      return t('cli.statuses.manualOn', 'Manual approval mode ù Shift+Tab to cycle')
   }
 }
 
@@ -122,10 +133,44 @@ function isActiveThinkingMessage(message: Message): boolean {
   return segments.at(-1)?.kind === 'thinking'
 }
 
+/**
+ * Update one message located by ID without mapping the whole transcript. Streaming targets
+ * live at the tail, so the reverse scan finds them in O(1) during a turn; the shallow array
+ * copy is the only per-delta O(n) cost left.
+ */
+function updateMessageById<K extends Message['kind']>(
+  current: Message[],
+  id: string,
+  kind: K,
+  update: (message: Extract<Message, { kind: K }>) => Message
+): Message[] {
+  for (let index = current.length - 1; index >= 0; index -= 1) {
+    const message = current[index]
+    if (message && message.id === id && message.kind === kind) {
+      const next = current.slice()
+      next[index] = update(message as Extract<Message, { kind: K }>)
+      return next
+    }
+  }
+  return current
+}
+
+/** Stream deltas may be coalesced and applied on a frame budget instead of per event. */
+function isCoalescibleEvent(event: UiEvent): boolean {
+  return (
+    event.type === 'assistant.delta' ||
+    event.type === 'assistant.thinking' ||
+    event.type === 'tool.update'
+  )
+}
+
+const STREAM_FLUSH_INTERVAL_MS = 33
+
 export function CliApp({
   cwd,
   initialPermissionMode,
   initialPrompt,
+  initialResume,
   onRequestRedraw,
   runtime,
   tuiMode,
@@ -135,14 +180,35 @@ export function CliApp({
   const { columns, revision: terminalRevision, rows } = useTerminalSize()
   const initialCatalogRef = useRef<ModelCatalog | null>(null)
   initialCatalogRef.current ??= runtime.getModelCatalog()
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (!initialResume) return []
+    const banner: Message[] = [
+      {
+        id: 'startup-resume',
+        kind: 'system',
+        text: t('cli.runtime.resumedSession', 'Resumed session ù {{count}} canonical messages', {
+          count: initialResume.session.messageCount
+        }),
+        tone: 'success'
+      }
+    ]
+    if (initialResume.warning) {
+      banner.push({
+        id: 'startup-resume-warning',
+        kind: 'system',
+        text: initialResume.warning,
+        tone: 'warning'
+      })
+    }
+    return [...initialResume.transcript, ...banner]
+  })
   const [promptImages, setPromptImages] = useState<PromptImageAttachment[]>([])
   const [promptReferences, setPromptReferences] = useState<PromptReference[]>([])
   const [tasks, setTasks] = useState<TaskItem[]>([])
   const [agents, setAgents] = useState<AgentOption[]>(() => runtime.getAgentCatalog())
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(initialCatalogRef.current)
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(
-    initialCatalogRef.current.active
+    initialResume ? initialResume.modelSelection : initialCatalogRef.current.active
   )
   const [permissionMode, setPermissionMode] = useState(initialPermissionMode)
   const initialModelConfigurationRef = useRef<ModelConfiguration | null | undefined>(undefined)
@@ -173,6 +239,9 @@ export function CliApp({
   const [showHelp, setShowHelp] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
   const [showTasks, setShowTasks] = useState(false)
+  // Fullscreen scroll lock: index of the bottom-most visible message, null follows the tail.
+  const [scrollAnchor, setScrollAnchor] = useState<number | null>(null)
+  const [expandedMessageIds, setExpandedMessageIds] = useState<ReadonlySet<string>>(() => new Set())
   const [modelPickerPurpose, setModelPickerPurpose] = useState<'session' | 'compression' | null>(
     null
   )
@@ -188,6 +257,7 @@ export function CliApp({
     null
   )
   const [providerSetupReturnToConfig, setProviderSetupReturnToConfig] = useState(false)
+  const [providerSetupOnboarding, setProviderSetupOnboarding] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configCatalog, setConfigCatalog] = useState<ConfigCatalog | null>(null)
   const [configSavingKey, setConfigSavingKey] = useState<string>()
@@ -220,7 +290,6 @@ export function CliApp({
         )
     : undefined
   const supportsVision = selectedModelOption?.supportsVision === true
-  const maxVisibleMessages = Math.max(3, Math.floor((rows - 9) / (showDetails ? 4 : 2)))
   const firstMutableMessage = messages.findIndex(
     (message) =>
       (message.kind === 'assistant' && message.streaming) ||
@@ -229,8 +298,34 @@ export function CliApp({
   const committedMessages = fullscreen
     ? []
     : messages.slice(0, firstMutableMessage < 0 ? messages.length : firstMutableMessage)
-  const dynamicMessages = fullscreen
-    ? messages.slice(-maxVisibleMessages)
+  // Fullscreen viewport: window by estimated per-message line heights instead of a flat
+  // message count, reserving the bottom chrome (turn status, prompt, status line). Open
+  // overlays claim more rows, so the transcript budget shrinks while one is visible.
+  const bottomOverlayOpen = Boolean(
+    askUserRequest ||
+    permissionRequest ||
+    effortConfiguration ||
+    modelConfiguration ||
+    modelPickerPurpose ||
+    providerSetupCatalog ||
+    resumeOpen ||
+    agentPanelOpen ||
+    configOpen ||
+    (permissionMode === 'plan' && plan)
+  )
+  const transcriptBudget = Math.max(4, rows - (bottomOverlayOpen ? 20 : 12))
+  const transcriptWindow = fullscreen
+    ? computeTranscriptWindow({
+        anchorIndex: scrollAnchor,
+        budgetLines: transcriptBudget,
+        expandedIds: expandedMessageIds,
+        messages,
+        showDetails,
+        width: contentWidth
+      })
+    : null
+  const dynamicMessages = transcriptWindow
+    ? transcriptWindow.messages
     : messages.slice(firstMutableMessage < 0 ? messages.length : firstMutableMessage)
   const assistantThinking = dynamicMessages.some(isActiveThinkingMessage)
 
@@ -239,6 +334,33 @@ export function CliApp({
       abortControllerRef.current?.abort()
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
+  }, [])
+
+  // The update probe runs after the UI is interactive so startup never blocks on npm.
+  // A newer version surfaces as a persistent transcript notice instead of a modal prompt.
+  useEffect(() => {
+    let cancelled = false
+    void checkForUpdate(version).then((latest) => {
+      if (cancelled || !latest) return
+      messageIdRef.current += 1
+      setMessages((current) => [
+        ...current,
+        {
+          id: `system-update-${messageIdRef.current}`,
+          kind: 'system',
+          text: t(
+            'cli.runtime.updateAvailable',
+            'OpenCowork {{version}} is available ù run `cowork update` to upgrade',
+            { version: latest }
+          ),
+          tone: 'muted'
+        }
+      ])
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one startup probe per process
   }, [])
 
   useEffect(() => {
@@ -257,6 +379,62 @@ export function CliApp({
     setShowDetails((current) => !current)
     redraw()
   }
+
+  // Fullscreen scroll lock: moving the anchor off the tail freezes the viewport while
+  // new messages keep streaming below; reaching the newest message re-enables follow.
+  const scrollTranscript = (delta: number): void => {
+    if (!fullscreen || messages.length === 0) return
+    setScrollAnchor((current) => {
+      const last = messages.length - 1
+      const base = current === null ? last : current
+      const next = Math.max(0, Math.min(last, base + delta))
+      return next >= last ? null : next
+    })
+  }
+
+  const toggleMessageExpanded = (id: string): void => {
+    setExpandedMessageIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Maps a click row (1-based screen coordinates; the fullscreen transcript starts at
+  // the top of the alt screen) onto the visible message and toggles tool detail.
+  const handleTranscriptClick = (row: number): void => {
+    if (!transcriptWindow) return
+    let cursor = 0
+    for (let index = 0; index < transcriptWindow.messages.length; index += 1) {
+      const height = transcriptWindow.heights[index] ?? 0
+      if (row > cursor && row <= cursor + height) {
+        const target = transcriptWindow.messages[index]
+        if (target && target.kind === 'tool' && (target.detail || target.summary)) {
+          toggleMessageExpanded(target.id)
+        }
+        return
+      }
+      cursor += height
+    }
+  }
+
+  useInput(
+    (input, key) => {
+      if (containsMouseSequence(input)) {
+        for (const event of parseMouseEvents(input)) {
+          const delta = wheelDelta(event)
+          if (delta !== 0) scrollTranscript(delta)
+          else if (isLeftClickPress(event)) handleTranscriptClick(event.row)
+        }
+        return
+      }
+      const pageSize = Math.max(1, transcriptWindow?.messages.length ?? 3)
+      if (key.pageUp) scrollTranscript(-pageSize)
+      else if (key.pageDown) scrollTranscript(pageSize)
+    },
+    { isActive: fullscreen }
+  )
 
   const showNotice = (message: string): void => {
     setNotice(message)
@@ -353,6 +531,7 @@ export function CliApp({
     try {
       setProviderSetupCatalog(runtime.getProviderSetupCatalog())
       setProviderSetupReturnToConfig(returnToConfig)
+      setProviderSetupOnboarding(false)
       setConfigOpen(false)
     } catch (error) {
       appendSystem(error instanceof Error ? error.message : String(error), 'error')
@@ -361,6 +540,7 @@ export function CliApp({
 
   const closeProviderSetup = (): void => {
     setProviderSetupCatalog(null)
+    setProviderSetupOnboarding(false)
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
   }
@@ -379,10 +559,11 @@ export function CliApp({
     refreshConfigCatalog()
     refreshRuntimeMetrics()
     setProviderSetupCatalog(null)
+    setProviderSetupOnboarding(false)
     if (providerSetupReturnToConfig) setConfigOpen(true)
     setProviderSetupReturnToConfig(false)
     showNotice(
-      t('cli.runtime.providerReady', 'Provider ready ¬∑ {{provider}} / {{model}}', {
+      t('cli.runtime.providerReady', 'Provider ready ù {{provider}} / {{model}}', {
         provider: selection.providerName,
         model: selection.modelName
       })
@@ -393,6 +574,28 @@ export function CliApp({
     setAgents(runtime.getAgentCatalog())
     setAgentPanelOpen(true)
   }
+
+  // CLI-only first run: with no provider configured anywhere, the prompt cannot start a
+  // turn, so open the provider wizard immediately instead of leaving only a welcome tip.
+  // Onboarding mode leads with the recommended provider; Esc still dismisses it.
+  const firstRunSetupRef = useRef(false)
+  useEffect(() => {
+    if (firstRunSetupRef.current) return
+    firstRunSetupRef.current = true
+    const catalog = initialCatalogRef.current
+    const unconfigured = !catalog?.active && (catalog?.groups.length ?? 0) === 0
+    if (!unconfigured) return
+    if (!runtime.getProviderSetupCatalog || !runtime.configureProvider) return
+    try {
+      const setupCatalog = runtime.getProviderSetupCatalog()
+      setProviderSetupCatalog(setupCatalog)
+      setProviderSetupOnboarding(setupCatalog.configuredCount === 0)
+      setProviderSetupReturnToConfig(false)
+    } catch {
+      // The welcome tip and /provider remain available when the catalog cannot be read.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot first-run detection
+  }, [])
 
   const searchFiles = useCallback(
     async (query: string, signal: AbortSignal): Promise<FileReferenceCandidate[]> => {
@@ -423,8 +626,8 @@ export function CliApp({
     if (event.type === 'runtime.activity') {
       setActivity(
         event.activity === 'compressing'
-          ? t('cli.statuses.compressing', 'Compressing context‚Ä¶')
-          : t('cli.statuses.working', 'Working‚Ä¶')
+          ? t('cli.statuses.compressing', 'Compressing contextù')
+          : t('cli.statuses.working', 'Workingù')
       )
       if (event.activity === 'working') {
         setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
@@ -462,31 +665,31 @@ export function CliApp({
           ? `${(event.delayMs / 1_000).toFixed(event.delayMs % 1_000 === 0 ? 0 : 1)}s`
           : `${event.delayMs}ms`
       setActivity(
-        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` ¬∑ HTTP ${event.statusCode}` : ''} ¬∑ ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` ¬∑ ${event.reason}` : ''}`
+        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` ù HTTP ${event.statusCode}` : ''} ù ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` ù ${event.reason}` : ''}`
       )
       setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
       return
     }
 
     if (event.type === 'context-compression.start') {
-      setActivity(t('cli.statuses.compressing', 'Compressing context‚Ä¶'))
+      setActivity(t('cli.statuses.compressing', 'Compressing contextù'))
       return
     }
 
     if (event.type === 'context-compression.done') {
-      setActivity(t('cli.statuses.working', 'Working‚Ä¶'))
+      setActivity(t('cli.statuses.working', 'Workingù'))
       appendSystem(
         event.summarizerFailed
           ? event.error ||
               'Context compression failed; the Native Worker preserved the original history.'
-          : `Context compressed ¬∑ ${event.originalCount} ‚Üí ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` ¬∑ ${event.messagesSummarized} summarized`}`,
+          : `Context compressed ù ${event.originalCount} ? ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` ù ${event.messagesSummarized} summarized`}`,
         event.summarizerFailed ? 'warning' : 'success'
       )
       return
     }
 
     if (event.type === 'assistant.start') {
-      setActivity(t('cli.statuses.working', 'Working‚Ä¶'))
+      setActivity(t('cli.statuses.working', 'Workingù'))
       setTurnStatus((current) => (current ? { ...current, phase: 'responding' } : current))
       setMessages((current) => [
         ...current,
@@ -514,15 +717,11 @@ export function CliApp({
           : current
       )
       setMessages((current) =>
-        current.map((message) =>
-          message.id === event.id && message.kind === 'assistant'
-            ? {
-                ...message,
-                segments: appendAssistantSegment(message.segments, 'text', event.text, Date.now()),
-                text: message.text + event.text
-              }
-            : message
-        )
+        updateMessageById(current, event.id, 'assistant', (message) => ({
+          ...message,
+          segments: appendAssistantSegment(message.segments, 'text', event.text, Date.now()),
+          text: message.text + event.text
+        }))
       )
       return
     }
@@ -538,19 +737,10 @@ export function CliApp({
           : current
       )
       setMessages((current) =>
-        current.map((message) =>
-          message.id === event.id && message.kind === 'assistant'
-            ? {
-                ...message,
-                segments: appendAssistantSegment(
-                  message.segments,
-                  'thinking',
-                  event.thinking,
-                  Date.now()
-                )
-              }
-            : message
-        )
+        updateMessageById(current, event.id, 'assistant', (message) => ({
+          ...message,
+          segments: appendAssistantSegment(message.segments, 'thinking', event.thinking, Date.now())
+        }))
       )
       return
     }
@@ -568,28 +758,24 @@ export function CliApp({
         })
       }
       setMessages((current) =>
-        current.map((message) =>
-          message.id === event.id && message.kind === 'assistant'
-            ? {
-                ...message,
-                ...(event.reasoningTokens === undefined
-                  ? {}
-                  : { reasoningTokens: event.reasoningTokens }),
-                segments: finalizeAssistantSegments(
-                  message.segments,
-                  event.reasoningTokens ?? message.reasoningTokens,
-                  Date.now()
-                ),
-                streaming: false
-              }
-            : message
-        )
+        updateMessageById(current, event.id, 'assistant', (message) => ({
+          ...message,
+          ...(event.reasoningTokens === undefined
+            ? {}
+            : { reasoningTokens: event.reasoningTokens }),
+          segments: finalizeAssistantSegments(
+            message.segments,
+            event.reasoningTokens ?? message.reasoningTokens,
+            Date.now()
+          ),
+          streaming: false
+        }))
       )
       return
     }
 
     if (event.type === 'tool.start') {
-      setActivity(t('cli.statuses.working', 'Working‚Ä¶'))
+      setActivity(t('cli.statuses.working', 'Workingù'))
       setTurnStatus((current) => (current ? { ...current, phase: 'tool-use' } : current))
       setMessages((current) => [
         ...current,
@@ -606,33 +792,25 @@ export function CliApp({
 
     if (event.type === 'tool.done') {
       setMessages((current) =>
-        current.map((message) =>
-          message.id === event.id && message.kind === 'tool'
-            ? {
-                ...message,
-                status: event.status,
-                summary: event.summary,
-                ...(event.title ? { title: event.title } : {}),
-                ...(event.diff ? { diff: event.diff } : {})
-              }
-            : message
-        )
+        updateMessageById(current, event.id, 'tool', (message) => ({
+          ...message,
+          status: event.status,
+          summary: event.summary,
+          ...(event.title ? { title: event.title } : {}),
+          ...(event.diff ? { diff: event.diff } : {})
+        }))
       )
       return
     }
 
     if (event.type === 'tool.update') {
       setMessages((current) =>
-        current.map((message) =>
-          message.id === event.id && message.kind === 'tool'
-            ? {
-                ...message,
-                ...(event.title ? { title: event.title } : {}),
-                ...(event.detail ? { detail: event.detail } : {}),
-                ...(event.summary ? { summary: event.summary } : {})
-              }
-            : message
-        )
+        updateMessageById(current, event.id, 'tool', (message) => ({
+          ...message,
+          ...(event.title ? { title: event.title } : {}),
+          ...(event.detail ? { detail: event.detail } : {}),
+          ...(event.summary ? { summary: event.summary } : {})
+        }))
       )
       return
     }
@@ -677,19 +855,21 @@ export function CliApp({
     references: PromptReference[] = []
   ): Promise<void> => {
     if (isRunning) {
-      showNotice(t('cli.runtime.turnRunning', 'A turn is already running ¬∑ Esc to interrupt'))
+      showNotice(t('cli.runtime.turnRunning', 'A turn is already running ù Esc to interrupt'))
       return
     }
     if (images.length > 0 && !supportsVision) {
       showNotice(
         t(
           'cli.runtime.visionUnsupported',
-          'Current model does not support image input ¬∑ choose a vision model with Alt-P'
+          'Current model does not support image input ù choose a vision model with Alt-P'
         )
       )
       return
     }
 
+    // A new turn always returns the fullscreen viewport to follow-the-tail mode.
+    setScrollAnchor(null)
     const startedAt = Date.now()
     let requestTokens = Math.max(1, Math.ceil(prompt.length / 4))
     const submission = { text: prompt, images, references }
@@ -727,7 +907,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity(t('cli.statuses.working', 'Working‚Ä¶'))
+    setActivity(t('cli.statuses.working', 'Workingù'))
     setTurnStatus({
       activeResponseCharacters: 0,
       completedOutputTokens: 0,
@@ -738,14 +918,58 @@ export function CliApp({
       verb: pickSpinnerVerb()
     })
 
+    // High-rate stream deltas are buffered and applied on a ~33ms frame budget so React
+    // renders once per frame instead of once per token. Interactive events (approvals,
+    // AskUser, plan, tool start/done) flush the buffer and apply immediately in order.
+    const pendingEvents: UiEvent[] = []
+    let flushTimer: NodeJS.Timeout | null = null
+    const flushPendingEvents = (): void => {
+      if (flushTimer) {
+        clearTimeout(flushTimer)
+        flushTimer = null
+      }
+      if (pendingEvents.length === 0) return
+      for (const event of pendingEvents.splice(0)) applyRuntimeEvent(event)
+    }
+    const enqueueEvent = (event: UiEvent): void => {
+      if (!isCoalescibleEvent(event)) {
+        flushPendingEvents()
+        applyRuntimeEvent(event)
+        return
+      }
+      const tail = pendingEvents.at(-1)
+      if (
+        tail &&
+        tail.type === 'assistant.delta' &&
+        event.type === 'assistant.delta' &&
+        tail.id === event.id
+      ) {
+        tail.text += event.text
+      } else if (
+        tail &&
+        tail.type === 'assistant.thinking' &&
+        event.type === 'assistant.thinking' &&
+        tail.id === event.id
+      ) {
+        tail.thinking += event.thinking
+      } else {
+        pendingEvents.push(event)
+      }
+      flushTimer ??= setTimeout(flushPendingEvents, STREAM_FLUSH_INTERVAL_MS)
+    }
+
     try {
       for await (const event of runtime.send(submission, controller.signal)) {
         if (controller.signal.aborted) break
-        applyRuntimeEvent(event)
+        enqueueEvent(event)
       }
+      flushPendingEvents()
     } catch (error) {
       appendSystem(error instanceof Error ? error.message : String(error), 'error')
     } finally {
+      if (flushTimer) clearTimeout(flushTimer)
+      flushTimer = null
+      pendingEvents.length = 0
       abortControllerRef.current = undefined
       refreshRuntimeMetrics()
       setIsRunning(false)
@@ -773,7 +997,7 @@ export function CliApp({
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
-    setActivity(t('cli.statuses.compressing', 'Compressing context‚Ä¶'))
+    setActivity(t('cli.statuses.compressing', 'Compressing contextù'))
     try {
       const result = await runtime.compactContext(focusPrompt, controller.signal)
       if (result.summarizerFailed) {
@@ -785,7 +1009,7 @@ export function CliApp({
         appendSystem('No compressible context is available yet.', 'warning')
       } else {
         appendSystem(
-          `Context compressed ¬∑ ${result.originalCount} ‚Üí ${result.newCount} messages${result.messagesSummarized === undefined ? '' : ` ¬∑ ${result.messagesSummarized} summarized`}`,
+          `Context compressed ù ${result.originalCount} ? ${result.newCount} messages${result.messagesSummarized === undefined ? '' : ` ù ${result.messagesSummarized} summarized`}`,
           'success'
         )
       }
@@ -815,8 +1039,8 @@ export function CliApp({
     setIsRunning(true)
     setActivity(
       startNewSession
-        ? t('cli.runtime.startingSession', 'Starting new session‚Ä¶')
-        : t('cli.runtime.clearingContext', 'Clearing context‚Ä¶')
+        ? t('cli.runtime.startingSession', 'Starting new sessionù')
+        : t('cli.runtime.clearingContext', 'Clearing contextù')
     )
     try {
       await operation.call(runtime)
@@ -847,14 +1071,14 @@ export function CliApp({
       return
     }
     setIsRunning(true)
-    setActivity(t('cli.runtime.checkingWorker', 'Checking Native Worker‚Ä¶'))
+    setActivity(t('cli.runtime.checkingWorker', 'Checking Native Workerù'))
     try {
       const result = await runtime.doctor()
       appendSystem(
         [
-          `Native Worker ready ¬∑ ${result.runtime} ${result.runtimeVersion}`,
-          `IPC v${result.protocolVersion} ¬∑ Agent v${result.agentProtocolVersion} ¬∑ ${result.routeCount} routes`,
-          `PID ${result.pid} ¬∑ ${result.configuredModel}`,
+          `Native Worker ready ù ${result.runtime} ${result.runtimeVersion}`,
+          `IPC v${result.protocolVersion} ù Agent v${result.agentProtocolVersion} ù ${result.routeCount} routes`,
+          `PID ${result.pid} ù ${result.configuredModel}`,
           result.executable
         ].join('\n'),
         'success'
@@ -913,7 +1137,7 @@ export function CliApp({
     }
     if (isRunning) throw new Error('Wait for the active Worker operation before resuming.')
     setIsRunning(true)
-    setActivity(t('cli.runtime.resumingSession', 'Resuming session‚Ä¶'))
+    setActivity(t('cli.runtime.resumingSession', 'Resuming sessionù'))
     try {
       return await runtime.resumeSession(sessionId, signal)
     } finally {
@@ -942,7 +1166,7 @@ export function CliApp({
     refreshConfigCatalog()
     refreshRuntimeMetrics()
     if (result.warning) appendSystem(result.warning, 'warning')
-    showNotice(`Resumed session ¬∑ ${result.session.messageCount} canonical messages`)
+    showNotice(`Resumed session ù ${result.session.messageCount} canonical messages`)
   }
 
   const runRewind = async (
@@ -962,12 +1186,12 @@ export function CliApp({
     setIsRunning(true)
     setActivity(
       action === 'summarize-from' || action === 'summarize-up-to'
-        ? t('cli.runtime.summarizingConversation', 'Summarizing conversation‚Ä¶')
+        ? t('cli.runtime.summarizingConversation', 'Summarizing conversationù')
         : action === 'restore-code'
-          ? t('cli.runtime.restoringCode', 'Restoring code‚Ä¶')
+          ? t('cli.runtime.restoringCode', 'Restoring codeù')
           : action === 'restore-code-and-conversation'
-            ? t('cli.runtime.restoringCodeConversation', 'Restoring code and conversation‚Ä¶')
-            : t('cli.runtime.restoringConversation', 'Restoring conversation‚Ä¶')
+            ? t('cli.runtime.restoringCodeConversation', 'Restoring code and conversationù')
+            : t('cli.runtime.restoringConversation', 'Restoring conversationù')
     )
 
     try {
@@ -1011,7 +1235,7 @@ export function CliApp({
         result.summarized
           ? 'Conversation summarized'
           : result.conversationForked
-            ? `Conversation forked${result.restoredFileCount > 0 ? ` ¬∑ ${result.restoredFileCount} files restored` : ''}`
+            ? `Conversation forked${result.restoredFileCount > 0 ? ` ù ${result.restoredFileCount} files restored` : ''}`
             : `${result.restoredFileCount} tracked file${result.restoredFileCount === 1 ? '' : 's'} restored`
       )
       return result
@@ -1075,8 +1299,8 @@ export function CliApp({
         refreshConfigCatalog()
         showNotice(
           nextEffort === null
-            ? `Effort auto ¬∑ ${resolvedEffort} model default`
-            : `Effort set to ${resolvedEffort}${sessionOnly ? ' ¬∑ current session' : ''}${configuration.supportsThinking ? ' ¬∑ Thinking on' : ''}`
+            ? `Effort auto ù ${resolvedEffort} model default`
+            : `Effort set to ${resolvedEffort}${sessionOnly ? ' ù current session' : ''}${configuration.supportsThinking ? ' ù Thinking on' : ''}`
         )
       })
       .catch((error) =>
@@ -1162,10 +1386,10 @@ export function CliApp({
             : `${formatTokenCount(snapshot.estimatedTokens)} tokens`
         const ratio =
           snapshot.contextLength > 0
-            ? ` ¬∑ ${Math.round((snapshot.estimatedTokens / snapshot.contextLength) * 100)}%`
+            ? ` ù ${Math.round((snapshot.estimatedTokens / snapshot.contextLength) * 100)}%`
             : ''
         appendSystem(
-          `Context ¬∑ ${usage}${ratio}\n${snapshot.messageCount} canonical messages ¬∑ auto-compact ${snapshot.compressionEnabled ? `at ${formatTokenCount(snapshot.triggerTokens)}` : 'off'}`,
+          `Context ù ${usage}${ratio}\n${snapshot.messageCount} canonical messages ù auto-compact ${snapshot.compressionEnabled ? `at ${formatTokenCount(snapshot.triggerTokens)}` : 'off'}`,
           'success'
         )
       }
@@ -1181,7 +1405,7 @@ export function CliApp({
             ? 'pricing unavailable'
             : formatUsdCost(usage.estimatedCostUsd)
         appendSystem(
-          `Usage ¬∑ ${usage.requestCount} requests ¬∑ ${formatTokenCount(usage.inputTokens)} input ¬∑ ${formatTokenCount(usage.outputTokens)} output\nBillable input ${formatTokenCount(usage.billableInputTokens)} ¬∑ cache read ${formatTokenCount(usage.cacheReadTokens)} ¬∑ reasoning ${formatTokenCount(usage.reasoningTokens)}\nEstimated cost ${cost} ¬∑ ${usage.model}`,
+          `Usage ù ${usage.requestCount} requests ù ${formatTokenCount(usage.inputTokens)} input ù ${formatTokenCount(usage.outputTokens)} output\nBillable input ${formatTokenCount(usage.billableInputTokens)} ù cache read ${formatTokenCount(usage.cacheReadTokens)} ù reasoning ${formatTokenCount(usage.reasoningTokens)}\nEstimated cost ${cost} ù ${usage.model}`,
           'success'
         )
       }
@@ -1208,6 +1432,93 @@ export function CliApp({
       showNotice(permissionModeNotice(nextMode))
       return true
     }
+    if (name === '/skills') {
+      if (!runtime.listSkills) {
+        appendSystem('Skill listing is unavailable in this runtime.', 'warning')
+        return true
+      }
+      void runtime
+        .listSkills()
+        .then((skills) => {
+          if (skills.length === 0) {
+            appendSystem(
+              'No skills installed. Add skills under ~/.agents/skills (SKILL.md per folder).',
+              'muted'
+            )
+            return
+          }
+          appendSystem(
+            [
+              `${skills.length} skill${skills.length === 1 ? '' : 's'} available via the Skill tool:`,
+              ...skills.map((skill) => `- ${skill.name}: ${skill.description}`)
+            ].join('\n'),
+            'success'
+          )
+        })
+        .catch((error) =>
+          appendSystem(error instanceof Error ? error.message : String(error), 'error')
+        )
+      return true
+    }
+    if (name === '/mcp') {
+      if (!runtime.getMcpStatus) {
+        appendSystem('MCP hosting is unavailable in this runtime.', 'warning')
+        return true
+      }
+      const action = args[0]?.toLowerCase()
+      if (action && action !== 'enable' && action !== 'disable' && action !== 'reload') {
+        appendSystem('Usage: /mcp [enable <id>|disable <id>|reload]', 'warning')
+        return true
+      }
+      const renderStatus = async (): Promise<void> => {
+        const status = await runtime.getMcpStatus!()
+        if (status.servers.length === 0) {
+          appendSystem(
+            'No MCP servers configured. Add servers in the OpenCowork desktop app or edit ~/.open-cowork/mcp-servers.json, then run /mcp reload.',
+            'muted'
+          )
+          return
+        }
+        const lines = status.servers.map((server) => {
+          const state = server.projectBound
+            ? 'project-bound ù desktop only'
+            : !server.enabled
+              ? 'disabled'
+              : server.status === 'connected'
+                ? `connected ù ${server.toolCount} tools${server.resourceCount > 0 ? ` ù ${server.resourceCount} resources` : ''}`
+                : server.status === 'error'
+                  ? `error ù ${server.error ?? 'connection failed'}`
+                  : server.status
+          return `${server.name} (${server.id}) ù ${server.transport} ù ${state}`
+        })
+        const hasError = status.servers.some(
+          (server) => server.enabled && server.status === 'error'
+        )
+        appendSystem(
+          [...lines, `${status.hostedToolCount} MCP tools exposed to the agent`].join('\n'),
+          hasError ? 'warning' : 'success'
+        )
+      }
+      const run = async (): Promise<void> => {
+        if (action === 'enable' || action === 'disable') {
+          const id = args[1]
+          if (!id) {
+            appendSystem(`Usage: /mcp ${action} <server-id>`, 'warning')
+            return
+          }
+          if (!runtime.setMcpServerEnabled) {
+            appendSystem('MCP configuration updates are unavailable in this runtime.', 'warning')
+            return
+          }
+          await runtime.setMcpServerEnabled(id, action === 'enable')
+        }
+        await renderStatus()
+      }
+      void run().catch((error) =>
+        appendSystem(error instanceof Error ? error.message : String(error), 'error')
+      )
+      return true
+    }
     if (name === '/codegraph') {
       if (!runtime.getCodeGraphStatus) {
         appendSystem('CodeGraph status is unavailable in this runtime.', 'warning')
@@ -1216,9 +1527,9 @@ export function CliApp({
       void runtime
         .getCodeGraphStatus()
         .then((status) => {
-          const catalog = status.toolNames.length > 0 ? ` ¬∑ ${status.toolNames.join(', ')}` : ''
+          const catalog = status.toolNames.length > 0 ? ` ù ${status.toolNames.join(', ')}` : ''
           appendSystem(
-            `${status.message} ¬∑ ${status.indexed ? 'indexed' : 'not indexed'}${catalog}`,
+            `${status.message} ù ${status.indexed ? 'indexed' : 'not indexed'}${catalog}`,
             status.enabled ? (status.indexed ? 'success' : 'warning') : 'muted'
           )
         })
@@ -1264,7 +1575,7 @@ export function CliApp({
           `${tuiMode} renderer`
         ]
           .filter(Boolean)
-          .join(' ¬∑ '),
+          .join(' ù '),
         'success'
       )
       return true
@@ -1290,12 +1601,95 @@ export function CliApp({
     return false
   }
 
+  // `!` shell mode: run the rest of the prompt as a local shell command without an
+  // agent turn. Output lands in the transcript as a tool block (click / Ctrl-O expands),
+  // and Esc/Ctrl-C reuse the normal interrupt path to kill the child.
+  const SHELL_OUTPUT_LIMIT = 16_000
+  const runShellCommand = (command: string): void => {
+    messageIdRef.current += 1
+    const id = `shell-${Date.now()}-${messageIdRef.current}`
+    setMessages((current) => [
+      ...current,
+      { id, kind: 'tool', title: `$ ${command}`, status: 'running' }
+    ])
+    setScrollAnchor(null)
+    setIsRunning(true)
+    setActivity(t('cli.statuses.runningShell', 'Running shell commandù'))
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    const child = spawn(command, { shell: true, cwd, env: process.env })
+    let output = ''
+    let truncated = false
+    const appendOutput = (chunk: Buffer): void => {
+      if (output.length >= SHELL_OUTPUT_LIMIT) {
+        truncated = true
+        return
+      }
+      output += chunk.toString('utf8')
+    }
+    child.stdout?.on('data', appendOutput)
+    child.stderr?.on('data', appendOutput)
+    const killChild = (): void => {
+      child.kill('SIGTERM')
+    }
+    controller.signal.addEventListener('abort', killChild, { once: true })
+
+    let finished = false
+    const finish = (code: number | null, errorMessage?: string): void => {
+      if (finished) return
+      finished = true
+      controller.signal.removeEventListener('abort', killChild)
+      setIsRunning(false)
+      setActivity(undefined)
+      const interrupted = controller.signal.aborted
+      const failed = Boolean(errorMessage) || interrupted || (code !== null && code !== 0)
+      const trimmed = output.replace(/\s+$/u, '')
+      const detail = trimmed
+        ? truncated
+          ? `${trimmed.slice(0, SHELL_OUTPUT_LIMIT)}\nù output truncated`
+          : trimmed
+        : undefined
+      const firstLine = trimmed.split('\n', 1)[0]
+      const summary =
+        errorMessage ??
+        (interrupted
+          ? t('cli.statuses.interrupted', 'Interrupted')
+          : failed
+            ? `exit ${code}${firstLine ? ` ù ${firstLine}` : ''}`
+            : firstLine || t('cli.statuses.completed', 'Completed'))
+      setMessages((current) =>
+        updateMessageById(current, id, 'tool', (message) => ({
+          ...message,
+          status: failed ? 'error' : 'success',
+          summary,
+          ...(detail ? { detail } : {})
+        }))
+      )
+    }
+    child.on('error', (error) => finish(null, error.message))
+    child.on('close', (code) => finish(code))
+  }
+
   const handleSubmit = (
     submission: string,
     images: PromptImageAttachment[],
     references: PromptReference[]
   ): void => {
     setShowHelp(false)
+    const shellCandidate = submission.trimStart()
+    if (shellCandidate.startsWith('!')) {
+      if (images.length > 0 || references.length > 0) {
+        showNotice('Remove attached images and references before running a shell command')
+        return
+      }
+      const command = shellCandidate.slice(1).trim()
+      if (!command) {
+        showNotice(t('cli.prompt.shellUsage', '!<command> runs a shell command in the cwd'))
+        return
+      }
+      runShellCommand(command)
+      return
+    }
     if (submission.trimStart().startsWith('/')) {
       if (images.length > 0 || references.length > 0) {
         showNotice('Remove attached images and references before running a CLI command')
@@ -1319,7 +1713,7 @@ export function CliApp({
       deny: 'Denied'
     }
     appendSystem(
-      `${labels[decision]} ¬∑ ${request.tool}: ${request.title}`,
+      `${labels[decision]} ù ${request.tool}: ${request.title}`,
       decision === 'deny' ? 'warning' : 'success'
     )
     void runtime.respondToPermission?.(request.id, decision)
@@ -1338,7 +1732,7 @@ export function CliApp({
   const handleAskUserCancel = (): void => {
     setAskUserRequest(null)
     abortControllerRef.current?.abort()
-    showNotice('AskUserQuestion cancelled ¬∑ turn interrupted')
+    showNotice('AskUserQuestion cancelled ù turn interrupted')
   }
 
   const handlePlanApprove = (mode: PlanApprovalMode): void => {
@@ -1352,7 +1746,7 @@ export function CliApp({
         const nextMode: PermissionMode = mode === 'auto' ? 'auto' : mode
         setPermissionMode(nextMode)
         runtime.configure?.({ permissionMode: nextMode })
-        appendSystem('Plan approved ¬∑ starting implementation in the Native Worker.', 'success')
+        appendSystem('Plan approved ù starting implementation in the Native Worker.', 'success')
         void runPrompt('Implement the approved plan.')
       })
       .catch((error) =>
@@ -1371,7 +1765,7 @@ export function CliApp({
         setPlan({ ...currentPlan, status: 'drafting', content: undefined, updatedAt: Date.now() })
         setPermissionMode('plan')
         runtime.configure?.({ permissionMode: 'plan' })
-        appendSystem('Plan revision requested ¬∑ returning to planning.', 'muted')
+        appendSystem('Plan revision requested ù returning to planning.', 'muted')
         void runPrompt(feedback)
       })
       .catch((error) =>
@@ -1467,7 +1861,7 @@ export function CliApp({
         if (modelConfigurationReturnToConfig) setConfigOpen(true)
         setModelConfigurationReturnToConfig(false)
         showNotice(
-          `Model switched to ${configuration.selection.providerName} / ${configuration.selection.modelName} ¬∑ configuration saved`
+          `Model switched to ${configuration.selection.providerName} / ${configuration.selection.modelName} ù configuration saved`
         )
       })
       .catch((error) =>
@@ -1553,6 +1947,7 @@ export function CliApp({
             />
           ) : dynamicMessages.length > 0 ? (
             <Transcript
+              expandedMessageIds={expandedMessageIds}
               hideStreamingStatus={Boolean(turnStatus)}
               messages={dynamicMessages}
               showDetails={showDetails}
@@ -1562,6 +1957,15 @@ export function CliApp({
         </Box>
 
         <Box flexDirection="column" flexShrink={0}>
+          {fullscreen && scrollAnchor !== null && transcriptWindow ? (
+            <Text color={theme.warning}>
+              {t(
+                'cli.statuses.scrollLocked',
+                '? {{count}} newer ù PgDn / wheel down to follow, click a tool row to expand',
+                { count: transcriptWindow.hiddenBelow }
+              )}
+            </Text>
+          ) : null}
           {turnStatus ? (
             <TurnStatusLine
               effort={effort}
@@ -1627,6 +2031,7 @@ export function CliApp({
             <ProviderSetupPanel
               catalog={providerSetupCatalog}
               maxVisible={Math.max(4, Math.min(10, rows - 13))}
+              onboarding={providerSetupOnboarding}
               onCancel={closeProviderSetup}
               onSave={saveProviderSetup}
               width={contentWidth}
@@ -1659,7 +2064,7 @@ export function CliApp({
               heading={
                 modelPickerPurpose === 'compression'
                   ? t('cli.model.selectCompression', 'Select compression model')
-                  : t('cli.model.selectStepOne', 'Select model ¬∑ Step 1 of 2')
+                  : t('cli.model.selectStepOne', 'Select model ù Step 1 of 2')
               }
               maxVisible={Math.max(4, Math.min(12, rows - 12))}
               onCancel={closeModelPicker}
@@ -1749,7 +2154,7 @@ export function CliApp({
           <StatusLine
             activity={
               turnStatus ||
-              (assistantThinking && activity === t('cli.statuses.working', 'Working‚Ä¶'))
+              (assistantThinking && activity === t('cli.statuses.working', 'Workingù'))
                 ? undefined
                 : activity
             }

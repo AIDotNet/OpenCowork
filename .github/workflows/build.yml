@@ -110,7 +110,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential libx11-dev libxtst-dev libpng++-dev
 
       - name: Install dependencies
-        run: npm ci
+        uses: ./.github/actions/install-npm-ci
 
       - name: Sync version to package.json
         run: npm version ${{ needs.prepare.outputs.version }} --no-git-tag-version --allow-same-version
@@ -199,7 +199,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential clang zlib1g-dev libx11-dev libxtst-dev libpng++-dev
 
       - name: Install dependencies
-        run: npm ci
+        uses: ./.github/actions/install-npm-ci
 
       # 将 Release 版本号同步写入 package.json
       - name: Sync version to package.json
@@ -434,7 +434,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Install dependencies
-        run: npm ci
+        uses: ./.github/actions/install-npm-ci
 
       # 将 Release 版本号同步写入 package.json
       - name: Sync version to package.json

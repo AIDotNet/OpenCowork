@@ -1,0 +1,19 @@
+name: Install npm dependencies
+description: npm ci with Electron binary cache and retries for flaky GitHub downloads
+
+runs:
+  using: composite
+  steps:
+    - name: Cache Electron binaries
+      uses: actions/cache@v6
+      with:
+        path: .cache/electron
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          electron-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
+      run: node ./scripts/ci-npm-ci.mjs

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.8] - 2026-08-13
+
+### Added
+
+- Hosted interactive agent sessions in Main: tool-capable chat now starts turns via `startRun` on the generated runtime protocol, with Main assembling session context and journaling projection while Native Worker remains the loop authority.
+- Added a CLI localhost callback for Routin device login so CLI-only installs (no `opencowork://` handler) can finish browser authorization, plus manual login triggers (`cowork login`, `/login`, provider `L`).
+- Added CLI `/init` to inspect the workspace read-only, preview a drafted root `AGENTS.md` through `AskUserQuestion`, and write only after an explicit create/update choice.
+- Unified CLI thinking intensity (`/effort`, `/think`, `/config`, `/model`) into one model-aware axis (`off` / `on` / `auto` / named levels) instead of a separate Thinking toggle plus effort row.
+- Added channel reply reliability: chunk long messages to platform limits, cache inbound message-to-chat routing, send DingTalk P2P via oToMessages, and reply to QQ DMs as well as groups.
+- Added Grok 4.6 (`grok` / `grok-4.6`, including `xhigh` reasoning) on xAI and Routin AI, defaulted xAI to Grok 4.6, and added Grok Imagine Image 2.0 on Routin.
+- Added architecture-boundary ADR/docs and CI runtime-baseline / contracts / typecheck gates on the release build workflow.
+
+### Changed
+
+- Pinned session system-prompt construction and streamlined tool catalogs so hosted runs reuse a stable prompt/tool surface instead of rebuilding it per turn in the renderer.
+- Refreshed English and Chinese READMEs around the Worker-hosted runtime, CLI, and channels, and shipped matching architecture screenshots.
+
+### Fixed
+
+- Fixed CLI dropping back to the shell after a successful `cowork login`; the process now enters the interactive TUI the same way as a bare `cowork` start.
+- Fixed resumed-session CLI copy showing a replacement character by unifying the i18n key and middle-dot separator.
+- Removed an accidental duplicate graph-generation module from the draw canvas path.
+
 ## [1.3.7] - 2026-08-12
 
 ### Added

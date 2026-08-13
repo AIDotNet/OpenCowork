@@ -16,6 +16,9 @@ import type { BuiltinProviderPreset } from './types'
 // 推理：xAI 原生 API 通过顶层 reasoning_effort 控制推理强度。grok-4.20-multi-agent 的产品文档
 // （/developers/model-capabilities/text/multi-agent）明确说明该变体不支持 client-side
 // function calling / custom tools（仅支持内置工具），故继续保留 supportsFunctionCall: false。
+// grok / grok-4.6（2026-08-12 发布，docs.x.ai/developers/models/grok-4-6）：500K 上下文，
+// $2/$6 每百万 token，缓存 $0.50；reasoning_effort 为 low/medium/high/xhigh（默认 high，不可关闭）。
+// 裸 id `grok` 是最新旗舰别名，当前指向 grok-4.6。
 // grok-4.5（2026-07-08 发布，docs.x.ai/developers/grok-4-5）：500K 上下文，$2/$6 每百万 token，
 // 支持 low/medium/high 三档 reasoning_effort（默认 high）；未找到官方缓存价格，沿用本文件其余
 // 型号统一的 $0.2 缓存单价。
@@ -24,14 +27,50 @@ import type { BuiltinProviderPreset } from './types'
 // 'openai-responses'；defaultBaseUrl 无需变动。
 export const xaiPreset: BuiltinProviderPreset = {
   builtinId: 'xai',
-  version: 1,
+  version: 2,
   name: 'xAI',
   type: 'openai-responses',
   defaultBaseUrl: 'https://api.x.ai/v1',
   homepage: 'https://x.ai',
   apiKeyUrl: 'https://console.x.ai',
-  defaultModel: 'grok-4.3',
+  defaultModel: 'grok-4.6',
   defaultModels: [
+    {
+      id: 'grok',
+      name: 'Grok',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-4.6',
+      name: 'Grok 4.6',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
     {
       id: 'grok-4.5',
       name: 'Grok 4.5',

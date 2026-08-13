@@ -10,7 +10,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v9: add Qwen3.8 Max Preview and Claude Opus 5.
   // v10: add GPT Image 2 All / Fast / 4K image models.
   // v11: DeepSeek 模型改用 OpenAI Chat Completions 协议（openai-chat）
-  version: 11,
+  // v12: add grok / grok-4.6 and Grok Imagine Image 2.0
+  version: 12,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -944,6 +945,16 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsFunctionCall: false
     },
     {
+      id: 'grok-imagine-image-2.0',
+      name: 'Grok Imagine Image 2.0',
+      icon: 'grok',
+      enabled: true,
+      category: 'image',
+      type: 'openai-images',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
+    {
       id: 'grok-imagine-image-quality',
       name: 'Grok Imagine Image Quality',
       icon: 'grok',
@@ -1700,13 +1711,54 @@ export const routinAiPreset: BuiltinProviderPreset = {
       }
     },
     // ── xAI Grok ──（官方标注无输出 token 上限；4.3 与 multi-agent 支持 reasoning_effort low/high）
+    // grok / grok-4.6（2026-08-12 发布，docs.x.ai/developers/models/grok-4-6）：500K 上下文，
+    // $2/$6 每百万 token，缓存 $0.50；reasoning_effort 为 low/medium/high/xhigh（默认 high，不可关闭）。
+    // 裸 id `grok` 是 xAI 最新旗舰别名，当前指向 grok-4.6。
     // grok-4.5（2026-07-08 发布，docs.x.ai/developers/grok-4-5）：500K 上下文，$2/$6 每百万 token，
     // 支持 low/medium/high 三档 reasoning_effort（默认 high）；缓存单价沿用本文件其余型号的 $0.2。
     // grok-4.20 / grok-4.20-multi-agent 的上下文已按 docs.x.ai 模型注册表（maxPromptLength）
     // 从错误的 2,000,000 更正为 1,000,000，与 x-ai.ts 保持一致。
-    // 协议：xAI 已提供 OpenAI Responses API 兼容端点，五个 Grok 型号均补上
+    // 协议：xAI 已提供 OpenAI Responses API 兼容端点，Grok 聊天型号均补上
     // type: 'openai-responses' 覆盖（本 preset 顶层 type 仍为 'openai-chat'，因为同一个
     // preset 下还混合了非 Grok 的其他模型家族）。
+    {
+      id: 'grok',
+      name: 'Grok',
+      icon: 'grok',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-4.6',
+      name: 'Grok 4.6',
+      icon: 'grok',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
     {
       id: 'grok-4.5',
       name: 'Grok 4.5',

@@ -67,7 +67,7 @@ internal static class AgentRuntimeExtensionExecutor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
     }
 
@@ -135,14 +135,7 @@ internal static class AgentRuntimeExtensionExecutor
 
     private static string EncodeError(string message)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("error", message);
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private readonly record struct ExtensionToolName(string ExtensionId, string ToolName);

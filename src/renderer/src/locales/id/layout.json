@@ -677,39 +677,44 @@
     "copyError": "Galat Salin",
     "errorDetails": "Rincian galat",
     "modeTooltip": {
-      "solvesTitle": "Terbaik untuk",
+      "solvesTitle": "Cocok untuk",
+      "flowTitle": "Cara kerja",
       "current": "Mode saat ini",
-      "switchHint": "Ganti ke {{mode}} dengan {{shortcut}}",
+      "switchHint": "Beralih ke {{mode}} dengan {{shortcut}}",
       "clarify": {
-        "summary": "Gunakan ini ketika permintaan masih kabur dan Anda ingin agen untuk memperlambat, meminta lebih baik pertanyaan follow- up, dan menyelaraskan pada target sebelum bertindak.",
+        "summary": "Clarify mengubah permintaan yang masih kabur menjadi rencana konkret yang bisa ditinjau. Ia tidak mengimplementasi dulu. Proyek diperiksa cukup untuk bertanya dengan tepat, lalu rencana ditulis dan menunggu persetujuan Anda.",
+        "flow": "Periksa bukti → tanyakan keputusan penting lewat AskUserQuestion → kunci lingkup → tulis rencana → berhenti untuk tinjauan Anda.",
         "solves": [
-          "persyaratan tidak jelas, konteks tidak lengkap, atau multiple mungkin interpretasi",
-          "Butuh bantuan mengubah ide kasar menjadi tugas-tugas konkret, spesifikasi, atau kriteria penerimaan",
-          "Ingin agen untuk menantang asumsi sebelum mulai membuat perubahan"
+          "Permintaan masih kabur, tidak lengkap, atau punya beberapa tafsiran",
+          "Anda butuh persyaratan, kriteria penerimaan, dan langkah per file sebelum ada yang menulis kode",
+          "Anda ingin asumsi diuji sebelum file atau perintah diubah"
         ]
       },
       "cowork": {
-        "summary": "Agen bekerja sebagai mitra kolaboratif: itu menjelaskan pendekatannya, mengikuti loop Plan- Act- Amati, dan menangani baik tugas coding dan bukan-coding seperti penelitian, DevOps, atau set proyek. Panel kanan terbuka secara otomatis untuk pelacakan langkah.",
+        "summary": "Cowork adalah mitra kolaboratif dengan semua alat proyek. Mengikuti Rencana–Bertindak–Amati: jelaskan langkah berikutnya, jalankan, lalu verifikasi agar riset, kode, dan ops bisa diarahkan dalam satu sesi.",
+        "flow": "Nyatakan langkah berikutnya → pakai file, terminal, dan alat riset → periksa hasil → ulangi sampai selesai.",
         "solves": [
-          "Multi- langkah kerja arus pencampuran penelitian, perencanaan, perubahan file, dan perintah terminal - agen menjelaskan setiap langkah",
-          "Tugas melebihi coding murni: setup projek, dokumentasi, DevOps, analisis, atau apapun koordinasi yang diperlukan",
-          "Situasi di mana Anda ingin visibilitas ke dalam agen apos; s proses berpikir dan hasil menengah"
+          "Pekerjaan bertahap yang mencampur riset, perencanaan, file, dan perintah",
+          "Setup proyek, dokumentasi, DevOps, analisis, dan kerja di luar kode murni",
+          "Anda ingin penjelasan berjalan tentang apa yang terjadi agar bisa dialihkan di tengah jalan"
         ]
       },
       "code": {
-        "summary": "Agen bertindak sebagai seorang programer yang fokus. Ia membaca sebelum mengedit, cocok dengan gaya codebase Anda, membuat perubahan bedah, dan terus menjelaskan minimal - membiarkan kode berbicara sendiri.",
+        "summary": "Code adalah pair programmer yang fokus. Lingkupnya hanya implementasi: baca dulu, cocokkan repo ini, edit secara bedah, narasi singkat. Kerja non-kode ada di Cowork.",
+        "flow": "Baca file yang relevan → buat perubahan lengkap terkecil → konfirmasi singkat apa yang berubah.",
         "solves": [
-          "Precise implementasi: fitur menulis, memperbaiki bug, memfaktorkan ulang, atau menyelesaikan modul dengan disiplin teknik",
-          "Ketika Anda ingin keluaran kode bersih dengan narasi minimal - terse konfirmasi bukannya berjalan verbose - melalui",
-          "Perubahan yang membutuhkan perhatian ketat terhadap konvensi yang ada, tipe, impor, dan kontrak API"
+          "Fitur, perbaikan bug, refactor, dan implementasi langsung lainnya",
+          "Perubahan yang harus mengikuti nama, tipe, import, dan kontrak API yang ada",
+          "Anda ingin kodenya, bukan penjelasan tentang apa yang dilakukannya"
         ]
       },
       "acp": {
-        "summary": "Perencanaan Kontrol Arsitektur adalah untuk pekerjaan yang kompleks yang membutuhkan kendali sebelum implementasi: mengklarifikasi tujuan dan batas pertama, kemudian merancang arsitektur, membongkar eksekusi, dan delegasi. Agen utama tidak mengkode secara langsung.",
+        "summary": "ACP (Architecture Control Planning) menahan agen utama pada desain dan kendali. Ia boleh memeriksa, merencanakan, dan bertanya, tetapi tidak menulis kode implementasi atau mengedit file. Sub-agen menerima Write, Edit, dan Bash.",
+        "flow": "Perjelas tujuan dan batasan → rancang arsitektur → pecah pekerjaan → delegasikan secara paralel → sintetis ringkasan terstruktur.",
         "solves": [
-          "Kompleks tugas yang memerlukan latar belakang, scope, batasan, ketergantungan, dan kriteria penerimaan yang akan diklarifikasi sebelum implementasi",
-          "Bekerja di mana agen utama harus fokus pada arsitektur, orkestra, dan proses kontrol daripada coding secara langsung",
-          "Kasus di mana sub- tugas harus berjalan dalam paralel dan kembali terstruktur Markdown rangkuman untuk melanjutkan koordinasi"
+          "Pekerjaan kompleks yang butuh latar, batas, dan kriteria penerimaan sebelum implementasi",
+          "Anda ingin agen utama pada arsitektur, urutan, dan tinjauan — bukan mengetik diff",
+          "Subtugas independen harus berjalan paralel dan mengembalikan ringkasan Markdown"
         ]
       }
     },

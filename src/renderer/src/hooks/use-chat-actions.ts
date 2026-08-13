@@ -28,6 +28,7 @@ import {
 import {
   decodeStructuredToolResult,
   encodeToolError,
+  formatToolErrorForDisplay,
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
 import {
@@ -68,7 +69,8 @@ import {
 } from '../../../shared/hooks/types'
 import { clearPendingQuestions } from '@renderer/lib/tools/ask-user-tool'
 
-import { ACP_MODE_ALLOWED_TOOLS, PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
+import { PLAN_MODE_ALLOWED_TOOLS } from '@renderer/lib/tools/plan-tool'
+import { splitToolsForSubAgentCatalog } from '../../../shared/session-mode-tools'
 import { usePlanStore, type Plan } from '@renderer/stores/plan-store'
 import { useTaskStore } from '@renderer/stores/task-store'
 import { useGoalStore, type SessionGoal } from '@renderer/stores/goal-store'
@@ -1317,6 +1319,39 @@ function reconcileSubAgentCompletionFromTaskToolCall(
         iterations: meta?.iterations ?? tracked.iteration,
         usage: meta?.usage ?? { inputTokens: 0, outputTokens: 0 },
         ...(error ? { error } : {})
+      }
+    },
+    sessionId
+  )
+}
+
+function seedSubAgentFromTaskToolCall(sessionId: string, toolCall: ToolCallState): void {
+  if (toolCall.name !== TASK_TOOL_NAME || toolCall.input.run_in_background === true) return
+
+  const agentStore = useAgentStore.getState()
+  const tracked =
+    agentStore.activeSubAgents[toolCall.id] ?? agentStore.completedSubAgents[toolCall.id]
+  if (tracked) return
+
+  const prompt = String(
+    toolCall.input.prompt ??
+      toolCall.input.query ??
+      toolCall.input.task ??
+      toolCall.input.target ??
+      ''
+  )
+  const subAgentName = String(toolCall.input.subagent_type ?? 'custom')
+  agentStore.handleSubAgentEvent(
+    {
+      type: 'sub_agent_start',
+      subAgentName,
+      toolUseId: toolCall.id,
+      input: toolCall.input,
+      promptMessage: {
+        id: `${toolCall.id}:seed-prompt`,
+        role: 'user',
+        content: prompt,
+        createdAt: Date.now()
       }
     },
     sessionId
@@ -2632,7 +2667,7 @@ function extractToolErrorMessage(output: unknown): string | undefined {
   if (typeof output !== 'string' || !isStructuredToolErrorText(output)) return undefined
   const parsed = decodeStructuredToolResult(output)
   if (!parsed || Array.isArray(parsed)) return undefined
-  return typeof parsed.error === 'string' ? parsed.error : undefined
+  return typeof parsed.error === 'string' ? formatToolErrorForDisplay(parsed.error) : undefined
 }
 
 function reconcileIterationToolResults(
@@ -3770,7 +3805,9 @@ function createSidecarEventStream(options: {
               }
             }
 
-            await new Promise<void>((resolve) => setTimeout(resolve, SIDECAR_FIRST_PROGRESS_GRACE_MS))
+            await new Promise<void>((resolve) =>
+              setTimeout(resolve, SIDECAR_FIRST_PROGRESS_GRACE_MS)
+            )
             if (finished || pendingFailure || sawProgressEvent) return
 
             const jobState = recovery?.jobState ?? null
@@ -4918,21 +4955,13 @@ export function useChatActions(): {
             scopedExtensionToolDefs
           )
           const finalToolDefs = filterTeamToolDefinitions(allToolDefs, settings.teamToolsEnabled)
-          let promptCandidateToolDefs = finalToolDefs
-
-          if (mode === 'acp') {
-            promptCandidateToolDefs = promptCandidateToolDefs.filter((t) =>
-              ACP_MODE_ALLOWED_TOOLS.has(t.name)
-            )
-          }
-
-          // ACP lead agent: keep orchestration only, no direct implementation tools.
+          const resolvedModelConfig = providerResolution.modelConfig
+          let availableForSubAgents = finalToolDefs
 
           // Image models: disable all tools (image generation doesn't use tools)
           // Exception: allow tools when continuing an existing agent run
-          const resolvedModelConfig = providerResolution.modelConfig
           if (resolvedModelConfig?.category === 'image' && source !== 'continue') {
-            promptCandidateToolDefs = []
+            availableForSubAgents = []
           }
 
           const desktopControlMode = resolveDesktopControlMode({
@@ -4942,10 +4971,19 @@ export function useChatActions(): {
           })
 
           if (desktopControlMode === 'computer-use') {
-            promptCandidateToolDefs = promptCandidateToolDefs.filter(
+            availableForSubAgents = availableForSubAgents.filter(
               (tool) => !isDesktopControlToolName(tool.name)
             )
           }
+
+          // ACP lead stays orchestration-only. Sub-agents still receive Write/Edit/Bash
+          // via subAgentToolCatalog even though those tools are absent from the parent list.
+          const { parentTools, subAgentToolCatalog: implementationToolCatalog } =
+            splitToolsForSubAgentCatalog({
+              mode,
+              availableTools: availableForSubAgents
+            })
+          const promptCandidateToolDefs = parentTools
 
           const autoSelectedFastWithoutTools =
             mode !== 'clarify' &&
@@ -4954,6 +4992,7 @@ export function useChatActions(): {
             source !== 'continue'
           const promptToolDefs = autoSelectedFastWithoutTools ? [] : promptCandidateToolDefs
           const promptAllowsToolContext = !autoSelectedFastWithoutTools
+          const subAgentToolCatalog = autoSelectedFastWithoutTools ? [] : implementationToolCatalog
 
           const userPrompt = settings.systemPrompt || ''
           const volatileExtraSections: string[] = []
@@ -5327,6 +5366,7 @@ export function useChatActions(): {
                 messages: messagesToSend,
                 provider: agentProviderConfig,
                 tools: effectiveToolDefs,
+                subAgentToolCatalog,
                 runId: sidecarRunId,
                 sessionId,
                 projectId: session?.projectId,
@@ -5704,6 +5744,7 @@ export function useChatActions(): {
 
                 case 'thinking_delta':
                   hasThinkingDelta = true
+                  thinkingDone = false
                   streamDeltaBuffer.pushThinking(event.thinking)
                   break
 
@@ -5925,6 +5966,14 @@ export function useChatActions(): {
                       )
                     }
                   }
+                  seedSubAgentFromTaskToolCall(sessionId!, {
+                    id: event.toolUseBlock.id,
+                    name: event.toolUseBlock.name,
+                    input: event.toolUseBlock.input,
+                    status: 'running',
+                    requiresApproval: false,
+                    startedAt: Date.now()
+                  })
                   // Args fully streamed — keep live cards compact until execution finishes.
                   clearToolInputPending(event.toolUseBlock.id)
                   const liveCardInput = summarizeImmediateLiveToolInput(
@@ -5965,6 +6014,7 @@ export function useChatActions(): {
                       sessionId!
                     )
                   }
+                  seedSubAgentFromTaskToolCall(sessionId!, event.toolCall)
                   break
 
                 case 'tool_call_update':
@@ -7366,6 +7416,7 @@ async function runSimpleChat(
           break
         case 'thinking_delta':
           hasThinkingDelta = true
+          thinkingDone = false
           streamDeltaBuffer.pushThinking(event.thinking!)
           break
         case 'thinking_encrypted':

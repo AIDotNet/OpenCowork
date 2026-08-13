@@ -16,6 +16,10 @@ internal static partial class AgentRuntimeContextCompression
     private const int SummaryTimeoutMs = 120_000;
     private const int SummaryMaxOutputTokens = 8_192;
     private const int CircuitOpenCooldownMs = 60_000;
+    // Upper bound for the serialized summarizer input (~100K tokens at ~4 chars/token).
+    // The budget is halved on every retry so a summarizer model with a smaller context
+    // window converges to a fitting input instead of failing all attempts.
+    private const int SummaryInputBaseCharBudget = 400_000;
     private const string ResponsesSessionScope = "context-compression";
     private const string SystemPrompt =
         "You compress long AI coding-agent conversations into durable working memory. " +
@@ -146,7 +150,8 @@ internal static partial class AgentRuntimeContextCompression
                     var serialized = SerializeCompressionInput(
                         inputMessages,
                         originalTaskMessage,
-                        pinnedContext);
+                        pinnedContext,
+                        SummaryInputBaseCharBudget >> attempt);
                     var summary = await CallSummarizerAsync(
                         serialized,
                         provider,
@@ -166,8 +171,10 @@ internal static partial class AgentRuntimeContextCompression
                     lastError = ex;
                     WorkerLog.Warn(
                         $"context compression attempt failed attempt={attempt + 1} error={ex.GetType().Name}: {ex.Message}");
-                    if (attempt < MaxRetries)
+                    if (attempt < MaxRetries && !IsContextWindowExceededError(ex))
                     {
+                        // Context-window overflows are deterministic: retry immediately with the
+                        // halved input budget instead of waiting out a backoff delay.
                         await Task.Delay(RetryDelayMs * (int)Math.Pow(2, attempt), context.CancellationToken);
                     }
                 }
@@ -185,6 +192,45 @@ internal static partial class AgentRuntimeContextCompression
             $"context compression all attempts failed consecutive={failures}/{MaxConsecutiveFailures} " +
             $"error={lastError?.GetType().Name}: {lastError?.Message}");
         return BuildCompressionFailureResult(messages, originalCount, failureMessage);
+    }
+
+    // Provider error strings that indicate the request input exceeded the model's
+    // context window. Matched case-insensitively against the whole exception chain:
+    // OpenAI Responses ("Your input exceeds the context window of this model",
+    // code context_length_exceeded), OpenAI Chat ("maximum context length"),
+    // Anthropic ("prompt is too long", "exceed context limit"), and Gemini
+    // ("input token count ... exceeds the maximum number of tokens").
+    private static readonly string[] ContextWindowExceededMarkers =
+    [
+        "context_length_exceeded",
+        "context length exceeded",
+        "exceeds the context window",
+        "context window of this model",
+        "maximum context length",
+        "prompt is too long",
+        "exceed context limit",
+        "exceeds the maximum number of tokens",
+        "input token count exceeds"
+    ];
+
+    internal static bool IsContextWindowExceededError(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            var message = current.Message;
+            if (string.IsNullOrEmpty(message))
+            {
+                continue;
+            }
+            foreach (var marker in ContextWindowExceededMarkers)
+            {
+                if (message.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static async Task<string> CallSummarizerAsync(
@@ -459,7 +505,8 @@ internal static partial class AgentRuntimeContextCompression
     private static string SerializeCompressionInput(
         IReadOnlyList<JsonElement> messages,
         JsonElement? originalTaskMessage,
-        string? pinnedContext)
+        string? pinnedContext,
+        int charBudget = SummaryInputBaseCharBudget)
     {
         var parts = new List<string>();
         if (originalTaskMessage.HasValue)
@@ -474,12 +521,15 @@ internal static partial class AgentRuntimeContextCompression
             parts.Add(pinnedContext.Trim());
         }
 
+        var reservedChars = parts.Sum(part => part.Length + 2);
         parts.Add("## Full Conversation History");
-        parts.Add(SerializeMessages(messages));
+        parts.Add(SerializeMessages(messages, Math.Max(1_024, charBudget - reservedChars)));
         return string.Join("\n\n", parts);
     }
 
-    private static string SerializeMessages(IEnumerable<JsonElement> messages)
+    private static string SerializeMessages(
+        IReadOnlyList<JsonElement> messages,
+        int charBudget = int.MaxValue)
     {
         var parts = new List<string>();
         foreach (var message in messages)
@@ -490,6 +540,30 @@ internal static partial class AgentRuntimeContextCompression
             {
                 parts.Add($"[{role}]: {content}");
             }
+        }
+
+        // Enforce the summarizer input budget by dropping whole oldest entries first: the
+        // recent conversation carries the working state the summary must preserve. A run
+        // whose history exceeds the summarizer model's context window would otherwise fail
+        // every attempt and silently keep the full uncompressed context.
+        var totalChars = parts.Sum(part => part.Length + 2);
+        if (totalChars > charBudget)
+        {
+            var dropped = 0;
+            while (parts.Count > 1 && totalChars > charBudget)
+            {
+                totalChars -= parts[0].Length + 2;
+                parts.RemoveAt(0);
+                dropped++;
+            }
+            if (parts.Count == 1 && parts[0].Length > charBudget)
+            {
+                parts[0] = parts[0][^Math.Max(1, charBudget)..];
+            }
+            parts.Insert(
+                0,
+                $"[Note: {dropped} older messages were omitted here to fit the summarizer " +
+                "context window; the summary below must still capture the current working state.]");
         }
         return string.Join("\n\n", parts);
     }

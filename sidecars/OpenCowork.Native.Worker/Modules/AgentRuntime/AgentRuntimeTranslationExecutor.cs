@@ -202,15 +202,7 @@ internal static class AgentRuntimeTranslationExecutor
 
     private static RendererToolResult ErrorResult(string message)
     {
-        return new RendererToolResult(
-            AgentRuntimeProviderSupport.CreateStringElement(EncodeError(message)),
-            true,
-            message);
-    }
-
-    private static string EncodeError(string message)
-    {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Failed(message);
     }
 
     private static string EncodeJsonObject(Action<Utf8JsonWriter> writeProperties)

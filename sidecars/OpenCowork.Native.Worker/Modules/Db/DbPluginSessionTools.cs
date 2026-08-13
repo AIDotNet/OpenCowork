@@ -513,6 +513,11 @@ internal static class DbPluginSessionTools
                 }
             }
 
+            if (project is null && !string.IsNullOrEmpty(session.ProjectId))
+            {
+                project = FindProject(connection, transaction, session.ProjectId);
+            }
+
             transaction.Commit();
 
             return WorkerResponse.Json(
@@ -520,7 +525,7 @@ internal static class DbPluginSessionTools
                     true,
                     session.Id,
                     session.Title,
-                    project?.Id,
+                    project?.Id ?? session.ProjectId,
                     EmptyToNull(project?.WorkingFolder),
                     project?.SshConnectionId,
                     null),

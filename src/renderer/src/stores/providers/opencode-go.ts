@@ -233,7 +233,13 @@ const chatModels: OpenCodeGoModel[] = [
     ...shared,
     inputPrice: 0.435,
     outputPrice: 0.87,
-    cacheHitPrice: 0.003625
+    cacheHitPrice: 0.003625,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      disabledBodyParams: { thinking: { type: 'disabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'high'
+    }
   },
   {
     id: 'deepseek-v4-flash',
@@ -243,7 +249,13 @@ const chatModels: OpenCodeGoModel[] = [
     ...shared,
     inputPrice: 0.14,
     outputPrice: 0.28,
-    cacheHitPrice: 0.0028
+    cacheHitPrice: 0.0028,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      disabledBodyParams: { thinking: { type: 'disabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'high'
+    }
   },
   {
     id: 'gpt-5.6-luna',
@@ -269,7 +281,7 @@ const chatModels: OpenCodeGoModel[] = [
 
 export const opencodeGoPreset: BuiltinProviderPreset = {
   builtinId: 'opencode-go',
-  version: 3,
+  version: 4,
   name: 'OpenCode Go',
   type: 'openai-chat',
   defaultBaseUrl: OPENCODE_GO_BASE_URL,

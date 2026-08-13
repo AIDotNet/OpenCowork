@@ -27,6 +27,7 @@ import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 import { type DiffViewerChunk, type DiffViewerLine } from './CodeDiffViewer'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
+import { FileMutationDiffCard } from './file-mutation-diff-card'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -1232,7 +1233,14 @@ function trackedStatusDotTone(change: AgentRunFileChange): string {
 
 // ── Main Component ───────────────────────────────────────────────
 
-export function FileChangeCard({
+export function FileChangeCard(props: FileChangeCardProps): React.JSX.Element {
+  if (props.name === 'Edit' || props.name === 'Write') {
+    return <FileMutationDiffCard {...props} />
+  }
+  return <DeleteFileChangeCard {...props} />
+}
+
+function DeleteFileChangeCard({
   name,
   input,
   output,

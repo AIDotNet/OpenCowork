@@ -333,7 +333,8 @@ function App(): React.JSX.Element {
           subAgentExecutionDetailToolUseId: null,
           subAgentExecutionDetailInlineText: null,
           selectedSubAgentToolUseId: null,
-          rightPanelOpen: false
+          rightPanelOpen: false,
+          rightPanelExpandedForReading: false
         })
         await useChatStore.getState().recoverFromRendererOom(recoverySessionId)
         toast.warning('Renderer recovered in reduced-memory mode')

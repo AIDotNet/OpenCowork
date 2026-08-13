@@ -55,6 +55,20 @@ test('code prompt includes mode body and working folder, not the live skills cat
   assert.match(prompt, /Operating System: macOS/)
 })
 
+test('ACP prompt tells the lead to delegate writes to sub-agents', () => {
+  const prompt = buildAgentModeSystemPrompt({
+    mode: 'acp',
+    workingFolder: '/tmp/project',
+    languageName: 'English',
+    toolDefs: [{ name: 'Read' }, { name: 'Task' }],
+    environmentContext: localMac,
+    globalHomePath: '/Users/me/.open-cowork'
+  })
+  assert.match(prompt, /## Mode: ACP/)
+  assert.match(prompt, /must not write code/)
+  assert.match(prompt, /Those children receive Write, Edit, Bash/)
+})
+
 test('volatile turn context carries skills, memory, and late tools', () => {
   const texts = buildVolatilePromptTurnContext({
     memoryContext: '<global_soul priority="high">\nBe kind.\n</global_soul>',

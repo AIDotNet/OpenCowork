@@ -677,39 +677,44 @@
     "copyError": "Erreur de copie",
     "errorDetails": "Détails de l'erreur",
     "modeTooltip": {
-      "solvesTitle": "Meilleur pour",
+      "solvesTitle": "Idéal pour",
+      "flowTitle": "Comment ça marche",
       "current": "Mode actuel",
-      "switchHint": "Passez à {{mode}} avec {{shortcut}}",
+      "switchHint": "Passer à {{mode}} avec {{shortcut}}",
       "clarify": {
-        "summary": "Utilisez ceci lorsque la demande est toujours floue et vous voulez que l'agent ralentisse, pose de meilleures questions de suivi et s'aligner sur la cible avant d'agir.",
+        "summary": "Clarify transforme une demande floue en un plan concret et révisable. L’agent inspecte le projet juste assez pour poser des questions précises, écrit le plan, puis attend — il n’implémente pas d’abord.",
+        "flow": "Inspecter les preuves → poser les décisions importantes via AskUserQuestion → figer le périmètre → écrire un plan → s’arrêter pour votre revue.",
         "solves": [
-          "Exigences imprécises, contexte incomplet ou interprétations multiples",
-          "Besoin d'aide pour transformer les idées brutes en tâches concrètes, spécifications ou critères d'acceptation",
-          "Vouloir que l'agent conteste les hypothèses avant qu'il ne commence à apporter des changements"
+          "La demande est encore floue, incomplète ou ouverte à plusieurs interprétations",
+          "Vous avez besoin d’exigences, de critères d’acceptation et d’étapes fichier par fichier avant de coder",
+          "Vous voulez remettre en question les hypothèses avant de modifier des fichiers ou des commandes"
         ]
       },
       "cowork": {
-        "summary": "L'agent travaille comme partenaire collaboratif: il explique son approche, suit une boucle Plan-Act-Observe et s'occupe à la fois des tâches de codage et non-codage comme la recherche, DevOps, ou la configuration du projet.",
+        "summary": "Cowork est un partenaire collaboratif avec tous les outils du projet. Il suit Planifier–Agir–Observer : expliquer l’étape suivante, exécuter, puis vérifier, pour piloter recherche, code et ops dans une même session.",
+        "flow": "Énoncer l’étape suivante → utiliser fichiers, terminal et recherche → vérifier les résultats → répéter jusqu’à la fin.",
         "solves": [
-          "Workflows multi-étapes mélangeant recherche, planification, changements de fichiers et commandes de terminal — l'agent explique chaque étape",
-          "Tâches au-delà du codage pur: configuration du projet, documentation, DevOps, analyse ou tout ce qui nécessite une coordination",
-          "Situations où vous voulez une visibilité dans le processus de pensée de l'agent et les résultats intermédiaires"
+          "Un travail en plusieurs étapes mêlant recherche, planification, fichiers et commandes",
+          "Mise en place de projet, documentation, DevOps, analyse et autres tâches hors du pur code",
+          "Vous voulez une explication continue de ce qui se passe pour pouvoir recentrer en cours de route"
         ]
       },
       "code": {
-        "summary": "L'agent agit comme un programmeur de paires focalisé. Il lit avant d'éditer, correspond à votre style de base de code, fait des changements chirurgicaux, et garde les explications minimales - laisser le code parler pour lui-même.",
+        "summary": "Code est un pair-programmeur concentré. Le périmètre est uniquement l’implémentation : lire d’abord, coller au dépôt, faire des edits chirurgicaux, narrer peu. Le non-code va dans Cowork.",
+        "flow": "Lire les fichiers concernés → faire le plus petit changement complet → confirmer brièvement ce qui a changé.",
         "solves": [
-          "Implémentation précise: caractéristiques d'écriture, correction de bugs, refactoring, ou compléter des modules avec discipline d'ingénierie",
-          "Lorsque vous voulez une sortie de code propre avec une narration minimale — la confirmation terse au lieu des passages verbeux",
-          "Changements exigeant une attention stricte aux conventions, types, importations et contrats d'API existants"
+          "Fonctionnalités, correctifs, refactors et autre implémentation concrète",
+          "Des changements qui doivent respecter noms, types, imports et contrats d’API existants",
+          "Vous voulez le code, pas une explication de ce qu’il fait"
         ]
       },
       "acp": {
-        "summary": "Contrôle de l'architecture La planification s'applique aux travaux complexes qui nécessitent un contrôle avant la mise en oeuvre: clarifier les buts et les limites d'abord, puis concevoir l'architecture, décomposer l'exécution et déléguer la livraison.",
+        "summary": "ACP (Architecture Control Planning) garde l’agent principal sur le design et le contrôle. Il peut inspecter, planifier et questionner, mais n’écrit pas de code d’implémentation ni n’édite de fichiers. Les sous-agents reçoivent Write, Edit et Bash.",
+        "flow": "Clarifier objectifs et contraintes → concevoir l’architecture → découper le travail → déléguer en parallèle → synthétiser des comptes rendus structurés.",
         "solves": [
-          "Tâches complexes nécessitant des éclaircissements sur le contexte, la portée, les contraintes, les dépendances et les critères d'acceptation avant leur mise en œuvre",
-          "Travail où l'agent principal devrait se concentrer sur l'architecture, l'orchestration et le contrôle des processus au lieu de coder directement",
-          "Cas où les sous-tâches devraient fonctionner en parallèle et les résumés de Markdown structurés pour une coordination continue"
+          "Un travail complexe qui exige contexte, limites et critères d’acceptation avant l’implémentation",
+          "Vous voulez l’agent principal sur l’architecture, l’ordre et la revue — pas sur les diffs",
+          "Des sous-tâches indépendantes doivent tourner en parallèle et renvoyer des résumés Markdown"
         ]
       }
     },

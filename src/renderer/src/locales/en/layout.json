@@ -702,38 +702,43 @@
     "errorDetails": "Error details",
     "modeTooltip": {
       "solvesTitle": "Best for",
+      "flowTitle": "How it works",
       "current": "Current mode",
       "switchHint": "Switch to {{mode}} with {{shortcut}}",
       "clarify": {
-        "summary": "Use this when the request is still fuzzy and you want the agent to slow down, ask better follow-up questions, and align on the target before acting.",
+        "summary": "Clarify turns an unclear request into a concrete, reviewable plan. It inspects the project just enough to ask precise questions, then writes the plan and waits — it will not implement first.",
+        "flow": "Inspect evidence → ask high-value decisions through AskUserQuestion → lock scope → write a plan → stop for your review.",
         "solves": [
-          "Unclear requirements, incomplete context, or multiple possible interpretations",
-          "Need help turning rough ideas into concrete tasks, specs, or acceptance criteria",
-          "Want the agent to challenge assumptions before it starts making changes"
+          "The request is still fuzzy, incomplete, or open to several interpretations",
+          "You need requirements, acceptance criteria, and file-level steps before anyone codes",
+          "You want assumptions challenged before files or commands change"
         ]
       },
       "cowork": {
-        "summary": "The agent works as a collaborative partner: it explains its approach, follows a Plan-Act-Observe loop, and handles both coding and non-coding tasks like research, DevOps, or project setup. The right panel opens automatically for step tracking.",
+        "summary": "Cowork is a collaborative partner with full project tools. It follows Plan–Act–Observe: explain the next step, execute, then verify so you can steer research, coding, and ops in one session.",
+        "flow": "State the next step → use files, terminal, and research tools → check results → repeat until the task is done.",
         "solves": [
-          "Multi-step workflows mixing research, planning, file changes, and terminal commands — the agent explains each step",
-          "Tasks beyond pure coding: project setup, documentation, DevOps, analysis, or anything requiring coordination",
-          "Situations where you want visibility into the agent's thought process and intermediate results"
+          "Multi-step work that mixes research, planning, file changes, and commands",
+          "Project setup, documentation, DevOps, analysis, and other work beyond pure coding",
+          "You want a running explanation of what is happening so you can redirect mid-flight"
         ]
       },
       "code": {
-        "summary": "The agent acts as a focused pair programmer. It reads before editing, matches your codebase style, makes surgical changes, and keeps explanations minimal — letting the code speak for itself.",
+        "summary": "Code is a focused pair programmer. Scope is implementation only: read first, match this repo, make surgical edits, and keep narration short. Non-coding work belongs in Cowork.",
+        "flow": "Read the relevant files → make the smallest complete change → briefly confirm what changed.",
         "solves": [
-          "Precise implementation: writing features, fixing bugs, refactoring, or completing modules with engineering discipline",
-          "When you want clean code output with minimal narration — terse confirmation instead of verbose walk-throughs",
-          "Changes that demand strict attention to existing conventions, types, imports, and API contracts"
+          "Features, bugfixes, refactors, and other hands-on implementation",
+          "Edits that must match existing naming, types, imports, and API contracts",
+          "You want the code, not a walkthrough of what it does"
         ]
       },
       "acp": {
-        "summary": "Architecture Control Planning is for complex work that needs control before implementation: clarify goals and boundaries first, then design the architecture, decompose execution, and delegate delivery. The main agent does not code directly.",
+        "summary": "ACP (Architecture Control Planning) keeps the lead agent on design and control. It may inspect, plan, and ask questions, but it does not write implementation code or edit files. Sub-agents receive Write, Edit, and Bash.",
+        "flow": "Clarify goals and constraints → design the architecture → split work → delegate in parallel → synthesize structured summaries.",
         "solves": [
-          "Complex tasks that require background, scope, constraints, dependencies, and acceptance criteria to be clarified before implementation",
-          "Work where the main agent should focus on architecture, orchestration, and process control instead of coding directly",
-          "Cases where sub-tasks should run in parallel and return structured Markdown summaries for continued coordination"
+          "Complex work that needs background, boundaries, and acceptance criteria before implementation",
+          "You want the lead agent on architecture, sequencing, and review — not typing diffs",
+          "Independent sub-tasks should run in parallel and return Markdown summaries"
         ]
       }
     }

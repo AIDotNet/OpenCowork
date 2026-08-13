@@ -677,39 +677,44 @@
     "copyError": "Fout kopiëren",
     "errorDetails": "Foutgegevens",
     "modeTooltip": {
-      "solvesTitle": "Beste voor",
+      "solvesTitle": "Het beste voor",
+      "flowTitle": "Hoe het werkt",
       "current": "Huidige modus",
       "switchHint": "Schakel naar {{mode}} met {{shortcut}}",
       "clarify": {
-        "summary": "Gebruik dit wanneer het verzoek nog steeds wazig is en u wilt dat de agent langzamer gaat, betere vervolgvragen stelt en het doel afstemt alvorens te handelen.",
+        "summary": "Clarify maakt van een onduidelijk verzoek een concreet, te reviewen plan. Het inspecteert het project net genoeg om precieze vragen te stellen, schrijft het plan en wacht — het implementeert niet eerst.",
+        "flow": "Bewijs inspecteren → belangrijke beslissingen via AskUserQuestion vragen → scope vastzetten → een plan schrijven → stoppen voor jouw review.",
         "solves": [
-          "Onduidelijke vereisten, onvolledige context of meerdere mogelijke interpretaties",
-          "Hulp nodig om ruwe ideeën om te zetten in concrete taken, specificaties of acceptatiecriteria",
-          "Wil dat de agent aannames uitdaagt voordat het veranderingen aanbrengt"
+          "Het verzoek is nog vaag, onvolledig of voor meerdere uitleg vatbaar",
+          "Je hebt eisen, acceptatiecriteria en stappen per bestand nodig voordat iemand code schrijft",
+          "Je wilt aannames toetsen voordat bestanden of commando’s veranderen"
         ]
       },
       "cowork": {
-        "summary": "De agent werkt als samenwerkingspartner: hij legt zijn aanpak uit, volgt een Plan-Act-Observe lus, en behandelt zowel coderings- als niet-coderingstaken zoals onderzoek, DevOps of projectopstelling. Het rechter paneel opent automatisch voor staptracking.",
+        "summary": "Cowork is een samenwerkingspartner met alle projecttools. Het volgt Plan–Act–Observe: de volgende stap uitleggen, uitvoeren, daarna verifiëren, zodat je onderzoek, code en ops in één sessie kunt sturen.",
+        "flow": "De volgende stap noemen → bestanden, terminal en onderzoek gebruiken → resultaten controleren → herhalen tot het klaar is.",
         "solves": [
-          "Multi-stap workflows mixen van onderzoek, planning, bestandswijzigingen en terminal commando's.",
-          "Taken die verder gaan dan zuivere codering: projectopstelling, documentatie, DevOps, analyse, of iets dat coördinatie vereist",
-          "Situaties waar je zichtbaarheid wilt in het denkproces van de agent en tussenresultaten"
+          "Meertraps werk dat onderzoek, planning, bestanden en commando’s mengt",
+          "Projectopzet, documentatie, DevOps, analyse en ander werk buiten pure code",
+          "Je wilt doorlopend horen wat er gebeurt zodat je halverwege kunt bijsturen"
         ]
       },
       "code": {
-        "summary": "De agent fungeert als een gefocuste paar programmeur. Het leest voor het bewerken, past bij uw codebase stijl, maakt chirurgische veranderingen, en houdt verklaringen minimaal te laten de code spreken voor zichzelf.",
+        "summary": "Code is een gerichte pair programmer. De scope is alleen implementatie: eerst lezen, deze repo volgen, chirurgische edits, korte uitleg. Niet-coderen hoort in Cowork.",
+        "flow": "Relevante bestanden lezen → de kleinste complete wijziging maken → kort bevestigen wat er veranderde.",
         "solves": [
-          "Nauwkeurige implementatie: schrijffuncties, fixing bugs, refactoring, of het voltooien van modules met engineering discipline",
-          "Wanneer u wilt clean code output met minimale vertelling terse bevestiging in plaats van verbose walk-throughs",
-          "Wijzigingen die strikte aandacht vragen voor bestaande overeenkomsten, typen, invoer en API-contracten"
+          "Features, bugfixes, refactors en andere hands-on implementatie",
+          "Wijzigingen die bestaande namen, types, imports en API-contracten moeten volgen",
+          "Je wilt de code, geen uitleg van wat die doet"
         ]
       },
       "acp": {
-        "summary": "Architecture Control Planning is voor complex werk dat controle nodig heeft voor de implementatie: eerst de doelstellingen en grenzen verduidelijken, dan de architectuur ontwerpen, de uitvoering ontbinden en de levering delegeren. De hoofdagent codeert niet direct.",
+        "summary": "ACP (Architecture Control Planning) houdt de lead-agent bij ontwerp en sturing. Die mag inspecteren, plannen en vragen, maar schrijft geen implementatiecode en bewerkt geen bestanden. Sub-agents krijgen Write, Edit en Bash.",
+        "flow": "Doelen en constraints verhelderen → architectuur ontwerpen → werk splitsen → parallel delegeren → gestructureerde samenvattingen synthetiseren.",
         "solves": [
-          "Complexe taken die achtergrond, toepassingsgebied, beperkingen, afhankelijkheden en acceptatiecriteria vereisen die vóór de uitvoering moeten worden verduidelijkt",
-          "Werk waar de belangrijkste agent zich moet richten op architectuur, orkestratie, en procescontrole in plaats van direct coderen",
-          "Gevallen waarin subtaken parallel moeten verlopen en gestructureerde samenvattingen moeten weergeven voor verdere coördinatie"
+          "Complex werk dat achtergrond, grenzen en acceptatiecriteria nodig heeft vóór implementatie",
+          "Je wilt de lead op architectuur, volgorde en review — niet diffs typen",
+          "Onafhankelijke subtaken moeten parallel lopen en Markdown-samenvattingen teruggeven"
         ]
       }
     },

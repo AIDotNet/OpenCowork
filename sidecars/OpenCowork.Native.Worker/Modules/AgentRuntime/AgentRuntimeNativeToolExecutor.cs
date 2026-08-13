@@ -618,7 +618,7 @@ internal static class AgentRuntimeNativeToolExecutor
         }
         catch (Exception ex)
         {
-            return new RendererToolResult(CreateStringElement(EncodeError(ex.Message)), true, ex.Message);
+            return AgentRuntimeToolError.Failed(ex, call.Name, TryGetToolPath(call.Input, parameters));
         }
     }
 
@@ -1471,6 +1471,26 @@ internal static class AgentRuntimeNativeToolExecutor
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string? TryGetToolPath(JsonElement input, JsonElement parameters)
+    {
+        try
+        {
+            var raw = JsonHelpers.GetString(input, "file_path") ??
+                JsonHelpers.GetString(input, "notebook_path") ??
+                JsonHelpers.GetString(input, "path");
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return AgentRuntimeToolError.TryGetPath(input);
+            }
+
+            return ResolvePath(raw, ResolveWorkingFolder(parameters));
+        }
+        catch
+        {
+            return AgentRuntimeToolError.TryGetPath(input);
+        }
+    }
+
     private static string ResolveInputPath(JsonElement input, JsonElement parameters)
     {
         var raw = JsonHelpers.GetString(input, "file_path") ??
@@ -2187,7 +2207,7 @@ internal static class AgentRuntimeNativeToolExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static JsonElement CreateStringElement(string value)

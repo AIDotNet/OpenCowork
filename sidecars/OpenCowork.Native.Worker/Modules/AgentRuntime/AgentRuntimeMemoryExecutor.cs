@@ -116,7 +116,7 @@ internal static class AgentRuntimeMemoryExecutor
             {
                 WorkerLog.Debug(
                     $"memory tool read failed rootId={root.Id} path={path} elapsedMs={ElapsedMs(startedAt)} error={ex.GetType().Name}: {ex.Message}");
-                return EncodeError($"Memory read failed: {ex.Message}");
+                return AgentRuntimeToolError.Encode(ex, "Memory");
             }
         }
 
@@ -710,7 +710,7 @@ internal static class AgentRuntimeMemoryExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)

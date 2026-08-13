@@ -350,7 +350,7 @@ export function buildProviderConfigById(
             ...(model?.responsesImageGeneration ?? {}),
             enabled:
               model?.supportsImageGeneration === true &&
-              model?.responsesImageGeneration?.enabled !== false
+              model?.responsesImageGeneration?.enabled === true
           }
         }
       : {}),

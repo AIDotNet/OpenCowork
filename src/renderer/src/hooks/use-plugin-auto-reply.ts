@@ -974,6 +974,8 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
         )
       }),
       sessionId,
+      projectId: session.projectId,
+      sessionPromptMode: session.mode || 'cowork',
       workingFolder: session.workingFolder,
       maxIterations: 15,
       forceApproval: false,

@@ -158,7 +158,7 @@ const CORE_SESSION_TOOLS: SessionToolDefinition[] = [
   {
     name: 'Task',
     description:
-      'Launch a focused OpenCowork sub-agent. The child inherits parent tools except Task and returns a self-contained report.',
+      'Launch a focused OpenCowork sub-agent. The child receives implementation tools except Task, including Write/Edit/Bash in ACP mode, and returns a self-contained report.',
     inputSchema: {
       type: 'object',
       properties: {

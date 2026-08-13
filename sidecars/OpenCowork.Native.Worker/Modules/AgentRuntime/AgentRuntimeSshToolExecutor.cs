@@ -121,7 +121,7 @@ internal static class AgentRuntimeSshToolExecutor
             WorkerLog.Warn(
                 $"agent ssh tool failed runId={FormatLogValue(JsonHelpers.GetString(parameters, "runId"))} " +
                 $"tool={call.Name} elapsedMs={ElapsedMs(startedAt)} error={ex.GetType().Name}: {ex.Message}");
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex, call.Name, AgentRuntimeToolError.TryGetPath(call.Input));
         }
     }
 
@@ -1583,7 +1583,7 @@ internal static class AgentRuntimeSshToolExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static JsonElement CreateStringElement(string value)

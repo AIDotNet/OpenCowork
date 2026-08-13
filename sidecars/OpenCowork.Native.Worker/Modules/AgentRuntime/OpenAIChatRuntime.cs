@@ -14,6 +14,9 @@ internal static class OpenAIChatRuntime
     private const double DefaultContextCompressionThreshold = 0.8;
     private const int DefaultContextCompressionReservedOutputTokens = 20_000;
     private const int ContextCompressionAutoBufferTokens = 13_000;
+    // How many times per run a provider "context window exceeded" rejection may trigger
+    // reactive compression before the error is surfaced to the caller.
+    private const int MaxOverflowCompressionAttemptsPerRun = 2;
     private const int ContextSourceHeadMessageLimit = 12;
     private const string PlanModeTurnContextText =
         "<turn-context>\n" +
@@ -72,6 +75,12 @@ internal static class OpenAIChatRuntime
         var completed = false;
         var fullCompressionApplied = false;
         var runtimePlanModeContextInjected = wireConversation.Any(MessageHasPlanModeContext);
+        // Error-driven compression guards: a provider "context window exceeded" rejection
+        // triggers at most MaxOverflowCompressionAttemptsPerRun compressions per run, and an
+        // overflow that recurs immediately after a successful compression is surfaced instead
+        // of compressing again, so a misconfigured window can never loop forever.
+        var overflowCompressionAttempts = 0;
+        var overflowCompressionPendingVerification = false;
 
         WorkerLog.Debug(
             $"agent loop start provider={providerType} maxIterations=" +
@@ -102,121 +111,34 @@ internal static class OpenAIChatRuntime
                 compressionConfig is not null &&
                 ShouldCompress(lastInputTokens, compressionConfig))
             {
-                var preCompactHook = await AgentRuntimeHooks.RunCompactAsync(
+                var compression = await TryCompressLoopConversationAsync(
                     parameters,
+                    wireConversation,
+                    compressionProvider,
+                    lastInputTokens,
                     state,
-                    context,
-                    "PreCompact",
-                    "auto",
-                    wireConversation.Count);
-                if (preCompactHook.Blocked)
+                    context);
+                if (compression.Status == LoopCompressionStatus.Cancelled)
                 {
-                    WorkerLog.Warn(
-                        $"agent context compression blocked by hook runId={state.RunId} reason={preCompactHook.Reason}");
-                    lastInputTokens = 0;
-                }
-                else
-                {
-                    await AgentRuntimeTools.EmitAsync(
+                    await EmitLoopEndAsync(
+                        parameters,
                         state,
                         context,
-                        new AgentRuntimeStreamEvent("context_compression_start"));
-
-                    if (state.IsCancellationRequested)
-                    {
-                        await EmitLoopEndAsync(
-                            parameters,
-                            state,
-                            context,
-                            "aborted",
-                            fullCompressionApplied || captureFinalMessages,
-                            uncompressedWireConversation ?? wireConversation);
-                        return;
-                    }
-
-                    try
-                    {
-                        var originalCount = wireConversation.Count;
-                        // Zero-preserve: the compression summary replaces the whole prior context.
-                        const int preserveCount = 0;
-                        WorkerLog.Info(
-                            $"agent context compression start runId={state.RunId} tokens={lastInputTokens} " +
-                            $"messages={originalCount} preserveCount={preserveCount}");
-                        var compressed = await AgentRuntimeContextCompression.CompressMessagesAsync(
-                            wireConversation,
-                            compressionProvider,
-                            context,
-                            focusPrompt: null,
-                            preTokens: lastInputTokens,
-                            preserveCount,
-                            trigger: "auto");
-                        if (compressed.Result.Compressed)
-                        {
-                            wireConversation = compressed.Messages.Select(message => message.Clone()).ToList();
-                            conversation = ReadConversation(wireConversation);
-                            fullCompressionApplied = true;
-                            var summarized = compressed.Result.MessagesSummarized ??
-                                Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 2));
-                            var postCompactHook = await AgentRuntimeHooks.RunCompactAsync(
-                                parameters,
-                                state,
-                                context,
-                                "PostCompact",
-                                "auto",
-                                originalCount,
-                                compressed.Messages.Length);
-                            if (postCompactHook.Blocked)
-                            {
-                                WorkerLog.Warn(
-                                    $"post compact hook requested block after auto compression runId={state.RunId} reason={postCompactHook.Reason}");
-                            }
-                            await AgentRuntimeTools.EmitAsync(
-                                state,
-                                context,
-                                new AgentRuntimeStreamEvent(
-                                    "context_compressed",
-                                    OriginalCount: originalCount,
-                                    NewCount: compressed.Messages.Length,
-                                    KeptMessageCount: summarized,
-                                    SummarizerFailed: compressed.Result.SummarizerFailed,
-                                    CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
-                            WorkerLog.Info(
-                                $"agent context compression ok runId={state.RunId} original={originalCount} " +
-                                $"compressed={compressed.Messages.Length} summarized={summarized}");
-                            lastInputTokens = 0;
-                        }
-                        else if (compressed.Result.SummarizerFailed == true)
-                        {
-                            WorkerLog.Warn(
-                                $"agent context compression preserved original context after summarizer failure " +
-                                $"runId={state.RunId} error={compressed.Result.Error}");
-                            await AgentRuntimeTools.EmitAsync(
-                                state,
-                                context,
-                                new AgentRuntimeStreamEvent(
-                                    "context_compressed",
-                                    Message: compressed.Result.Error,
-                                    OriginalCount: originalCount,
-                                    NewCount: originalCount,
-                                    KeptMessageCount: 0,
-                                    SummarizerFailed: true));
-                        }
-                    }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        WorkerLog.Warn(
-                            $"agent context compression failed runId={state.RunId} error={ex.GetType().Name}: {ex.Message}");
-                        await AgentRuntimeTools.EmitAsync(
-                            state,
-                            context,
-                            new AgentRuntimeStreamEvent(
-                                "context_compressed",
-                                Message: ex.Message,
-                                OriginalCount: wireConversation.Count,
-                                NewCount: wireConversation.Count,
-                                KeptMessageCount: 0,
-                                SummarizerFailed: true));
-                    }
+                        "aborted",
+                        fullCompressionApplied || captureFinalMessages,
+                        uncompressedWireConversation ?? wireConversation);
+                    return;
+                }
+                if (compression.Status == LoopCompressionStatus.HookBlocked)
+                {
+                    lastInputTokens = 0;
+                }
+                else if (compression.Status == LoopCompressionStatus.Compressed)
+                {
+                    wireConversation = compression.Messages!;
+                    conversation = ReadConversation(wireConversation);
+                    fullCompressionApplied = true;
+                    lastInputTokens = 0;
                 }
             }
 
@@ -249,10 +171,63 @@ internal static class OpenAIChatRuntime
                 return;
             }
 
-            var turn = await AgentRuntimeProviderRetryPolicy.ExecuteAsync(
-                () => ExecuteTurnAsync(parameters, provider, conversation, state, context),
-                state,
-                context);
+            AgentRuntimeProviderTurnResult turn;
+            try
+            {
+                turn = await AgentRuntimeProviderRetryPolicy.ExecuteAsync(
+                    () => ExecuteTurnAsync(parameters, provider, conversation, state, context),
+                    state,
+                    context);
+            }
+            catch (Exception ex) when (
+                ex is not OperationCanceledException &&
+                compressionConfig is not null &&
+                !overflowCompressionPendingVerification &&
+                overflowCompressionAttempts < MaxOverflowCompressionAttemptsPerRun &&
+                wireConversation.Count >= 2 &&
+                AgentRuntimeContextCompression.IsContextWindowExceededError(ex))
+            {
+                overflowCompressionAttempts++;
+                WorkerLog.Warn(
+                    $"agent provider turn exceeded the model context window; attempting error-driven " +
+                    $"compression runId={state.RunId} attempt={overflowCompressionAttempts}/" +
+                    $"{MaxOverflowCompressionAttemptsPerRun} error={ex.GetType().Name}: {ex.Message}");
+                var originalCount = wireConversation.Count;
+                var compression = await TryCompressLoopConversationAsync(
+                    parameters,
+                    wireConversation,
+                    compressionProvider,
+                    lastInputTokens,
+                    state,
+                    context);
+                if (compression.Status == LoopCompressionStatus.Cancelled)
+                {
+                    await EmitLoopEndAsync(
+                        parameters,
+                        state,
+                        context,
+                        "aborted",
+                        fullCompressionApplied || captureFinalMessages,
+                        uncompressedWireConversation ?? wireConversation);
+                    return;
+                }
+                // Only retry when compression actually shrank the conversation; otherwise
+                // surface the original provider error instead of looping on a hopeless request.
+                if (compression.Status != LoopCompressionStatus.Compressed ||
+                    compression.Messages is not { Count: > 0 } compressedMessages ||
+                    compressedMessages.Count >= originalCount)
+                {
+                    throw;
+                }
+                wireConversation = compressedMessages;
+                conversation = ReadConversation(wireConversation);
+                fullCompressionApplied = true;
+                lastInputTokens = 0;
+                overflowCompressionPendingVerification = true;
+                continue;
+            }
+
+            overflowCompressionPendingVerification = false;
             conversation.Add(turn.AssistantMessage);
             var assistantWireMessage = CreateAssistantWireMessage(turn.AssistantMessage, turn.Usage);
             wireConversation.Add(assistantWireMessage);
@@ -530,6 +505,143 @@ internal static class OpenAIChatRuntime
             return false;
         }
         return inputTokens >= GetCompressionTriggerTokens(config);
+    }
+
+    private enum LoopCompressionStatus
+    {
+        HookBlocked,
+        Cancelled,
+        Compressed,
+        Failed
+    }
+
+    private readonly record struct LoopCompressionAttempt(
+        LoopCompressionStatus Status,
+        List<JsonElement>? Messages);
+
+    /// <summary>
+    /// Runs one in-loop compression pass (PreCompact hook, summarizer, PostCompact hook,
+    /// stream events). Shared by the proactive token-threshold trigger and the reactive
+    /// context-window-exceeded recovery path.
+    /// </summary>
+    private static async Task<LoopCompressionAttempt> TryCompressLoopConversationAsync(
+        JsonElement parameters,
+        List<JsonElement> wireConversation,
+        JsonElement compressionProvider,
+        int preTokens,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context)
+    {
+        var preCompactHook = await AgentRuntimeHooks.RunCompactAsync(
+            parameters,
+            state,
+            context,
+            "PreCompact",
+            "auto",
+            wireConversation.Count);
+        if (preCompactHook.Blocked)
+        {
+            WorkerLog.Warn(
+                $"agent context compression blocked by hook runId={state.RunId} reason={preCompactHook.Reason}");
+            return new LoopCompressionAttempt(LoopCompressionStatus.HookBlocked, null);
+        }
+
+        await AgentRuntimeTools.EmitAsync(
+            state,
+            context,
+            new AgentRuntimeStreamEvent("context_compression_start"));
+
+        if (state.IsCancellationRequested)
+        {
+            return new LoopCompressionAttempt(LoopCompressionStatus.Cancelled, null);
+        }
+
+        try
+        {
+            var originalCount = wireConversation.Count;
+            // Zero-preserve: the compression summary replaces the whole prior context.
+            const int preserveCount = 0;
+            WorkerLog.Info(
+                $"agent context compression start runId={state.RunId} tokens={preTokens} " +
+                $"messages={originalCount} preserveCount={preserveCount}");
+            var compressed = await AgentRuntimeContextCompression.CompressMessagesAsync(
+                wireConversation,
+                compressionProvider,
+                context,
+                focusPrompt: null,
+                preTokens: preTokens,
+                preserveCount,
+                trigger: "auto");
+            if (compressed.Result.Compressed)
+            {
+                var compressedMessages = compressed.Messages
+                    .Select(message => message.Clone())
+                    .ToList();
+                var summarized = compressed.Result.MessagesSummarized ??
+                    Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 2));
+                var postCompactHook = await AgentRuntimeHooks.RunCompactAsync(
+                    parameters,
+                    state,
+                    context,
+                    "PostCompact",
+                    "auto",
+                    originalCount,
+                    compressed.Messages.Length);
+                if (postCompactHook.Blocked)
+                {
+                    WorkerLog.Warn(
+                        $"post compact hook requested block after auto compression runId={state.RunId} reason={postCompactHook.Reason}");
+                }
+                await AgentRuntimeTools.EmitAsync(
+                    state,
+                    context,
+                    new AgentRuntimeStreamEvent(
+                        "context_compressed",
+                        OriginalCount: originalCount,
+                        NewCount: compressed.Messages.Length,
+                        KeptMessageCount: summarized,
+                        SummarizerFailed: compressed.Result.SummarizerFailed,
+                        CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
+                WorkerLog.Info(
+                    $"agent context compression ok runId={state.RunId} original={originalCount} " +
+                    $"compressed={compressed.Messages.Length} summarized={summarized}");
+                return new LoopCompressionAttempt(LoopCompressionStatus.Compressed, compressedMessages);
+            }
+
+            if (compressed.Result.SummarizerFailed == true)
+            {
+                WorkerLog.Warn(
+                    $"agent context compression preserved original context after summarizer failure " +
+                    $"runId={state.RunId} error={compressed.Result.Error}");
+                await AgentRuntimeTools.EmitAsync(
+                    state,
+                    context,
+                    new AgentRuntimeStreamEvent(
+                        "context_compressed",
+                        Message: compressed.Result.Error,
+                        OriginalCount: originalCount,
+                        NewCount: originalCount,
+                        KeptMessageCount: 0,
+                        SummarizerFailed: true));
+            }
+            return new LoopCompressionAttempt(LoopCompressionStatus.Failed, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            WorkerLog.Warn(
+                $"agent context compression failed runId={state.RunId} error={ex.GetType().Name}: {ex.Message}");
+            await AgentRuntimeTools.EmitAsync(
+                state,
+                context,
+                new AgentRuntimeStreamEvent(
+                    "context_compressed",
+                    Message: ex.Message,
+                    OriginalCount: wireConversation.Count,
+                    NewCount: wireConversation.Count,
+                    KeptMessageCount: 0,
+                    SummarizerFailed: true));
+            return new LoopCompressionAttempt(LoopCompressionStatus.Failed, null);
+        }
     }
 
     private static int GetCompressionTriggerTokens(AgentLoopCompressionConfig config)
@@ -1317,52 +1429,26 @@ internal static class OpenAIChatRuntime
         var permissionDenyReason = permissionPolicy.EvaluateDenyReason(call.Name, call.Input);
         if (permissionDenyReason is not null)
         {
-            var rejectedContent = CreateStringElement(permissionDenyReason);
-            var rejectedAt = NowMs();
-            await AgentRuntimeTools.EmitAsync(
+            return await EmitFormattedToolErrorAsync(
+                call,
+                permissionDenyReason,
+                requiresApproval,
                 state,
                 context,
-                new AgentRuntimeStreamEvent(
-                    "tool_call_result",
-                    ToolCall: new AgentRuntimeToolCallState(
-                        call.Id,
-                        call.Name,
-                        call.Input,
-                        "error",
-                        rejectedContent,
-                        permissionDenyReason,
-                        requiresApproval,
-                        rejectedAt,
-                        rejectedAt)));
-            return new AgentRuntimeSingleToolExecutionResult(
-                new AgentRuntimeToolResult(call.Id, rejectedContent, true),
                 hookContextTexts,
-                false);
+                shouldStop: false);
         }
 
         if (preHook.Blocked)
         {
-            var blockedContent = CreateStringElement(preHook.Reason ?? "Blocked by PreToolUse hook");
-            var blockedAt = NowMs();
-            await AgentRuntimeTools.EmitAsync(
+            return await EmitFormattedToolErrorAsync(
+                call,
+                preHook.Reason ?? "Blocked by PreToolUse hook",
+                requiresApproval,
                 state,
                 context,
-                new AgentRuntimeStreamEvent(
-                    "tool_call_result",
-                    ToolCall: new AgentRuntimeToolCallState(
-                        call.Id,
-                        call.Name,
-                        call.Input,
-                        "error",
-                        blockedContent,
-                        preHook.Reason ?? "Blocked by PreToolUse hook",
-                        requiresApproval,
-                        blockedAt,
-                        blockedAt)));
-            return new AgentRuntimeSingleToolExecutionResult(
-                new AgentRuntimeToolResult(call.Id, blockedContent, true),
                 hookContextTexts,
-                true);
+                shouldStop: true);
         }
 
         if (requiresApproval)
@@ -1375,28 +1461,14 @@ internal static class OpenAIChatRuntime
             var approval = await RequestApprovalAsync(parameters, pendingCall, state, context);
             if (!approval.Approved)
             {
-                var deniedReason = approval.Reason ?? "Permission denied by user";
-                var deniedContent = CreateStringElement(deniedReason);
-                var deniedAt = NowMs();
-                await AgentRuntimeTools.EmitAsync(
+                return await EmitFormattedToolErrorAsync(
+                    call,
+                    approval.Reason ?? "Permission denied by user",
+                    true,
                     state,
                     context,
-                    new AgentRuntimeStreamEvent(
-                        "tool_call_result",
-                        ToolCall: new AgentRuntimeToolCallState(
-                            call.Id,
-                            call.Name,
-                            call.Input,
-                            "error",
-                            deniedContent,
-                            deniedReason,
-                            true,
-                            deniedAt,
-                            deniedAt)));
-                return new AgentRuntimeSingleToolExecutionResult(
-                    new AgentRuntimeToolResult(call.Id, deniedContent, true),
                     hookContextTexts,
-                    false);
+                    shouldStop: false);
             }
         }
 
@@ -1432,7 +1504,7 @@ internal static class OpenAIChatRuntime
                     "error",
                     Message: message,
                     ErrorType: "subagent_task_denied"));
-            result = new RendererToolResult(CreateStringElement(message), true, message);
+            result = AgentRuntimeToolError.Failed(message, call.Name, AgentRuntimeToolError.TryGetPath(call.Input));
         }
         else
         {
@@ -1445,6 +1517,7 @@ internal static class OpenAIChatRuntime
                     state.CancellationToken)
                 : CreateMissingNativeToolResult(call.Name);
         }
+        var toolPath = AgentRuntimeToolError.TryGetPath(call.Input);
         var completedAt = NowMs();
         var status = result.IsError ? "error" : "completed";
         var boundedContent = LimitToolResultContent(result.Content);
@@ -1460,14 +1533,33 @@ internal static class OpenAIChatRuntime
         if (postHook.ReplacementToolFeedback.HasValue)
         {
             boundedContent = LimitToolResultContent(postHook.ReplacementToolFeedback.Value);
-            result = result with { IsError = false, Error = null };
+            result = AgentRuntimeToolError.SanitizeLeakedKeys(
+                result with { Content = boundedContent, IsError = false, Error = null },
+                call.Name,
+                toolPath);
+            boundedContent = result.Content;
             status = "completed";
         }
         if (postHook.Blocked)
         {
-            boundedContent = CreateStringElement(postHook.Reason ?? "Blocked by PostToolUse hook");
-            result = result with { IsError = true, Error = postHook.Reason ?? "Blocked by PostToolUse hook" };
+            result = AgentRuntimeToolError.Failed(
+                postHook.Reason ?? "Blocked by PostToolUse hook",
+                call.Name,
+                toolPath);
+            boundedContent = result.Content;
             status = "error";
+        }
+        else if (!postHook.ReplacementToolFeedback.HasValue)
+        {
+            result = AgentRuntimeToolError.Normalize(
+                result with { Content = boundedContent },
+                call.Name,
+                toolPath);
+            boundedContent = result.Content;
+            if (result.IsError)
+            {
+                status = "error";
+            }
         }
         await AgentRuntimeTools.EmitAsync(
             state,
@@ -1493,6 +1585,42 @@ internal static class OpenAIChatRuntime
             nestedSubAgentTask || postHook.Blocked);
     }
 
+    private static async Task<AgentRuntimeSingleToolExecutionResult> EmitFormattedToolErrorAsync(
+        AgentRuntimeNativeToolCall call,
+        string message,
+        bool requiresApproval,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context,
+        List<string>? hookContextTexts,
+        bool shouldStop)
+    {
+        var formatted = AgentRuntimeToolError.Format(
+            message,
+            call.Name,
+            AgentRuntimeToolError.TryGetPath(call.Input));
+        var content = CreateStringElement(formatted.Content);
+        var failedAt = NowMs();
+        await AgentRuntimeTools.EmitAsync(
+            state,
+            context,
+            new AgentRuntimeStreamEvent(
+                "tool_call_result",
+                ToolCall: new AgentRuntimeToolCallState(
+                    call.Id,
+                    call.Name,
+                    call.Input,
+                    "error",
+                    content,
+                    formatted.Display,
+                    requiresApproval,
+                    failedAt,
+                    failedAt)));
+        return new AgentRuntimeSingleToolExecutionResult(
+            new AgentRuntimeToolResult(call.Id, content, true),
+            hookContextTexts ?? [],
+            shouldStop);
+    }
+
     private static async Task<AgentRuntimeSingleToolExecutionResult> RejectToolCallBeforeExecutionAsync(
         AgentRuntimeNativeToolCall call,
         string code,
@@ -1501,7 +1629,11 @@ internal static class OpenAIChatRuntime
         WorkerRequestContext context,
         List<string>? hookContextTexts = null)
     {
-        var content = CreateStringElement($"{code}: {message}");
+        var formatted = AgentRuntimeToolError.Format(
+            $"{code}: {message}",
+            call.Name,
+            AgentRuntimeToolError.TryGetPath(call.Input));
+        var content = CreateStringElement(formatted.Content);
         var rejectedAt = NowMs();
         await AgentRuntimeTools.EmitAsync(
             state,
@@ -1521,7 +1653,7 @@ internal static class OpenAIChatRuntime
                     call.Input,
                     "error",
                     content,
-                    code,
+                    formatted.Display,
                     false,
                     rejectedAt,
                     rejectedAt)));
@@ -1599,8 +1731,7 @@ internal static class OpenAIChatRuntime
 
     private static RendererToolResult CreateMissingNativeToolResult(string toolName)
     {
-        var message = $"Native tool not registered: {toolName}";
-        return new RendererToolResult(CreateStringElement(message), true, message);
+        return AgentRuntimeToolError.Failed($"Native tool not registered: {toolName}", toolName);
     }
 
     private static JsonElement CreateAssistantWireMessage(

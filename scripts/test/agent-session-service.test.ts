@@ -463,6 +463,68 @@ test('assembler appends ultra multi-agent authorization to the hosted prompt', a
   assert.match(prompt, /hosted prompt/)
 })
 
+test('assembler keeps Write in the ACP sub-agent catalog but not the lead tool list', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'acp',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getSession: async () => ({ ...session, mode: 'acp' }),
+      listTools: () => [
+        {
+          name: 'Read',
+          description: 'Read a file',
+          inputSchema: { type: 'object', properties: { file_path: { type: 'string' } } }
+        },
+        {
+          name: 'Write',
+          description: 'Write a file',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string' },
+              content: { type: 'string' }
+            }
+          }
+        },
+        {
+          name: 'Task',
+          description: 'Launch a sub-agent',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              description: { type: 'string' },
+              prompt: { type: 'string' }
+            }
+          }
+        }
+      ]
+    }
+  )
+  assert.deepEqual(
+    (assembled.openTemplate.tools as Array<{ name: string }>).map((tool) => tool.name),
+    ['Read', 'Task']
+  )
+  assert.deepEqual(
+    (assembled.openTemplate.subAgentToolCatalog as Array<{ name: string }>).map((tool) => tool.name),
+    ['Read', 'Task', 'Write']
+  )
+  const snapshot = assembled.openTemplate.capabilitySnapshot as {
+    authorizedTools?: Array<{ wireName: string }>
+  }
+  assert.deepEqual(
+    snapshot.authorizedTools?.map((tool) => tool.wireName),
+    ['Read', 'Task']
+  )
+})
+
 test('assembler injects CodeGraph guidance when explore is in the catalog', async () => {
   const assembled = await assembleSessionContext(
     {

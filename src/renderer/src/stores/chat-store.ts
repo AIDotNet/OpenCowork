@@ -10,7 +10,11 @@ import type {
   ToolUseBlock,
   ToolDefinition
 } from '../lib/api/types'
-import { appendOrUpsertContentBlock } from '../lib/content-blocks'
+import {
+  appendOrUpsertContentBlock,
+  appendThinkingDeltaToBlocks,
+  sealIncompleteThinkingBlocks
+} from '../lib/content-blocks'
 import { invokeMessagePack, invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
 import {
   DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL,
@@ -62,6 +66,7 @@ import {
 import {
   isCompactArtifactMessage,
   isCompactBoundaryMessage,
+  isCompactSummaryLikeMessage,
   resolveActiveCompactArtifacts,
   type ActiveCompactArtifacts
 } from '../lib/agent/context-compression'
@@ -1480,6 +1485,16 @@ interface ChatStore {
   clearSessionMessages: (sessionId: string) => void
   duplicateSession: (sessionId: string) => Promise<string | null>
   forkSessionFromMessage: (sessionId: string, messageId: string) => Promise<string | null>
+  /**
+   * Start a fresh session seeded with only the given compact summary message.
+   * The summary becomes the whole model-visible context, so the new session
+   * continues the work without the original session's remaining history.
+   */
+  continueSessionFromCompactSummary: (
+    sessionId: string,
+    summaryMessageId: string,
+    title?: string
+  ) => Promise<string | null>
   togglePinSession: (sessionId: string) => void
   restoreSession: (session: Session) => void
   importSession: (session: Session, projectId?: string | null) => string
@@ -3393,6 +3408,15 @@ export const useChatStore = create<ChatStore>()(
           set((state) => {
             const target = state.sessions.find((s) => s.id === sessionId)
             if (!target) return
+            // A channel/user turn can land in memory while this stale empty
+            // snapshot is still in flight. Do not wipe those optimistic rows.
+            if (
+              getMessageWindowGeneration(sessionId) !== generation ||
+              target.messages.length > 0 ||
+              (target.messageCount ?? 0) > 0
+            ) {
+              return
+            }
             target.messages = []
             target.messagesLoaded = true
             target.messageCount = 0
@@ -3465,62 +3489,22 @@ export const useChatStore = create<ChatStore>()(
           set((state) => {
             const target = state.sessions.find((s) => s.id === sessionId)
             if (!target || getMessageWindowGeneration(sessionId) !== generation) return
-            const residentById = new Map(target.messages.map((message) => [message.id, message]))
-            const nextMessages = fetchedMessages.map((message) => {
-              const resident = residentById.get(message.id)
-              return resident ? preferWindowMessage(resident, message) : message
-            })
-            const fetchedIds = new Set(nextMessages.map((message) => message.id))
-            // Keep optimistic rows that have not reached SQLite yet, but do not
-            // carry an arbitrary historical window into a new tail request.
-            for (const resident of target.messages) {
-              if (!fetchedIds.has(resident.id) && hasPendingLocalMessageWrite(resident.id)) {
-                nextMessages.push(resident)
-              }
-            }
-            nextMessages.sort((left, right) => {
-              const leftOrder =
-                typeof left.sortOrder === 'number' && Number.isFinite(left.sortOrder)
-                  ? left.sortOrder
-                  : Number.MAX_SAFE_INTEGER
-              const rightOrder =
-                typeof right.sortOrder === 'number' && Number.isFinite(right.sortOrder)
-                  ? right.sortOrder
-                  : Number.MAX_SAFE_INTEGER
-              return leftOrder - rightOrder || left.createdAt - right.createdAt
-            })
-            target.messages = nextMessages
-            target.messagesLoaded = true
-            const pendingLocalOrders = nextMessages
-              .filter((message) => hasPendingLocalMessageWrite(message.id))
-              .map((message) => message.sortOrder)
-              .filter(
-                (order): order is number => typeof order === 'number' && Number.isFinite(order)
-              )
-            const effectiveTotal = Math.max(
-              target.messageCount ?? 0,
-              range.total,
-              ...pendingLocalOrders.map((order) => order + 1)
-            )
-            target.messageCount = effectiveTotal
-            const residentOrders = nextMessages
-              .map((message) => message.sortOrder)
-              .filter(
-                (order): order is number => typeof order === 'number' && Number.isFinite(order)
-              )
-            target.loadedRangeStart = Math.min(
+            const merged = mergeLoadedMessagesWithResident(
+              target,
+              fetchedMessages,
               windowStart,
-              ...(residentOrders.length > 0 ? residentOrders : [windowStart])
-            )
-            target.loadedRangeEnd = Math.max(
               windowEnd,
-              ...(residentOrders.length > 0
-                ? residentOrders.map((order) => order + 1)
-                : [windowEnd])
+              Math.max(target.messageCount ?? 0, range.total),
+              fetchedRows.map((row) => row.sort_order)
             )
+            target.messages = merged.messages
+            target.messagesLoaded = true
+            target.messageCount = merged.messageCount
+            target.loadedRangeStart = merged.loadedRangeStart
+            target.loadedRangeEnd = merged.loadedRangeEnd
             target.hasOlder = target.loadedRangeStart > 0
-            target.hasNewer = target.loadedRangeEnd < effectiveTotal || range.hasNewer
-            target.lastKnownMessageCount = effectiveTotal
+            target.hasNewer = target.loadedRangeEnd < merged.messageCount || range.hasNewer
+            target.lastKnownMessageCount = merged.messageCount
             target.residentBytes = getResidentMessageBytes(target.messages)
             trimSessionMessageWindow(target, 'tail')
           })
@@ -5428,7 +5412,10 @@ export const useChatStore = create<ChatStore>()(
           ? state.projectSessionLoadState[row.project_id] === 'loaded'
           : true
         if (!existing && row.project_id && !projectLoaded) {
-          if (state.activeSessionId === row.id) {
+          // Channel sessions must enter the store immediately so auto-reply can
+          // append the inbound user turn. Waiting for project pagination hides
+          // those messages and can abort the run.
+          if (state.activeSessionId === row.id || row.plugin_id) {
             state.sessions.push(syncedSession)
             syncSessionsById(state)
           }
@@ -5666,6 +5653,79 @@ export const useChatStore = create<ChatStore>()(
         state.activeSessionId = newId
         if (source.projectId) {
           state.activeProjectId = source.projectId
+        }
+      })
+
+      dbCreateSession(newSession)
+      clonedMessages.forEach((msg, i) => dbAddMessage(newId, msg, i))
+      useTaskStore.getState().clearTasks()
+      usePlanStore.getState().setActivePlan(null)
+      useUIStore.getState().syncSessionScopedState(newId)
+      return newId
+    },
+
+    continueSessionFromCompactSummary: async (sessionId, summaryMessageId, title) => {
+      let source = get().sessions.find((s) => s.id === sessionId)
+      let summary = source?.messages.find((message) => message.id === summaryMessageId)
+      if (!summary) {
+        await get().loadSessionMessages(sessionId)
+        source = get().sessions.find((s) => s.id === sessionId)
+        summary = source?.messages.find((message) => message.id === summaryMessageId)
+      }
+      if (!source || !summary || !isCompactSummaryLikeMessage(summary)) return null
+      const sourceSession = source
+
+      const newId = nanoid()
+      const now = Date.now()
+      const [clonedSummary] = cloneMessagesForNewSession([summary])
+      if (!clonedSummary) return null
+      clonedSummary.createdAt = now
+      if (clonedSummary.meta?.compactSummary) {
+        // The clone is the whole context of the new session: nothing is preserved
+        // after it and the display anchor from the source session does not exist.
+        const { displayAnchor: _displayAnchor, ...compactSummary } =
+          clonedSummary.meta.compactSummary
+        clonedSummary.meta = {
+          ...clonedSummary.meta,
+          compactSummary: { ...compactSummary, recentMessagesPreserved: false }
+        }
+      }
+
+      const clonedMessages = [clonedSummary]
+      const newSession: Session = {
+        id: newId,
+        title: title?.trim() || sourceSession.title,
+        icon: sourceSession.icon,
+        mode: sourceSession.mode,
+        messages: clonedMessages,
+        messageCount: clonedMessages.length,
+        messagesLoaded: true,
+        loadedRangeStart: 0,
+        loadedRangeEnd: clonedMessages.length,
+        hasOlder: false,
+        hasNewer: false,
+        residentBytes: getResidentMessageBytes(clonedMessages),
+        lastKnownMessageCount: clonedMessages.length,
+        createdAt: now,
+        updatedAt: now,
+        projectId: sourceSession.projectId,
+        workingFolder: sourceSession.workingFolder,
+        sshConnectionId: sourceSession.sshConnectionId,
+        modelSelectionMode: normalizeSessionModelSelectionMode(
+          sourceSession.modelSelectionMode,
+          sourceSession.providerId,
+          sourceSession.modelId
+        ),
+        providerId: sourceSession.providerId,
+        modelId: sourceSession.modelId
+      }
+
+      set((state) => {
+        state.sessions.push(newSession)
+        syncSessionsById(state)
+        state.activeSessionId = newId
+        if (sourceSession.projectId) {
+          state.activeProjectId = sourceSession.projectId
         }
       })
 
@@ -6025,6 +6085,8 @@ export const useChatStore = create<ChatStore>()(
             state.streamingMessageId = streamingMessageId
           }
         }
+        state.messageLocatorVersions[sessionId] =
+          (state.messageLocatorVersions[sessionId] ?? 0) + 1
 
         releaseDormantSessionMemory(state)
       })
@@ -6278,6 +6340,7 @@ export const useChatStore = create<ChatStore>()(
             : -1
 
           if (existingIndex === -1) {
+            sealIncompleteThinkingBlocks(blocks, Date.now())
             blocks.push(normalizedToolUse)
           } else {
             blocks[existingIndex] = {
@@ -6722,20 +6785,11 @@ function applyStreamDeltas(
           if (typeof msg.content === 'string') {
             msg.content = [{ type: 'thinking', thinking: delta.thinking, startedAt: now }]
           } else {
-            const blocks = msg.content as ContentBlock[]
-            let target: ThinkingBlock | null = null
-            for (let i = blocks.length - 1; i >= 0; i--) {
-              const b = blocks[i]
-              if (b.type === 'thinking' && !(b as ThinkingBlock).completedAt) {
-                target = b as ThinkingBlock
-                break
-              }
-            }
-            if (target) {
-              target.thinking = stripThinkTagMarkers(`${target.thinking}${delta.thinking}`)
-            } else {
-              blocks.push({ type: 'thinking', thinking: delta.thinking, startedAt: now })
-            }
+            appendThinkingDeltaToBlocks(
+              msg.content as ContentBlock[],
+              stripThinkTagMarkers(delta.thinking),
+              now
+            )
           }
         }
 

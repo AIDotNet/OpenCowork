@@ -60,7 +60,7 @@ internal static class AgentRuntimeGoalExecutor
         }
         catch (InvalidOperationException ex)
         {
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
 
         using var connection = DbConnectionFactory.OpenReadWrite(parameters);
@@ -458,7 +458,7 @@ internal static class AgentRuntimeGoalExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static string NormalizeStatusAfterBudget(string status, long tokensUsed, long? tokenBudget)

@@ -220,6 +220,23 @@ const englishResources = {
       noticeAuto: 'Thinking auto → {{level}} model default',
       noticeSession: 'Thinking {{level}} · current session',
       noticeLevel: 'Thinking set to {{level}}'
+    },
+    transcript: {
+      thoughtFor: 'Thought for {{seconds}}s',
+      thought: 'Thought',
+      traceNotExposed: 'trace not exposed',
+      noTrace: 'no trace',
+      expandDetails: 'ctrl+o to expand',
+      edited: 'Edited {{path}}',
+      runningAgents: 'Running {{count}} agents ({{done}} done, {{running}} running)',
+      runningAgent: 'Running 1 agent ({{done}} done, {{running}} running)',
+      ranAgents: 'Ran {{count}} agents',
+      ranAgent: 'Ran 1 agent',
+      completed: 'Completed',
+      running: 'Running',
+      queued: 'Queued',
+      starting: 'Starting',
+      failed: 'Failed'
     }
   }
 } as const
@@ -672,7 +689,16 @@ const chineseResources = {
       traceNotExposed: '未公开 trace',
       noTrace: '无 trace',
       expandDetails: 'ctrl+o 展开',
-      edited: '已编辑 {{path}}'
+      edited: '已编辑 {{path}}',
+      runningAgents: '正在运行 {{count}} 个 Agent（{{done}} 已完成，{{running}} 进行中）',
+      runningAgent: '正在运行 1 个 Agent（{{done}} 已完成，{{running}} 进行中）',
+      ranAgents: '已运行 {{count}} 个 Agent',
+      ranAgent: '已运行 1 个 Agent',
+      completed: '已完成',
+      running: '进行中',
+      queued: '排队中',
+      starting: '启动中',
+      failed: '失败'
     }
   }
 } as const

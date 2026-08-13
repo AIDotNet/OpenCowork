@@ -70,7 +70,7 @@ internal static class AgentRuntimeTeamExecutor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
     }
 
@@ -440,6 +440,6 @@ internal static class AgentRuntimeTeamExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 }

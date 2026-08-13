@@ -677,39 +677,44 @@
     "copyError": "Lỗi Chép",
     "errorDetails": "Chi tiết lỗi",
     "modeTooltip": {
-      "solvesTitle": "Tốt nhất cho",
+      "solvesTitle": "Phù hợp khi",
+      "flowTitle": "Cách hoạt động",
       "current": "Chế độ hiện tại",
-      "switchHint": "Chuyển sang {{mode}} có {{shortcut}}",
+      "switchHint": "Chuyển sang {{mode}} bằng {{shortcut}}",
       "clarify": {
-        "summary": "Dùng tùy chọn này khi yêu cầu vẫn còn mơ hồ, và bạn muốn tác nhân chậm lại, tốt hơn hãy hỏi lại, và sắp xếp mục tiêu trước khi hành động.",
+        "summary": "Clarify biến yêu cầu còn mơ hồ thành kế hoạch cụ thể, có thể duyệt. Không triển khai trước. Agent chỉ khảo sát đủ để hỏi đúng, viết kế hoạch rồi chờ bạn duyệt.",
+        "flow": "Khảo sát bằng chứng → hỏi quyết định quan trọng qua AskUserQuestion → khóa phạm vi → viết kế hoạch → dừng để bạn duyệt.",
         "solves": [
-          "Các yêu cầu không rõ ràng, ngữ cảnh không đầy đủ, hoặc nhiều cách giải thích có thể",
-          "Cần giúp biến những ý tưởng thô thành những nhiệm vụ cụ thể, thông số kỹ thuật hoặc tiêu chuẩn chấp nhận",
-          "Muốn các tác nhân để thách thức giả định trước khi nó bắt đầu thực hiện thay đổi"
+          "Yêu cầu còn mơ hồ, thiếu hoặc có nhiều cách hiểu",
+          "Cần yêu cầu, tiêu chí nghiệm thu và bước theo từng file trước khi ai đó viết mã",
+          "Muốn chất vấn giả định trước khi đổi file hoặc chạy lệnh"
         ]
       },
       "cowork": {
-        "summary": "Đặc vụ hoạt động như một đối tác hợp tác: nó giải thích cách tiếp cận của nó, theo một vòng lập trình-Act-Ob service, và xử lý cả các nhiệm vụ mã hóa và không phân tích như nghiên cứu, DevOps, hoặc thiết lập dự án. Bảng bên phải mở tự động để theo dõi bước.",
+        "summary": "Cowork là cộng sự có đủ công cụ dự án. Theo vòng Lập kế hoạch–Hành động–Quan sát: nói bước tiếp theo, thực hiện, rồi kiểm tra. Nghiên cứu, mã và vận hành trong cùng một phiên.",
+        "flow": "Nêu bước tiếp theo → dùng file, terminal và công cụ nghiên cứu → kiểm tra kết quả → lặp đến khi xong.",
         "solves": [
-          "Công việc nhiều bước truyền tải việc pha trộn nghiên cứu, lên kế hoạch, thay đổi tập tin và lệnh thiết bị cuối — tác nhân giải thích mỗi bước",
-          "Tác vụ nằm ngoài mã hóa thuần túy: thiết lập dự án, tài liệu hướng dẫn, DevOps, phân tích, hoặc bất cứ điều gì cần thiết để phối hợp",
-          "Tình huống mà bạn muốn nhìn vào quá trình suy nghĩ của đại lý và trung gian kết quả"
+          "Công việc nhiều bước trộn nghiên cứu, lập kế hoạch, sửa file và lệnh",
+          "Dựng dự án, tài liệu, DevOps, phân tích và việc ngoài viết mã thuần",
+          "Muốn thấy liên tục đang làm gì để đổi hướng giữa chừng"
         ]
       },
       "code": {
-        "summary": "Người đại diện hoạt động như một cặp lập trình viên tập trung, đọc trước khi chỉnh sửa, khớp với kiểu mã cơ bản của bạn, thay đổi phương pháp phẫu thuật, và giữ những lời giải thích tối thiểu — để cho đoạn mã tự phát biểu.",
+        "summary": "Code là lập trình viên cặp tập trung. Phạm vi chỉ là triển khai: đọc trước, khớp repo này, sửa tối thiểu nhưng đủ, ít lời. Việc không phải mã thuộc Cowork.",
+        "flow": "Đọc file liên quan → làm thay đổi nhỏ nhất nhưng đủ → xác nhận ngắn gọn những gì đã đổi.",
         "solves": [
-          "Thực hiện chuẩn: ghi tính năng, sửa lỗi, sửa chữa lại mô- đun, hoặc hoàn thành mô-đun với kỷ luật kỹ thuật",
-          "Khi bạn muốn mã sạch xuất ra với ít thông tin — hãy xác nhận lỗi chính tả thay vì đi qua động từsese",
-          "Thay đổi đó đòi hỏi sự chú ý chặt chẽ đến các quy ước, loại, nhập khẩu, và các hợp đồng của CN"
+          "Tính năng, sửa lỗi, tái cấu trúc và triển khai trực tiếp",
+          "Thay đổi phải khớp tên, kiểu, import và hợp đồng API hiện có",
+          "Muốn mã, không phải bài giải thích mã làm gì"
         ]
       },
       "acp": {
-        "summary": "Kế hoạch Kiểm soát Kiến trúc là để làm công việc phức tạp cần kiểm soát trước khi thực hiện: làm rõ mục tiêu và ranh giới trước tiên, sau đó thiết kế kiến trúc, phân hủy việc giao hàng và đại diện.",
+        "summary": "ACP (Architecture Control Planning) giữ agent chính ở thiết kế và kiểm soát. Có thể khảo sát, lập kế hoạch, hỏi; không viết mã triển khai hay sửa file. Write, Edit, Bash thuộc về agent con.",
+        "flow": "Làm rõ mục tiêu và ràng buộc → thiết kế kiến trúc → tách việc → ủy thác song song → tổng hợp báo cáo có cấu trúc.",
         "solves": [
-          "Những công việc phức tạp cần thiết nền, phạm vi, hạn chế, phụ thuộc và tiêu chuẩn chấp nhận cần được làm rõ trước khi thực hiện",
-          "Làm việc nơi mà tác nhân chính nên tập trung vào kiến trúc, dàn xếp và xử lý thay vì lập trình trực tiếp",
-          "Các trường hợp mà sub-tasks nên chạy song song và trở lại cấu trúc Markdown tóm tắt cho tiếp tục phối hợp"
+          "Việc phức tạp cần bối cảnh, ranh giới và tiêu chí nghiệm thu trước khi triển khai",
+          "Muốn agent chính lo kiến trúc, thứ tự và duyệt — không gõ diff",
+          "Các việc con độc lập nên chạy song song và trả tóm tắt Markdown"
         ]
       }
     },

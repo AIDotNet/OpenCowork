@@ -6,8 +6,10 @@ import { Brain, FileText, ScrollText, icons } from 'lucide-react'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { formatTokens, getBillableTotalTokens } from '@renderer/lib/format-tokens'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
+import { resolveSubAgentPresentation } from '@renderer/lib/agent/sub-agents/presentation'
 import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import { useAgentStore } from '@renderer/stores/agent-store'
+import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 import { cn } from '@renderer/lib/utils'
@@ -23,6 +25,7 @@ interface SubAgentCardProps {
   input: Record<string, unknown>
   output?: ToolResultContent
   isLive?: boolean
+  liveStatus?: ToolCallStatus | 'completed'
   sessionId?: string | null
   isBackground?: boolean
 }
@@ -118,11 +121,11 @@ function SubAgentCardInner({
   input,
   output,
   isLive = false,
+  liveStatus,
   sessionId,
   isBackground = false
 }: SubAgentCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
-  void isLive
 
   const displayName = String(input.subagent_type ?? name)
   const tracked = useAgentStore(
@@ -168,10 +171,8 @@ function SubAgentCardInner({
   const histMeta = parsed.meta
   const histText = parsed.text || outputStr || ''
   const usage = tracked?.usage ?? histMeta?.usage ?? null
-  const isQueued = tracked?.isQueued ?? false
   const reportStatus = tracked?.reportStatus
   const endReason = tracked?.endReason
-  const isRunning = (tracked?.isRunning ?? false) && !isQueued
   const historicalError = outputStr
     ? (() => {
         const parsedOutput = decodeStructuredToolResult(outputStr)
@@ -191,15 +192,24 @@ function SubAgentCardInner({
         )
       })()
     : false
-  const isError = tracked?.success === false || !!tracked?.errorMessage || historicalError
+  const presentation = resolveSubAgentPresentation({
+    tracked,
+    hasToolResult: Boolean(outputStr),
+    toolResultIsError: historicalError,
+    isLive,
+    liveToolStatus: liveStatus
+  })
+  const isQueued = presentation.isQueued
+  const isRunning = presentation.isRunning
+  const isError = presentation.isError || historicalError
 
-  const [now, setNow] = React.useState(tracked?.startedAt ?? 0)
+  const [now, setNow] = React.useState(tracked?.startedAt ?? Date.now())
   React.useEffect(() => {
-    if (!tracked?.isRunning) return
+    if (!isRunning) return
     setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [tracked?.isRunning, tracked?.startedAt])
+  }, [isRunning, tracked?.startedAt])
 
   const elapsed = tracked
     ? (tracked.completedAt ?? (tracked.isRunning ? now : tracked.startedAt)) - tracked.startedAt

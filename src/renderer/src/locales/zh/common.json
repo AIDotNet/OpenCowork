@@ -85,6 +85,7 @@
     "cowork": "协作",
     "code": "编程",
     "acp": "ACP",
+    "switcher": "会话模式",
     "descriptions": {
       "chat": "快速对话，不调用项目工具",
       "clarify": "厘清需求，先产出可评审计划",

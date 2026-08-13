@@ -677,39 +677,44 @@
     "copyError": "Hatayı kopyalayın",
     "errorDetails": "Hata detayları",
     "modeTooltip": {
-      "solvesTitle": "En iyisi için",
-      "current": "Şimdiki mod",
-      "switchHint": "Anahtar anahtarı {{mode}} ile birlikte {{shortcut}}",
+      "solvesTitle": "Şunun için",
+      "flowTitle": "Nasıl çalışır",
+      "current": "Geçerli mod",
+      "switchHint": "{{shortcut}} ile {{mode}} moduna geç",
       "clarify": {
-        "summary": "İstek hala bulanık olduğunda bunu kullanın ve ajanın yavaşlamasını istiyorsanız, daha iyi takip soruları isteyin ve hareket etmeden önce hedefe uyum sağlayın.",
+        "summary": "Clarify belirsiz bir isteği somut, incelenebilir bir plana çevirir. Önce uygulamaz. Projeyi tam soru soracak kadar inceler, planı yazar ve onayını bekler.",
+        "flow": "Kanıtı incele → AskUserQuestion ile önemli kararları sor → kapsamı kilitle → plan yaz → incelemen için dur.",
         "solves": [
-          "Amca gereksinimleri, eksik bağlam veya çok olası yorumlar",
-          "Kaba fikirleri somut görevlere dönüştürmeye veya kabul kriterlerine dönüştürmeye yardımcı olun.",
-          "Ajanın değişiklikler yapmaya başlamadan önce varsayımlara meydan okumasını ister"
+          "İstek hâlâ belirsiz, eksik veya birden fazla yoruma açık",
+          "Kod yazılmadan önce gereksinimler, kabul ölçütleri ve dosya düzeyinde adımlar istiyorsun",
+          "Dosya veya komut değişmeden önce varsayımların sorgulanmasını istiyorsun"
         ]
       },
       "cowork": {
-        "summary": "Ajan işbirlikçi bir ortak olarak çalışır: yaklaşımını açıklıyor, bir Plan-Act-Observe döngüyü takip ediyor ve hem kodlamayı hem de araştırma, DevOps veya proje kurulumu gibi uyumlu olmayan görevleri ele alıyor.",
+        "summary": "Cowork, tüm proje araçlarına sahip bir iş ortağıdır. Planla–Uygula–Gözlemle döngüsünü izler: sonraki adımı açıklar, çalıştırır, doğrular. Araştırma, kod ve ops aynı oturumda yönetilir.",
+        "flow": "Sonraki adımı söyle → dosya, terminal ve araştırma araçlarını kullan → sonuçları kontrol et → bitene kadar tekrarla.",
         "solves": [
-          "Çok adımlı akışlar araştırma, planlama, dosya değişiklikleri ve terminal komutları karıştırıyor - ajan her adımı açıklıyor",
-          "Saf kodlamanın ötesinde görevler: Proje kurulumu, belgeleme, DevOps, analiz veya koordinasyon gerektiren herhangi bir şey",
-          "Ajanın düşünce sürecine ve orta sonuçlara görünürlük istediğiniz durumlar"
+          "Araştırma, planlama, dosya değişiklikleri ve komutları karıştıran çok adımlı iş",
+          "Proje kurulumu, belgeleme, DevOps, analiz ve salt kodun ötesindeki işler",
+          "Yarı yolda yön değiştirmek için neler olduğunu sürekli görmek istiyorsun"
         ]
       },
       "code": {
-        "summary": "Ajan odaklanmış bir çift programcısı olarak hareket eder. Düzenlemeden önce okur, kodbase tarzınızı karşılaştırır, cerrahi değişiklikler yapar ve en az açıklama tutar - kodun kendisi için konuşmasına izin verin.",
+        "summary": "Code odaklı bir eşli programcıdır. Kapsam yalnızca uygulamadır: önce oku, bu depoya uy, cerrahi düzenleme yap, az anlat. Kod dışı iş Cowork’a aittir.",
+        "flow": "İlgili dosyaları oku → en küçük tam değişikliği yap → neyin değiştiğini kısaca doğrula.",
         "solves": [
-          "Precise uygulamaları: özellikleri yazmak, hataları düzeltmek, yeniden faktörlemek veya mühendislik disiplini ile modülleri tamamlamak",
-          "Asgari anlatımla temiz kod çıktısını istediğinizde - fiilose yürüyüşleri yerine onaylayın",
-          "Mevcut sözleşmelere, türlere, ithalata ve API sözleşmelerine sıkı dikkat gerektiren değişiklikler"
+          "Özellik, hata düzeltmesi, refaktör ve diğer uygulamalı iş",
+          "Mevcut adlandırma, türler, importlar ve API sözleşmelerine uyması gereken değişiklikler",
+          "Ne yaptığını anlatan bir yürüyüş değil, kodun kendisini istiyorsun"
         ]
       },
       "acp": {
-        "summary": "Mimari Kontrol Planlama, uygulamadan önce kontrol gerektiren karmaşık çalışmalar içindir: önce hedefler ve sınırları açıklayın, sonra mimarlık, decompose execution ve delege teslimatını tasarlayın. ana ajan doğrudan kod yapmaz.",
+        "summary": "ACP (Architecture Control Planning) ana ajanı tasarım ve denetimde tutar. İnceleyebilir, planlayabilir, soru sorabilir; uygulama kodu yazmaz, dosya düzenlemez. Write, Edit ve Bash alt ajanlara gider.",
+        "flow": "Hedef ve kısıtları netleştir → mimariyi tasarla → işi böl → paralel devret → yapılandırılmış özetleri birleştir.",
         "solves": [
-          "Arka plan gerektiren karmaşık görevler, kapsamı, kısıtlamalar, bağımlılıklar ve uygulama kriterleri uygulamadan önce açıklanacaktır.",
-          "Ana ajanın mimariye, orkestrasyona ve kodlama yerine doğrudan kontrole odaklanması gerektiği iş.",
-          "Sub-tasksların paralel olarak çalışabilmesi ve devam eden koordinasyon için yapılandırılmış Markdown Summaries geri dönmeleri gereken durumlar"
+          "Uygulamadan önce arka plan, sınır ve kabul ölçütü isteyen karmaşık iş",
+          "Ana ajanın mimari, sıra ve incelemede kalmasını, diff yazmamasını istiyorsun",
+          "Bağımsız alt görevler paralel çalışıp Markdown özet dönmeli"
         ]
       }
     },

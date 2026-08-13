@@ -124,6 +124,7 @@ export function isMissingFileErrorMessage(error: string): boolean {
     /Could not find (?:file|a part of the path)/i.test(error) ||
     /(?:system )?cannot find (?:the )?(?:file|path)(?: specified)?/i.test(error) ||
     /file not found/i.test(error) ||
+    /does not exist/i.test(error) ||
     // .NET AOT builds with trimmed resource strings surface raw resource keys
     // (e.g. "IO_FileNotFound_FileName, /path") instead of readable messages.
     /\bIO_(?:FileNotFound|PathNotFound)/.test(error)

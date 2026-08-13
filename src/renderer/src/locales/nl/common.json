@@ -85,6 +85,7 @@
     "cowork": "Cowork",
     "code": "Rubriek",
     "acp": "ACS",
+    "switcher": "Sessiestand",
     "descriptions": {
       "acp": "Architectuur bepalen en delegeren aan sub-agents",
       "chat": "Snel gesprek, geen projecthulpmiddelen",

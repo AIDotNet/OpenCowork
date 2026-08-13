@@ -7,7 +7,7 @@ export interface RequestTiming {
   totalMs: number
   /** Time to first token in milliseconds (request start → first streamed content). */
   ttftMs?: number
-  /** Output tokens per second, calculated from streamed output. */
+  /** Output tokens per second, measured after each API request completes. */
   tps?: number
 }
 
@@ -445,6 +445,7 @@ export interface ResponsesImageGenerationInputMask {
 }
 
 export interface ResponsesImageGenerationConfig {
+  /** Opt-in. Missing or false means the image_generation tool is not attached. */
   enabled?: boolean
   action?: ResponsesImageGenerationAction
   background?: ResponsesImageGenerationBackground
@@ -619,7 +620,8 @@ export interface AIModelConfig {
   supportsWebsocket?: boolean
   /**
    * Whether this model supports the OpenAI Responses `image_generation` server tool.
-   * Defaults to false; the tool is only injected when this is true.
+   * Defaults to false. The tool is only injected when this is true and
+   * `responsesImageGeneration.enabled` is also true (opt-in).
    */
   supportsImageGeneration?: boolean
   /** Configuration describing how to enable thinking for this model */

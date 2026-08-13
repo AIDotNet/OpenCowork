@@ -282,9 +282,9 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
 
     private static bool ShouldEnableResponsesImageGeneration(JsonElement provider)
     {
-        return !provider.TryGetProperty("responsesImageGeneration", out var config) ||
-            config.ValueKind != JsonValueKind.Object ||
-            JsonHelpers.GetBool(config, "enabled", true);
+        return provider.TryGetProperty("responsesImageGeneration", out var config) &&
+            config.ValueKind == JsonValueKind.Object &&
+            JsonHelpers.GetBool(config, "enabled", false);
     }
 
     private static void WriteResponsesImageGenerationTool(Utf8JsonWriter writer, JsonElement provider)

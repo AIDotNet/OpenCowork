@@ -75,7 +75,7 @@ export function normalizeResponsesImageGenerationConfig(
 ): ResponsesImageGenerationConfig {
   const normalized: ResponsesImageGenerationConfig = {
     ...(config ?? {}),
-    enabled: config?.enabled ?? true,
+    enabled: config?.enabled === true,
     partialImages:
       normalizeResponsesImageGenerationPartialImages(config?.partialImages) ??
       RESPONSES_IMAGE_GENERATION_DEFAULT_PARTIAL_IMAGES
@@ -132,7 +132,7 @@ export function normalizeResponsesImageGenerationConfig(
 export function isResponsesImageGenerationEnabled(
   config?: ResponsesImageGenerationConfig | null
 ): boolean {
-  return normalizeResponsesImageGenerationConfig(config).enabled !== false
+  return config?.enabled === true
 }
 
 export function normalizeResponsesImageGenerationOutputCompression(

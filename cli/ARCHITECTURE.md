@@ -305,7 +305,7 @@ Important mappings:
 | `context_compression_start/compressed` | Bottom activity state plus one completed/failed transcript result           |
 | `web_search`                           | Searching/completed activity row                                            |
 | image events                           | Image-generation activity/result row                                        |
-| sub-agent events                       | Task/sub-agent activity row and completion summary                          |
+| sub-agent events                       | Grouped Task tree: running/ran header, per-agent metrics, live tool activity; Ctrl+O expands the report |
 | `error`                                | Error notice; wait for terminal `loop_end` when available                   |
 | `loop_end`                             | Replace canonical history when included; release input and finish the turn  |
 

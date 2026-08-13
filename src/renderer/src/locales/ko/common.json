@@ -85,6 +85,7 @@
     "cowork": "협업",
     "code": "코드",
     "acp": "ACP",
+    "switcher": "세션 모드",
     "descriptions": {
       "acp": "설계하고 서브 에이전트에 위임",
       "chat": "빠른 대화, 프로젝트 도구 없음",

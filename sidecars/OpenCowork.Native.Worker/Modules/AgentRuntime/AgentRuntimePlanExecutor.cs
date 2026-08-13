@@ -129,7 +129,7 @@ internal static class AgentRuntimePlanExecutor
             {
                 DeletePlan(parameters, plan.Id);
             }
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
 
         RunStates[runId] = new PlanRunState(true, plan.FilePath);
@@ -487,7 +487,7 @@ internal static class AgentRuntimePlanExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static string EncodeJsonObject(Action<Utf8JsonWriter> writeProperties)

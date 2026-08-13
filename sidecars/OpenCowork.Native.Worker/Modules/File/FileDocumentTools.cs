@@ -19,7 +19,7 @@ internal static class FileDocumentTools
         catch (Exception ex)
         {
             return WorkerResponse.Json(
-                new DocumentReadResult(null, null, ex.Message),
+                new DocumentReadResult(null, null, AgentRuntimeToolError.Describe(ex, path: JsonHelpers.GetString(parameters, "path"))),
                 WorkerJsonContext.Default.DocumentReadResult);
         }
     }
@@ -46,7 +46,7 @@ internal static class FileDocumentTools
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new DocumentReadResult(null, null, ex.Message);
+            return new DocumentReadResult(null, null, AgentRuntimeToolError.Describe(ex, path: filePath));
         }
     }
 

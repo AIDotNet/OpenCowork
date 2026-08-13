@@ -65,7 +65,7 @@ internal static class AgentRuntimeCanvasExecutor
     {
         if (!TryGetProjectId(parameters, out var projectId))
         {
-            return Error("Canvas context is missing a project id");
+            return AgentRuntimeToolError.Failed("Canvas context is missing a project id", call.Name);
         }
 
         try
@@ -79,7 +79,7 @@ internal static class AgentRuntimeCanvasExecutor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return Error(ex.Message);
+            return AgentRuntimeToolError.Failed(ex, call.Name, AgentRuntimeToolError.TryGetPath(call.Input));
         }
     }
 
@@ -136,22 +136,9 @@ internal static class AgentRuntimeCanvasExecutor
         var error = JsonHelpers.GetString(result, "error");
         var isError = JsonHelpers.GetBool(result, "isError", false) ||
             !string.IsNullOrWhiteSpace(error);
-        return new RendererToolResult(content, isError, error);
-    }
-
-    private static RendererToolResult Error(string message)
-    {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("error", message);
-            writer.WriteEndObject();
-        }
-        return new RendererToolResult(
-            AgentRuntimeProviderSupport.CreateStringElement(Encoding.UTF8.GetString(stream.ToArray())),
-            true,
-            message);
+        return isError
+            ? AgentRuntimeToolError.Failed(error ?? "Canvas tool failed")
+            : new RendererToolResult(content, false, null);
     }
 
     private static void WriteOptionalString(Utf8JsonWriter writer, string name, string? value)

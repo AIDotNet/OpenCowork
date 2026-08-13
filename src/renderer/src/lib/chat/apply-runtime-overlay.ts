@@ -1,4 +1,4 @@
-import type { ContentBlock, UnifiedMessage } from '../api/types'
+import type { ContentBlock, TextBlock, ThinkingBlock, UnifiedMessage } from '../api/types'
 import type { ToolCallState, ToolCallStatus } from '../agent/types'
 import type {
   AgentRuntimeProjection,
@@ -134,14 +134,29 @@ function mergeOverlayIntoMessage(
   overlayTools: RuntimeToolCallOverlay[],
   overlay: AgentRuntimeProjection
 ): UnifiedMessage {
-  const blocks = Array.isArray(message.content) ? message.content : []
+  const blocks = existingContentBlocks(message)
   const preserved = blocks.filter(
     (block) => block.type !== 'text' && block.type !== 'thinking' && block.type !== 'tool_use'
   )
+  const existingHasTools = blocks.some((block) => block.type === 'tool_use')
   const existingText = messageText(message)
   const existingThinking = messageThinking(message)
   const overlayText = overlayMessage?.text ?? ''
   const overlayThinking = overlayMessage?.thinking ?? null
+
+  if (existingHasTools) {
+    return {
+      ...message,
+      content: mergeOverlayIntoStructuredTimeline(
+        blocks,
+        overlayText,
+        overlayThinking,
+        overlayTools
+      ),
+      _revision: overlay.projectionRevision
+    }
+  }
+
   const text = overlayText.length >= existingText.length ? overlayText : existingText
   const thinking = longerOptionalText(overlayThinking, existingThinking)
   const toolBlocks =
@@ -218,9 +233,102 @@ function messageThinking(message: UnifiedMessage): string | null {
   return thinking.length > 0 ? thinking : null
 }
 
+function existingContentBlocks(message: UnifiedMessage): ContentBlock[] {
+  if (Array.isArray(message.content)) return message.content
+  if (typeof message.content === 'string' && message.content) {
+    return [{ type: 'text', text: message.content }]
+  }
+  return []
+}
+
 function existingToolUseBlocks(message: UnifiedMessage): ContentBlock[] {
-  if (!Array.isArray(message.content)) return []
-  return message.content.filter((block) => block.type === 'tool_use')
+  return existingContentBlocks(message).filter((block) => block.type === 'tool_use')
+}
+
+function mergeOverlayIntoStructuredTimeline(
+  blocks: ContentBlock[],
+  overlayText: string,
+  overlayThinking: string | null,
+  overlayTools: RuntimeToolCallOverlay[]
+): ContentBlock[] {
+  let next = blocks.map((block) => ({ ...block }))
+  next = mergeOverlayToolsInPlace(next, overlayTools)
+  next = appendOverlaySuffix(next, 'thinking', overlayThinking ?? '')
+  next = appendOverlaySuffix(next, 'text', overlayText)
+  return next
+}
+
+function appendOverlaySuffix(
+  blocks: ContentBlock[],
+  kind: 'text' | 'thinking',
+  overlayValue: string
+): ContentBlock[] {
+  if (!overlayValue) return blocks
+
+  const existing = blocks
+    .filter((block) => block.type === kind)
+    .map((block) =>
+      kind === 'thinking' ? (block as ThinkingBlock).thinking : (block as TextBlock).text
+    )
+    .join('')
+  if (overlayValue.length <= existing.length) return blocks
+
+  const extra = overlayValue.slice(existing.length)
+  if (!extra) return blocks
+
+  const last = blocks[blocks.length - 1]
+  if (kind === 'thinking') {
+    if (last?.type === 'thinking' && last.completedAt == null) {
+      return [...blocks.slice(0, -1), { ...last, thinking: `${last.thinking}${extra}` }]
+    }
+    const sealed = blocks.map((block) =>
+      block.type === 'thinking' && block.completedAt == null
+        ? { ...block, completedAt: block.startedAt ?? 1 }
+        : block
+    )
+    return [...sealed, { type: 'thinking', thinking: extra }]
+  }
+
+  if (last?.type === 'text') {
+    return [...blocks.slice(0, -1), { ...last, text: `${last.text}${extra}` }]
+  }
+  return [...blocks, { type: 'text', text: extra }]
+}
+
+function mergeOverlayToolsInPlace(
+  blocks: ContentBlock[],
+  overlayTools: RuntimeToolCallOverlay[]
+): ContentBlock[] {
+  if (overlayTools.length === 0) return blocks
+
+  const remaining = new Map(overlayTools.map((tool) => [tool.toolCallId, tool]))
+  let next = blocks.map((block) => {
+    if (block.type !== 'tool_use') return block
+    const overlay = remaining.get(block.id)
+    if (!overlay) return block
+    remaining.delete(block.id)
+    return {
+      ...block,
+      name: overlay.toolName || block.name,
+      input: overlay.input ? { ...overlay.input } : block.input
+    }
+  })
+
+  let sealedIncompleteThinking = false
+  for (const overlay of overlayTools) {
+    if (!remaining.has(overlay.toolCallId)) continue
+    if (!sealedIncompleteThinking) {
+      next = next.map((block) =>
+        block.type === 'thinking' && block.completedAt == null
+          ? { ...block, completedAt: block.startedAt ?? 1 }
+          : block
+      )
+      sealedIncompleteThinking = true
+    }
+    next.push(toolCallToBlock(overlay))
+    remaining.delete(overlay.toolCallId)
+  }
+  return next
 }
 
 function longerOptionalText(left: string | null, right: string | null): string | null {

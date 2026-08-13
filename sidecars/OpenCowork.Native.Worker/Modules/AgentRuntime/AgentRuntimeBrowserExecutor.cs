@@ -46,10 +46,7 @@ internal static class AgentRuntimeBrowserExecutor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new RendererToolResult(
-                AgentRuntimeProviderSupport.CreateStringElement(EncodeError(ex.Message)),
-                true,
-                ex.Message);
+            return AgentRuntimeToolError.Failed(ex, call.Name);
         }
     }
 
@@ -95,14 +92,7 @@ internal static class AgentRuntimeBrowserExecutor
 
     private static string EncodeError(string message)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("error", message);
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(stream.ToArray());
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)

@@ -85,6 +85,7 @@
     "cowork": "Colaboração",
     "code": "Código",
     "acp": "ACP",
+    "switcher": "Modo da sessão",
     "descriptions": {
       "acp": "Conceber a arquitetura e delegar em subagentes",
       "chat": "Conversa rápida, sem ferramentas de projeto",

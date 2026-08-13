@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
-  Ban,
   Check,
+  ChevronRight,
+  CircleStop,
   Clock3,
   Copy,
   KeyRound,
@@ -14,6 +15,7 @@ import {
   Wrench
 } from 'lucide-react'
 import type { AgentErrorCode } from '@renderer/lib/api/types'
+import { cn } from '@renderer/lib/utils'
 
 interface AgentErrorCardProps {
   code: AgentErrorCode
@@ -38,6 +40,8 @@ type Category =
   | 'badRequest'
   | 'unknown'
   | 'runtimeFatal'
+
+type Tone = 'neutral' | 'warning' | 'danger'
 
 interface CategoryView {
   icon: React.ComponentType<{ className?: string }>
@@ -97,7 +101,7 @@ const CATEGORY_VIEW: Record<Category, CategoryView> = {
     descKey: 'assistantMessage.agentError.descTimeout'
   },
   aborted: {
-    icon: Ban,
+    icon: CircleStop,
     titleKey: 'assistantMessage.agentError.titleAborted',
     descKey: 'assistantMessage.agentError.descAborted'
   },
@@ -118,6 +122,24 @@ const CATEGORY_VIEW: Record<Category, CategoryView> = {
   }
 }
 
+const TONE_VIEW: Record<Tone, { card: string; iconWrap: string; title: string }> = {
+  neutral: {
+    card: 'border-border/60 bg-muted/15',
+    iconWrap: 'bg-muted text-muted-foreground',
+    title: 'text-foreground'
+  },
+  warning: {
+    card: 'border-amber-500/25 bg-amber-500/[0.06]',
+    iconWrap: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+    title: 'text-amber-800 dark:text-amber-300'
+  },
+  danger: {
+    card: 'border-destructive/30 bg-destructive/[0.06]',
+    iconWrap: 'bg-destructive/15 text-destructive',
+    title: 'text-destructive/90'
+  }
+}
+
 /**
  * Stable error codes emitted by the native runtime. These are matched before any text pattern:
  * message text varies by locale, and framework exception messages degrade to resource keys in
@@ -129,8 +151,12 @@ const ERROR_CODE_CATEGORY: Record<string, Category> = {
   network_proxy: 'network',
   network_timeout: 'timeout',
   transport_circuit_open: 'temporaryPause',
-  sidecar_unavailable: 'runtimeUnavailable'
+  sidecar_unavailable: 'runtimeUnavailable',
+  worker_interrupted: 'aborted'
 }
+
+const FRAMEWORK_NOISE_RE =
+  /^(?:system\.)?(?:operation|task)canceled(?:exception)?$|^a task was cancel+ed\.?$|^the (?:operation|request|task) was cancel+ed\.?$|^cancel+ed$|^abort(?:ed)?$/i
 
 function classify(code: AgentErrorCode, message: string, errorType?: string): Category {
   if (errorType && ERROR_CODE_CATEGORY[errorType]) return ERROR_CODE_CATEGORY[errorType]
@@ -174,6 +200,36 @@ function classify(code: AgentErrorCode, message: string, errorType?: string): Ca
   return 'unknown'
 }
 
+function toneFor(category: Category): Tone {
+  switch (category) {
+    case 'aborted':
+      return 'neutral'
+    case 'timeout':
+    case 'rateLimit':
+    case 'temporaryPause':
+    case 'network':
+    case 'quota':
+    case 'badRequest':
+      return 'warning'
+    default:
+      return 'danger'
+  }
+}
+
+function normalizeDiagnostic(value?: string): string {
+  return value?.replace(/\s+/g, ' ').trim() ?? ''
+}
+
+function isFrameworkNoise(value?: string): boolean {
+  const normalized = normalizeDiagnostic(value)
+  return !normalized || FRAMEWORK_NOISE_RE.test(normalized)
+}
+
+function usefulDiagnostic(value?: string): string {
+  const normalized = normalizeDiagnostic(value)
+  return !normalized || isFrameworkNoise(normalized) ? '' : value!.trim()
+}
+
 export function AgentErrorCard({
   code,
   message,
@@ -186,7 +242,12 @@ export function AgentErrorCard({
 
   const category = useMemo(() => classify(code, message, errorType), [code, message, errorType])
   const view = CATEGORY_VIEW[category]
+  const severity = toneFor(category)
+  const tone = TONE_VIEW[severity]
   const Icon = view.icon
+  const title = t(view.titleKey)
+  const description = t(view.descKey)
+
   const displayMessage = useMemo(() => {
     if (errorType !== 'transport_circuit_open') return message
 
@@ -201,79 +262,98 @@ export function AgentErrorCard({
       : base
   }, [errorType, message, t])
 
-  const hasDetails = Boolean(errorType || details || stackTrace)
+  const compact = category === 'aborted'
+  const usefulMessage = compact ? '' : usefulDiagnostic(displayMessage)
+  const usefulErrorType = compact ? '' : usefulDiagnostic(errorType)
+  const usefulDetails = compact ? '' : usefulDiagnostic(details)
+  const usefulStack = compact ? '' : (stackTrace?.trim() ?? '')
+  const showMessage = Boolean(usefulMessage && usefulMessage !== usefulErrorType)
+  const showErrorType = Boolean(usefulErrorType)
+  const showDetailsBlock = Boolean(usefulDetails)
+  const showStack = Boolean(usefulStack)
+  const hasDiagnostics = showMessage || showErrorType || showDetailsBlock || showStack
 
   const handleCopy = async (): Promise<void> => {
     const payload = [
-      errorType ? `${t('assistantMessage.agentError.errorType')}: ${errorType}` : '',
-      message,
-      details ?? '',
-      stackTrace ?? ''
+      title,
+      description,
+      usefulErrorType ? `${t('assistantMessage.agentError.errorType')}: ${usefulErrorType}` : '',
+      usefulMessage,
+      usefulDetails,
+      usefulStack
     ]
       .filter(Boolean)
       .join('\n\n')
     try {
       await navigator.clipboard.writeText(payload)
       setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
+      window.setTimeout(() => setCopied(false), 1500)
     } catch {
       // ignore
     }
   }
 
   return (
-    <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-      <div className="flex gap-3">
-        <div className="mt-0.5 shrink-0 self-start rounded-md bg-destructive/15 p-1.5">
-          <Icon className="size-4 text-destructive" />
+    <div
+      role={severity === 'danger' ? 'alert' : 'status'}
+      className={cn('rounded-xl border', tone.card, compact ? 'px-3 py-2.5' : 'p-3.5')}
+    >
+      <div className="flex gap-2.5">
+        <div
+          className={cn(
+            'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
+            tone.iconWrap
+          )}
+        >
+          <Icon className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-medium text-destructive/90">{t(view.titleKey)}</p>
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/80 hover:bg-background/60 hover:text-foreground"
-              aria-label={t('assistantMessage.agentError.copy')}
-            >
-              {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-              {copied
-                ? t('assistantMessage.agentError.copied')
-                : t('assistantMessage.agentError.copy')}
-            </button>
+            <p className={cn('text-sm font-medium leading-5', tone.title)}>{title}</p>
+            {hasDiagnostics ? (
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-foreground"
+                aria-label={t('assistantMessage.agentError.copy')}
+              >
+                {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              </button>
+            ) : null}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(view.descKey)}</p>
-          {displayMessage ? (
-            <p className="mt-2 break-words rounded-md bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/80">
-              {displayMessage}
+          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{description}</p>
+          {showMessage ? (
+            <p className="mt-2 break-words rounded-md bg-background/70 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/80">
+              {usefulMessage}
             </p>
           ) : null}
-          {hasDetails ? (
-            <details className="mt-2 group">
-              <summary className="cursor-pointer select-none text-xs text-muted-foreground/80 hover:text-foreground">
+          {hasDiagnostics && (showErrorType || showDetailsBlock || showStack) ? (
+            <details className="group mt-2">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground/80 transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <ChevronRight className="size-3.5 transition-transform group-open:rotate-90" />
                 {t('assistantMessage.agentError.details')}
               </summary>
-              <div className="mt-1 space-y-2 rounded-md bg-background/80 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-                {errorType ? (
+              <div className="mt-1.5 space-y-2 rounded-md bg-background/80 px-2.5 py-2 font-mono text-[11px] text-muted-foreground">
+                {showErrorType ? (
                   <p className="break-words">
                     <span className="text-foreground/70">
                       {t('assistantMessage.agentError.errorType')}:
                     </span>{' '}
-                    {errorType}
+                    {usefulErrorType}
                   </p>
                 ) : null}
-                {details ? (
+                {showDetailsBlock ? (
                   <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words">
-                    {details}
+                    {usefulDetails}
                   </pre>
                 ) : null}
-                {stackTrace ? (
+                {showStack ? (
                   <div>
                     <p className="mb-1 text-foreground/70">
                       {t('assistantMessage.agentError.stackTrace')}
                     </p>
                     <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words">
-                      {stackTrace}
+                      {usefulStack}
                     </pre>
                   </div>
                 ) : null}

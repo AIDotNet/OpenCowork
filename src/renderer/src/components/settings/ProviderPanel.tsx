@@ -808,7 +808,7 @@ function ModelFormDialog({
   )
   const [cacheTtl, setCacheTtl] = useState<'5m' | '1h'>(initial?.cacheTtl ?? '5m')
   const [responsesImageGenerationEnabled, setResponsesImageGenerationEnabled] = useState(
-    initial?.responsesImageGeneration?.enabled ?? true
+    initial?.responsesImageGeneration?.enabled ?? false
   )
   const [responsesImageGenerationAction, setResponsesImageGenerationAction] = useState<
     ResponsesImageGenerationAction | typeof RESPONSES_IMAGE_GENERATION_DEFAULT_OPTION
@@ -865,7 +865,7 @@ function ModelFormDialog({
     setWebsocketMode(model.websocketMode ?? 'disabled')
     setEnableSystemPromptCache(model.enableSystemPromptCache ?? true)
     setCacheTtl(model.cacheTtl ?? '5m')
-    setResponsesImageGenerationEnabled(model.responsesImageGeneration?.enabled ?? true)
+    setResponsesImageGenerationEnabled(model.responsesImageGeneration?.enabled ?? false)
     setResponsesImageGenerationAction(toOptionalSelectValue(model.responsesImageGeneration?.action))
     setResponsesImageGenerationBackground(
       toOptionalSelectValue(model.responsesImageGeneration?.background)

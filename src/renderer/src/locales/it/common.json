@@ -85,6 +85,7 @@
     "cowork": "Coefficiente",
     "code": "Codice",
     "acp": "ACP",
+    "switcher": "Modalità sessione",
     "descriptions": {
       "acp": "Progetta e delega ai sub-agenti",
       "chat": "Conversazione rapida, senza strumenti di progetto",

@@ -173,3 +173,200 @@ test('keeps longer chat-store text while overlay is still catching up', () => {
 
   assert.deepEqual(view.messages[0]?.content, [{ type: 'text', text: 'Hello world' }])
 })
+
+test('keeps a later thinking block after tools instead of rewriting the first think', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst-live',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+        { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } },
+        { type: 'thinking', thinking: 'plan B', startedAt: 30 }
+      ],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 8
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: '',
+          thinking: 'plan Aplan B more'
+        }
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Read',
+          status: 'completed',
+          input: { path: 'a.ts' },
+          output: 'file contents'
+        },
+        {
+          toolCallId: 'tool-2',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Grep',
+          status: 'streaming',
+          input: { pattern: 'x' },
+          output: null
+        }
+      ]
+    }),
+    'asst-live',
+    'session-1'
+  )
+
+  assert.deepEqual(view.messages[0]?.content, [
+    { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+    { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+    { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } },
+    { type: 'thinking', thinking: 'plan B more', startedAt: 30 }
+  ])
+})
+
+test('starts a new thinking block when overlay thinking continues after tools', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst-live',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'plan A', startedAt: 10 },
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } }
+      ],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 4
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: '',
+          thinking: 'plan Aplan B'
+        }
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Read',
+          status: 'running',
+          input: { path: 'a.ts' },
+          output: null
+        }
+      ]
+    }),
+    'asst-live',
+    'session-1'
+  )
+
+  assert.deepEqual(view.messages[0]?.content, [
+    { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 10 },
+    { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+    { type: 'thinking', thinking: 'plan B' }
+  ])
+})
+
+test('seals an open think after text when overlay already has the next tools', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst-live',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+        { type: 'text', text: 'I will explore the frontend.' },
+        { type: 'thinking', thinking: 'plan B', startedAt: 30 }
+      ],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 9
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: 'I will explore the frontend.',
+          thinking: 'plan Aplan B more'
+        }
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Read',
+          status: 'completed',
+          input: { path: 'a.ts' },
+          output: 'ok'
+        },
+        {
+          toolCallId: 'tool-2',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Grep',
+          status: 'completed',
+          input: { pattern: 'x' },
+          output: 'ok'
+        }
+      ]
+    }),
+    'asst-live',
+    'session-1'
+  )
+
+  assert.deepEqual(view.messages[0]?.content, [
+    { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+    { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+    { type: 'text', text: 'I will explore the frontend.' },
+    { type: 'thinking', thinking: 'plan B', startedAt: 30, completedAt: 30 },
+    { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } },
+    { type: 'thinking', thinking: ' more' }
+  ])
+})

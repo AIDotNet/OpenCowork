@@ -1,7 +1,9 @@
 import type { Session } from '@renderer/stores/chat-store'
 import type { ChatView } from '@renderer/stores/ui-store'
 
-const PROJECT_SCOPED_VIEWS = new Set<ChatView>(['project', 'archive', 'channels', 'git'])
+// Home is included: creating a session from a selected project (sidebar + or the
+// home project picker) is already project-scoped even before the session exists.
+const PROJECT_SCOPED_VIEWS = new Set<ChatView>(['home', 'project', 'archive', 'channels', 'git'])
 
 interface SessionScopeInput {
   chatView: ChatView

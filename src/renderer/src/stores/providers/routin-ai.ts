@@ -11,14 +11,16 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v10: add GPT Image 2 All / Fast / 4K image models.
   // v11: DeepSeek 模型改用 OpenAI Chat Completions 协议（openai-chat）
   // v12: add grok / grok-4.6 and Grok Imagine Image 2.0
-  version: 12,
+  // v13: DeepSeek V4 支持 reasoning_effort（low/high/max）
+  // v14: default main model → grok-4.6（快速模型默认在 provider-store 中为 deepseek-v4-flash）
+  version: 14,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
   homepage: 'https://routin.ai',
   apiKeyUrl: 'https://routin.ai/device/opencowork',
   defaultEnabled: true,
-  defaultModel: 'deepseek-v4-flash',
+  defaultModel: 'grok-4.6',
   // 与 openai.ts/azure-openai.ts/codex-oauth.ts/anthropic.ts today 的清理保持一致：
   // gpt-5-codex/gpt-5.1-codex/gpt-5.1-codex-max/gpt-5.1-codex-mini/gpt-5.2-codex 已于
   // OpenAI 官方 deprecations 页面标注 2026-07-23 下线；claude-sonnet-4-20250514/
@@ -1158,8 +1160,10 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheHitPrice: 0.2,
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false }
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
       }
     },
     {
@@ -1178,8 +1182,10 @@ export const routinAiPreset: BuiltinProviderPreset = {
       cacheHitPrice: 1,
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false }
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
       }
     },
     // ── Google Gemini ──

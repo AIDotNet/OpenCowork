@@ -1,7 +1,7 @@
 import * as React from 'react'
 import Markdown from 'react-markdown'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Archive, ChevronDown } from 'lucide-react'
+import { AlertTriangle, Archive, ChevronDown, MessageSquarePlus } from 'lucide-react'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
 import {
   getCompactSummaryDisplayText,
@@ -11,6 +11,8 @@ import {
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { useChatStore } from '@renderer/stores/chat-store'
 
 function buildSummaryPreview(content: string): string {
   const firstMeaningfulLine = content
@@ -44,6 +46,26 @@ export function ContextCompressionMessage({
   const toggleLabel = expanded
     ? t('contextCompression.summaryCollapse', { defaultValue: 'Collapse summary' })
     : t('contextCompression.summaryExpand', { defaultValue: 'Expand summary' })
+  const continueLabel = t('contextCompression.continueInNewSession', {
+    defaultValue: 'Continue in a new session'
+  })
+
+  const handleContinueInNewSession = (): void => {
+    const chatStore = useChatStore.getState()
+    const sessionId = chatStore.activeSessionId
+    if (!sessionId) return
+    const sourceSession = chatStore.sessions.find((session) => session.id === sessionId)
+    void chatStore.continueSessionFromCompactSummary(
+      sessionId,
+      message.id,
+      sourceSession
+        ? t('contextCompression.continuationSessionTitle', {
+            defaultValue: '{{title}} · Compressed',
+            title: sourceSession.title
+          })
+        : undefined
+    )
+  }
 
   return (
     <div className="my-2 rounded-md border border-border bg-muted/25 px-3 py-2.5">
@@ -86,6 +108,19 @@ export function ContextCompressionMessage({
             </div>
           ) : null}
         </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={handleContinueInNewSession}
+              className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={continueLabel}
+            >
+              <MessageSquarePlus className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{continueLabel}</TooltipContent>
+        </Tooltip>
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}

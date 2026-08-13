@@ -678,38 +678,43 @@
     "errorDetails": "Fehlerangaben",
     "modeTooltip": {
       "solvesTitle": "Am besten für",
-      "current": "Stromverbrauch",
-      "switchHint": "Wechsel zu {{mode}} mit {{shortcut}}",
+      "flowTitle": "So funktioniert es",
+      "current": "Aktueller Modus",
+      "switchHint": "Mit {{shortcut}} zu {{mode}} wechseln",
       "clarify": {
-        "summary": "Verwenden Sie dies, wenn die Anfrage noch unscharf ist und Sie möchten, dass der Agent langsamer wird, bessere Folgefragen stellt und sich auf das Ziel ausrichtet, bevor Sie handeln.",
+        "summary": "Clarify macht aus einer unklaren Anfrage einen konkreten, prüfbaren Plan. Der Agent untersucht das Projekt nur so weit, dass er präzise Fragen stellen kann, schreibt dann den Plan und wartet — er implementiert nicht zuerst.",
+        "flow": "Belege prüfen → wichtige Entscheidungen über AskUserQuestion klären → Umfang festlegen → Plan schreiben → auf Ihre Prüfung warten.",
         "solves": [
-          "Unklare Anforderungen, unvollständiger Kontext oder mehrere mögliche Interpretationen",
-          "Benötigen Sie Hilfe dabei, grobe Ideen in konkrete Aufgaben, Spezifikationen oder Akzeptanzkriterien umzuwandeln",
-          "Möchten Sie, dass der Agent Annahmen in Frage stellt, bevor er Änderungen vornimmt"
+          "Die Anfrage ist noch unscharf, unvollständig oder mehrdeutig",
+          "Sie brauchen Anforderungen, Akzeptanzkriterien und Dateischritte, bevor jemand Code schreibt",
+          "Annahmen sollen hinterfragt werden, bevor Dateien oder Befehle geändert werden"
         ]
       },
       "cowork": {
-        "summary": "Der Agent arbeitet als Kooperationspartner: Er erklärt seinen Ansatz, folgt einer Plan-Act-Observe-Schleife und übernimmt sowohl Codierungs- als auch Nicht-Codierungsaufgaben wie Recherche, DevOps oder Projektaufbau. Das rechte Panel öffnet sich automatisch für die Schrittverfolgung.",
+        "summary": "Cowork ist ein Kooperationspartner mit allen Projektwerkzeugen. Er folgt Plan–Act–Observe: den nächsten Schritt erklären, ausführen, dann prüfen, damit Sie Forschung, Coding und Ops in einer Sitzung steuern können.",
+        "flow": "Nächsten Schritt nennen → Dateien, Terminal und Recherche nutzen → Ergebnisse prüfen → wiederholen, bis die Aufgabe erledigt ist.",
         "solves": [
-          "Mehrstufige Workflows, die Recherche, Planung, Dateiänderungen und Terminalbefehle kombinieren - der Agent erklärt jeden Schritt",
-          "Aufgaben jenseits der reinen Codierung: Projektaufbau, Dokumentation, DevOps, Analyse oder alles, was Koordination erfordert",
-          "Situationen, in denen Sie Einblick in den Denkprozess des Agenten und Zwischenergebnisse wünschen"
+          "Mehrstufige Arbeit aus Recherche, Planung, Dateiänderungen und Befehlen",
+          "Projektaufbau, Dokumentation, DevOps, Analyse und andere Aufgaben jenseits reiner Codierung",
+          "Sie wollen laufend verstehen, was passiert, um zwischendurch umzulenken"
         ]
       },
       "code": {
-        "summary": "Der Agent fungiert als fokussierter Pair-Programmierer. Er liest vor dem Bearbeiten, passt zum Codebasis-Stil, nimmt chirurgische Änderungen vor und hält die Erklärungen minimal – und lässt den Code für sich sprechen.",
+        "summary": "Code ist ein fokussierter Pair-Programmierer. Der Umfang ist nur Implementierung: zuerst lesen, das Repo treffen, chirurgische Edits, knappe Erklärungen. Nicht-Coding gehört in Cowork.",
+        "flow": "Relevante Dateien lesen → kleinste vollständige Änderung vornehmen → kurz bestätigen, was sich geändert hat.",
         "solves": [
-          "Präzise Implementierung: Schreiben von Features, Beheben von Fehlern, Refactoring oder Vervollständigen von Modulen mit Ingenieurdisziplin",
-          "Wenn Sie eine saubere Codeausgabe mit minimaler Narration wünschen - eine knappe Bestätigung anstelle von ausführlichen Walk-throughs",
-          "Änderungen, die strenge Aufmerksamkeit auf bestehende Konventionen, Typen, Importe und API-Verträge erfordern"
+          "Features, Bugfixes, Refactorings und andere praktische Implementierung",
+          "Änderungen, die Namensgebung, Typen, Imports und API-Verträge einhalten müssen",
+          "Sie wollen den Code, keine Erklärung, was er tut"
         ]
       },
       "acp": {
-        "summary": "Architektursteuerung Planung ist für komplexe Arbeit, die Kontrolle vor der Implementierung benötigt: zuerst Ziele und Grenzen klären, dann die Architektur entwerfen, die Ausführung zerlegen und die Lieferung delegieren. Der Hauptagent kodiert nicht direkt.",
+        "summary": "ACP (Architecture Control Planning) hält den Leitagenten bei Design und Steuerung. Er darf untersuchen, planen und fragen, schreibt aber keinen Implementierungscode und ändert keine Dateien. Sub-Agenten erhalten Write, Edit und Bash.",
+        "flow": "Ziele und Constraints klären → Architektur entwerfen → Arbeit teilen → parallel delegieren → strukturierte Zusammenfassungen synthetisieren.",
         "solves": [
-          "Komplexe Aufgaben, bei denen Hintergrund, Umfang, Einschränkungen, Abhängigkeiten und Akzeptanzkriterien vor der Implementierung geklärt werden müssen",
-          "Arbeiten, bei denen sich der Hauptagent auf Architektur, Orchestrierung und Prozesskontrolle konzentrieren sollte, anstatt direkt zu codieren",
-          "Fälle, in denen Teilaufgaben parallel ausgeführt werden sollten und strukturierte Markdown-Zusammenfassungen für die fortgesetzte Koordination zurückgegeben werden sollten"
+          "Komplexe Arbeit, die Hintergrund, Grenzen und Akzeptanzkriterien vor der Implementierung braucht",
+          "Der Leitagent soll Architektur, Reihenfolge und Review machen — keine Diffs tippen",
+          "Unabhängige Teilaufgaben sollen parallel laufen und Markdown-Zusammenfassungen zurückgeben"
         ]
       }
     },

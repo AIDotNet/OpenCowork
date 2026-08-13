@@ -7,7 +7,11 @@ import type {
 } from '@renderer/lib/api/types'
 import { flushRuntimeProjectionPatches } from '@renderer/lib/runtime/runtime-client'
 import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
-import { appendOrUpsertContentBlock } from '@renderer/lib/content-blocks'
+import {
+  appendOrUpsertContentBlock,
+  appendThinkingDeltaToBlocks,
+  sealIncompleteThinkingBlocks
+} from '@renderer/lib/content-blocks'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { summarizeToolInputForHistory } from '@renderer/lib/tools/tool-input-sanitizer'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
@@ -29,6 +33,7 @@ function upsertBufferedToolUse(blocks: ContentBlock[], toolUse: ToolUseBlock): v
   )
 
   if (existingIndex === -1) {
+    sealIncompleteThinkingBlocks(blocks, Date.now())
     blocks.push(toolUse)
     return
   }
@@ -312,23 +317,7 @@ export function appendRuntimeThinkingDelta(
       return
     }
 
-    const blocks = message.content as ContentBlock[]
-    let targetThinkingBlock: ThinkingBlock | null = null
-    for (let index = blocks.length - 1; index >= 0; index -= 1) {
-      const block = blocks[index]
-      if (block.type === 'thinking' && !block.completedAt) {
-        targetThinkingBlock = block
-        break
-      }
-    }
-
-    if (targetThinkingBlock) {
-      targetThinkingBlock.thinking = stripThinkTagMarkers(
-        `${targetThinkingBlock.thinking}${cleanedThinking}`
-      )
-    } else {
-      blocks.push({ type: 'thinking', thinking: cleanedThinking, startedAt: now })
-    }
+    appendThinkingDeltaToBlocks(message.content as ContentBlock[], cleanedThinking, now)
   })
 }
 

@@ -78,6 +78,24 @@ export interface ToolDiff {
   replaceAll: boolean
 }
 
+export type SubAgentPhase = 'queued' | 'starting' | 'running' | 'completed' | 'error'
+
+export interface SubAgentDisplay {
+  name: string
+  description: string
+  model?: string
+  effort?: string
+  toolCount: number
+  tokens?: number
+  startedAt: number
+  completedAt?: number
+  currentActivity?: string
+  phase: SubAgentPhase
+  report?: string
+}
+
+export type SubAgentDisplayPatch = Partial<SubAgentDisplay>
+
 export type Message =
   | {
       id: string
@@ -104,6 +122,7 @@ export type Message =
       status: 'running' | 'success' | 'error'
       summary?: string
       diff?: ToolDiff
+      subAgent?: SubAgentDisplay
     }
   | {
       id: string
@@ -464,6 +483,7 @@ export type UiEvent =
       id: string
       title: string
       detail?: string
+      subAgent?: SubAgentDisplay
     }
   | {
       type: 'tool.done'
@@ -472,6 +492,7 @@ export type UiEvent =
       diff?: ToolDiff
       summary?: string
       title?: string
+      subAgent?: SubAgentDisplayPatch
     }
   | {
       type: 'tool.update'
@@ -479,6 +500,7 @@ export type UiEvent =
       detail?: string
       summary?: string
       title?: string
+      subAgent?: SubAgentDisplayPatch
     }
   | { type: 'permission.request'; request: PermissionRequest }
   | { type: 'permission.cancel'; requestId: string }

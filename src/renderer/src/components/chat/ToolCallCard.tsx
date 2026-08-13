@@ -44,7 +44,10 @@ import { toast } from 'sonner'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
-import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import {
+  decodeStructuredToolResult,
+  formatToolErrorForDisplay
+} from '@renderer/lib/tools/tool-result-format'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { estimateTokens, formatTokens } from '@renderer/lib/format-tokens'
 import { writeSvgStringToClipboard } from '@renderer/lib/utils/image-clipboard'
@@ -54,6 +57,8 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { Button } from '@renderer/components/ui/button'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
+import { ChatFileDiff } from './chat-file-diff'
+import { resolveEditTexts, resolveWritePreview } from '@renderer/lib/chat/file-diff-model'
 import { inputSummary } from './tool-call-summary'
 import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 import { useChatActions } from '@renderer/hooks/use-chat-actions'
@@ -204,12 +209,12 @@ function deriveOutputError(output: string | undefined): string | null {
   const parsed = decodeStructuredToolResult(trimmed)
   if (parsed) {
     if (!Array.isArray(parsed) && typeof parsed.error === 'string' && parsed.error.trim()) {
-      return parsed.error.trim()
+      return formatToolErrorForDisplay(parsed.error)
     }
     return null
   }
 
-  return trimmed
+  return formatToolErrorForDisplay(trimmed)
 }
 
 function compactWhitespace(value: string): string {
@@ -1804,70 +1809,6 @@ function detectLang(filePath: string): string {
   return map[ext] ?? 'text'
 }
 
-function EditPayloadPane({
-  label,
-  value,
-  language,
-  tone = 'default',
-  truncated
-}: {
-  label: string
-  value: string
-  language?: string
-  tone?: 'default' | 'old' | 'new'
-  truncated?: boolean
-}): React.JSX.Element {
-  const borderTone =
-    tone === 'old'
-      ? 'border-red-500/20'
-      : tone === 'new'
-        ? 'border-green-500/20'
-        : 'border-border/60'
-  const headerTone =
-    tone === 'old'
-      ? 'text-red-400/80'
-      : tone === 'new'
-        ? 'text-green-400/80'
-        : 'text-muted-foreground/60'
-  const { t } = useTranslation('chat')
-
-  return (
-    <div className={cn('rounded-md border bg-muted/20 dark:bg-zinc-950/70', borderTone)}>
-      <div className="flex items-center gap-1.5 border-b border-border/50 px-2.5 py-1.5 text-[10px] uppercase tracking-wide">
-        <span className={headerTone}>{label}</span>
-        <span className="text-muted-foreground/55">
-          {t('toolCall.lineCount', { count: lineCount(value) })}
-        </span>
-        <span className="text-muted-foreground/55">
-          {t('toolCall.charCount', { count: value.length })}
-        </span>
-        {truncated && (
-          <span className="rounded bg-muted px-1 py-0.5 text-[9px] normal-case text-muted-foreground/60">
-            {t('toolCall.preview')}
-          </span>
-        )}
-        <CopyBtn text={value} />
-      </div>
-      <LazySyntaxHighlighter
-        language={language}
-        showLineNumbers
-        customStyle={{
-          margin: 0,
-          padding: '0.5rem',
-          borderRadius: 0,
-          fontSize: '11px',
-          maxHeight: '12rem',
-          overflow: 'auto',
-          fontFamily: MONO_FONT
-        }}
-        codeTagProps={{ style: { fontFamily: 'inherit' } }}
-      >
-        {value}
-      </LazySyntaxHighlighter>
-    </div>
-  )
-}
-
 /** Structured input field row */
 function InputField({
   label,
@@ -1970,12 +1911,18 @@ function formatStructuredInputValue(value: unknown): { text: string; mono: boole
 /** Render tool input as structured UI instead of raw JSON */
 function StructuredInput({
   name,
-  input
+  input,
+  status
 }: {
   name: string
   input: Record<string, unknown>
+  status?: ToolCallStatus | 'completed'
 }): React.JSX.Element {
   const { t } = useTranslation('chat')
+  const fileDiffStatus =
+    status === 'streaming' || status === 'running' || status === 'pending_approval'
+      ? 'streaming'
+      : 'complete'
 
   if (name === 'Skill') {
     const skillName = getSkillNameFromInput(input)
@@ -2069,147 +2016,45 @@ function StructuredInput({
     )
   }
 
-  // Edit: show file path + counts during streaming, full payload when available
+  // Edit: unified file diff
   if (name === 'Edit') {
     const filePath = String(input.file_path ?? input.path ?? '')
     const explanation = input.explanation ? String(input.explanation) : null
-    const oldStr = typeof input.old_string === 'string' ? input.old_string : ''
-    const newStr = typeof input.new_string === 'string' ? input.new_string : ''
-    const oldPreview = typeof input.old_string_preview === 'string' ? input.old_string_preview : ''
-    const newPreview = typeof input.new_string_preview === 'string' ? input.new_string_preview : ''
     const replaceAll = input.replace_all === true
-    const visibleOld = oldStr || oldPreview
-    const visibleNew = newStr || newPreview
-    const oldTruncated = !oldStr && !!oldPreview
-    const newTruncated = !newStr && !!newPreview
-    const oldLineTotal =
-      typeof input.old_string_lines === 'number'
-        ? input.old_string_lines
-        : visibleOld
-          ? lineCount(visibleOld)
-          : null
-    const newLineTotal =
-      typeof input.new_string_lines === 'number'
-        ? input.new_string_lines
-        : visibleNew
-          ? lineCount(visibleNew)
-          : null
-    const oldCharTotal = typeof input.old_string_chars === 'number' ? input.old_string_chars : null
-    const newCharTotal = typeof input.new_string_chars === 'number' ? input.new_string_chars : null
+    const { oldText, newText } = resolveEditTexts(input)
 
     return (
       <div className="space-y-1">
-        {filePath && (
-          <div className="flex items-center gap-1.5 text-xs">
-            <FileCode className="size-3 text-amber-500 dark:text-amber-400" />
-            <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>
-              {filePath}
-            </span>
+        {(explanation || replaceAll) && (
+          <div className="flex flex-wrap items-center gap-2">
             {replaceAll && (
               <span className="rounded bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-600/80 dark:text-amber-400/80">
                 replace_all
               </span>
             )}
+            {explanation && <p className="text-[11px] text-muted-foreground/60">{explanation}</p>}
           </div>
         )}
-        {explanation && (
-          <p className="pl-[18px] text-[11px] text-muted-foreground/60">{explanation}</p>
-        )}
-        {(oldLineTotal !== null ||
-          newLineTotal !== null ||
-          oldCharTotal !== null ||
-          newCharTotal !== null) && (
-          <div className="pl-[18px] text-[10px] text-muted-foreground/55">
-            {t('toolCall.lineDelta', {
-              old: oldLineTotal !== null ? oldLineTotal : '?',
-              next: newLineTotal !== null ? newLineTotal : '?'
-            })}
-            {(oldCharTotal !== null || newCharTotal !== null) && (
-              <>
-                {' · '}
-                {t('toolCall.charDelta', {
-                  old: oldCharTotal !== null ? oldCharTotal : '?',
-                  next: newCharTotal !== null ? newCharTotal : '?'
-                })}
-              </>
-            )}
-          </div>
-        )}
-        {(visibleOld || visibleNew) && (
-          <div className="space-y-2 pl-[18px]">
-            {visibleOld && (
-              <EditPayloadPane
-                label="old_string"
-                value={visibleOld}
-                language={detectLang(filePath)}
-                tone="old"
-                truncated={oldTruncated}
-              />
-            )}
-            {visibleNew && (
-              <EditPayloadPane
-                label="new_string"
-                value={visibleNew}
-                language={detectLang(filePath)}
-                tone="new"
-                truncated={newTruncated}
-              />
-            )}
-          </div>
-        )}
+        <ChatFileDiff
+          filePath={filePath}
+          oldText={oldText}
+          newText={newText}
+          status={fileDiffStatus}
+        />
       </div>
     )
   }
 
-  // Write: lightweight preview while content is still streaming/running
+  // Write: unified file diff of the written contents
   if (name === 'Write') {
     const filePath = String(input.file_path ?? input.path ?? '')
-    const content = typeof input.content === 'string' ? input.content : null
-    const preview = typeof input.content_preview === 'string' ? input.content_preview : null
-    const lineTotal =
-      typeof input.content_lines === 'number'
-        ? input.content_lines
-        : content !== null
-          ? lineCount(content)
-          : null
-    const charTotal =
-      typeof input.content_chars === 'number'
-        ? input.content_chars
-        : content !== null
-          ? content.length
-          : null
-    const visiblePreview = content ?? preview
-
-    if (!content) {
-      return (
-        <div className="space-y-1">
-          {filePath && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <FileCode className="size-3 text-emerald-500 dark:text-green-400" />
-              <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>
-                {filePath}
-              </span>
-            </div>
-          )}
-          {(lineTotal !== null || charTotal !== null) && (
-            <div className="pl-[18px] text-[10px] text-muted-foreground/55">
-              {lineTotal !== null ? t('toolCall.lineCount', { count: lineTotal }) : ''}
-              {lineTotal !== null && charTotal !== null ? ' · ' : ''}
-              {charTotal !== null ? t('toolCall.charCount', { count: charTotal }) : ''}
-            </div>
-          )}
-          {visiblePreview && (
-            <pre
-              className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/70 bg-zinc-50 px-2.5 py-2 text-[11px] text-foreground/80 dark:bg-zinc-950 dark:text-zinc-300/80"
-              style={{ fontFamily: MONO_FONT }}
-            >
-              {visiblePreview}
-              {input.content_truncated ? '\n…' : ''}
-            </pre>
-          )}
-        </div>
-      )
-    }
+    return (
+      <ChatFileDiff
+        filePath={filePath}
+        addedText={resolveWritePreview(input)}
+        status={fileDiffStatus}
+      />
+    )
   }
 
   // SavePlan: preview-only rendering, always prefer content_preview then content
@@ -3150,9 +2995,10 @@ function ToolCallCardInner({
   const outputIsErrorOnly = React.useMemo(() => isErrorOnlyOutput(outputText), [outputText])
   const outputError = React.useMemo(() => deriveOutputError(outputText), [outputText])
   const suppressErrorPanel = isCommandTool && isStructuredBashResult(outputText)
-  const displayError = suppressErrorPanel
+  const rawDisplayError = suppressErrorPanel
     ? null
     : error || (status === 'error' ? outputError : null)
+  const displayError = rawDisplayError ? formatToolErrorForDisplay(rawDisplayError) : null
   const shouldRenderOutputPanels = !displayError || !outputIsErrorOnly
   const hideLivePayload =
     isProcessing &&
@@ -3346,7 +3192,7 @@ function ToolCallCardInner({
       >
         {hideLivePayload ? (
           <div className="space-y-2">
-            <StructuredInput name={name} input={input} />
+            <StructuredInput name={name} input={input} status={status} />
             <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground/70">
               {t('toolCall.hiddenLivePayload')}
             </div>
@@ -3354,68 +3200,18 @@ function ToolCallCardInner({
         ) : (
           <>
             {/* Write: show content with syntax highlighting */}
-            {showSettledWriteContent &&
-              name === 'Write' &&
-              (() => {
-                const writeContent = typeof input.content === 'string' ? input.content : null
-                const writePreview =
-                  typeof input.content_preview === 'string' ? input.content_preview : null
-                const writePreviewTail =
-                  typeof input.content_preview_tail === 'string' ? input.content_preview_tail : null
-                const displayContent =
-                  writeContent ??
-                  (writePreviewTail ? `${writePreview}\n…\n${writePreviewTail}` : writePreview) ??
-                  ''
-                const isOmitted = !writeContent && !!input.content_omitted
-                const totalLines =
-                  typeof input.content_lines === 'number'
-                    ? input.content_lines
-                    : writeContent
-                      ? writeContent.split('\n').length
-                      : null
-                return (
-                  <div>
-                    <div className="mb-1 flex items-center gap-1.5">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {t('toolCall.content')}
-                      </p>
-                      <span className="text-[9px] text-muted-foreground/55 font-mono">
-                        {detectLang(String(input.file_path ?? input.path ?? ''))}
-                        {totalLines !== null
-                          ? ` · ${t('toolCall.lineCount', { count: totalLines })}`
-                          : ''}
-                      </span>
-                      {isOmitted && (
-                        <span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground/60">
-                          {t('toolCall.preview')}
-                        </span>
-                      )}
-                      {writeContent && <CopyBtn text={writeContent} />}
-                    </div>
-                    <LazySyntaxHighlighter
-                      language={detectLang(String(input.file_path ?? input.path ?? ''))}
-                      wrapLongLines
-                      customStyle={{
-                        margin: 0,
-                        padding: '0.5rem',
-                        borderRadius: '0.375rem',
-                        fontSize: '11px',
-                        maxHeight: '200px',
-                        overflow: 'auto',
-                        fontFamily: MONO_FONT
-                      }}
-                      codeTagProps={{ style: { fontFamily: 'inherit' } }}
-                    >
-                      {displayContent}
-                    </LazySyntaxHighlighter>
-                  </div>
-                )
-              })()}
+            {showSettledWriteContent && name === 'Write' && (
+              <ChatFileDiff
+                filePath={String(input.file_path ?? input.path ?? '')}
+                addedText={resolveWritePreview(input)}
+                status="complete"
+              />
+            )}
             {/* Structured Input — tool-specific rendering */}
             {shouldShowStructuredInput && (
               <div className="space-y-2">
                 <ToolDetailSectionHeader label={t('toolCall.parameters')} />
-                <StructuredInput name={name} input={input} />
+                <StructuredInput name={name} input={input} status={status} />
               </div>
             )}
             {shouldShowResultHeader && <ToolDetailSectionHeader label={t('toolCall.result')} />}
@@ -3489,10 +3285,9 @@ function ToolCallCardInner({
               <ExtensionToolResultCard output={output} />
             )}
             {/* CodeGraph tools return agent-facing markdown — render it as such. */}
-            {shouldRenderOutputPanels &&
-              output &&
-              name.startsWith('codegraph_') &&
-              outputText && <MarkdownOutputBlock output={outputText} />}
+            {shouldRenderOutputPanels && output && name.startsWith('codegraph_') && outputText && (
+              <MarkdownOutputBlock output={outputText} />
+            )}
             {shouldRenderOutputPanels &&
               output &&
               !extensionToolResult &&

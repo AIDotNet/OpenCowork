@@ -56,16 +56,16 @@ function nativeOnlyTaskResult(): string {
 
 function buildTaskDescription(agents: SubAgentDefinition[]): string {
   const agentLines = agents
-    .map((a) => `- ${a.name}: ${a.description} (Tools: parent tools except Task)`)
+    .map((a) => `- ${a.name}: ${a.description} (Tools: implementation tools except Task)`)
     .join('\n')
 
   return `Launch a new agent to handle complex, multi-step tasks autonomously.
 
-The Task tool launches specialized agents (sub-agents) that autonomously handle complex tasks. Each agent type has its own focused system prompt and inherits the parent's current tools except the Task delegation tool, so sub-agents are leaf workers and cannot spawn nested sub-agents.
+The Task tool launches specialized agents (sub-agents) that autonomously handle complex tasks. Each agent type has its own focused system prompt. Sub-agents receive the session's implementation tools except Task, including Write/Edit/Bash when the parent is an ACP lead that cannot use those tools itself. They are leaf workers and cannot spawn nested sub-agents.
 
 Available agent types and the tools they have access to:
 ${agentLines}
-- custom: General-purpose sub-agent with a built-in default system prompt and the parent's tools except Task. Use this when none of the specialized agents above are a clean fit. You only supply the task via "prompt" - tool access is inherited automatically. (Tools: parent tools except Task)
+- custom: General-purpose sub-agent with a built-in default system prompt and the session implementation tools except Task. Use this when none of the specialized agents above are a clean fit. You only supply the task via "prompt" - tool access is inherited automatically, including Write/Edit/Bash in ACP mode. (Tools: implementation tools except Task)
 
 The "subagent_type" parameter is optional. When omitted, the Task tool uses "custom".
 
@@ -80,7 +80,7 @@ Usage notes:
 - Launch multiple agents concurrently whenever possible, to maximize performance. To do that, send a single assistant message containing multiple Task tool_use blocks.
 - When the sub-agent is done, it will return a single message back to you. The result is not visible to the user - you must send a concise text summary back to the user after the agent returns.
 - Each sub-agent invocation is stateless: it does not see the current conversation history, so write self-contained prompts that include all context the sub-agent needs.
-- Sub-agents inherit the parent's current tools except Task. They are leaf workers and cannot delegate further; split work at the parent level before launching them.
+- Sub-agents receive the session implementation tools except Task. In ACP mode the parent lead cannot write files; the child still can. They are leaf workers and cannot delegate further; split work at the parent level before launching them.
 - Clearly tell the sub-agent whether you expect it to write code or just do research (search, file reads, web fetches), since it does not see the user's intent.
 - The sub-agent's outputs should generally be trusted.
 - If a sub-agent's description says it should be used proactively for its domain, prefer launching it without waiting for the user to ask.
@@ -133,7 +133,7 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                 type: 'string',
                 enum: subTypeEnum,
                 description:
-                  'Optional specialized agent type. Defaults to "custom", a general-purpose sub-agent with a built-in system prompt. Sub-agents inherit the parent tools except Task and cannot spawn nested sub-agents.'
+                  'Optional specialized agent type. Defaults to "custom", a general-purpose sub-agent with a built-in system prompt. Sub-agents receive implementation tools except Task, including Write/Edit/Bash in ACP mode, and cannot spawn nested sub-agents.'
               },
               model: {
                 type: 'string',
@@ -176,7 +176,7 @@ export function createTaskTool(_providerGetter: () => ProviderConfig): ToolHandl
                 type: 'string',
                 enum: subTypeEnum,
                 description:
-                  'Optional specialized background agent type to use for this teammate. Teammates inherit the parent tools except Task and cannot spawn nested sub-agents.'
+                  'Optional specialized background agent type to use for this teammate. Teammates receive implementation tools except Task, including Write/Edit/Bash in ACP mode, and cannot spawn nested sub-agents.'
               },
               model: {
                 type: 'string',

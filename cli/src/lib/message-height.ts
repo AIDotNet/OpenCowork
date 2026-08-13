@@ -1,4 +1,10 @@
 import { wrapText } from './text.js'
+import {
+  estimateSubAgentGroupLines,
+  isSubAgentToolMessage,
+  subAgentGroupRange,
+  type SubAgentToolMessage
+} from './sub-agent-display.js'
 import type { Message } from '../types.js'
 
 /**
@@ -36,6 +42,10 @@ export function estimateMessageLines(
   showDetails: boolean,
   expandedIds?: ReadonlySet<string>
 ): number {
+  if (isSubAgentToolMessage(message)) {
+    return estimateSubAgentGroupLines([message], width, showDetails, expandedIds)
+  }
+
   const detailed = showDetails || (expandedIds?.has(message.id) ?? false)
   // Every transcript message opens with marginTop={1}.
   let lines = 1
@@ -95,11 +105,31 @@ export interface TranscriptWindow {
   hiddenBelow: number
 }
 
+function estimateUnitLines(
+  messages: Message[],
+  width: number,
+  showDetails: boolean,
+  expandedIds?: ReadonlySet<string>
+): number {
+  const first = messages[0]
+  if (!first) return 0
+  if (isSubAgentToolMessage(first)) {
+    return estimateSubAgentGroupLines(
+      messages as SubAgentToolMessage[],
+      width,
+      showDetails,
+      expandedIds
+    )
+  }
+  return estimateMessageLines(first, width, showDetails, expandedIds)
+}
+
 /**
  * Selects the visible message window by walking heights backwards from the anchor
  * (bottom-most visible message; null follows the tail) until the line budget is
- * exhausted. Always keeps at least the anchor message so a single oversized message
- * cannot blank the transcript.
+ * exhausted. Consecutive sub-agent tool rows are treated as one visual unit.
+ * Always keeps at least the anchor unit so a single oversized message cannot blank
+ * the transcript.
  */
 export function computeTranscriptWindow(args: {
   anchorIndex: number | null
@@ -115,25 +145,31 @@ export function computeTranscriptWindow(args: {
   }
 
   const budget = Math.max(1, args.budgetLines)
-  const anchor = Math.min(messages.length - 1, Math.max(0, args.anchorIndex ?? messages.length - 1))
+  const requestedAnchor = Math.min(
+    messages.length - 1,
+    Math.max(0, args.anchorIndex ?? messages.length - 1)
+  )
+  const visibleEnd = subAgentGroupRange(messages, requestedAnchor).end
   const heights: number[] = []
-  let start = anchor
+  let start = visibleEnd
   let used = 0
-  for (let index = anchor; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (!message) break
-    const height = estimateMessageLines(message, width, showDetails, expandedIds)
-    if (index !== anchor && used + height > budget) break
-    heights.unshift(height)
+  for (let index = visibleEnd; index >= 0; ) {
+    const range = subAgentGroupRange(messages, index)
+    const unit = messages.slice(range.start, range.end + 1)
+    const height = estimateUnitLines(unit, width, showDetails, expandedIds)
+    if (index !== visibleEnd && used + height > budget) break
+    const unitHeights = unit.map((_, offset) => (offset === 0 ? height : 0))
+    heights.unshift(...unitHeights)
     used += height
-    start = index
+    start = range.start
+    index = range.start - 1
   }
 
   return {
-    messages: messages.slice(start, anchor + 1),
+    messages: messages.slice(start, visibleEnd + 1),
     startIndex: start,
     heights,
     hiddenAbove: start,
-    hiddenBelow: messages.length - 1 - anchor
+    hiddenBelow: messages.length - 1 - visibleEnd
   }
 }

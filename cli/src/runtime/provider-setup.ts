@@ -47,8 +47,10 @@ const quickProviderPresets: QuickProviderPreset[] = [
       supportsFunctionCall: true,
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false }
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
       }
     },
     description: 'One API key for GPT, Claude, Gemini, DeepSeek and more',
@@ -134,8 +136,10 @@ const quickProviderPresets: QuickProviderPreset[] = [
       supportsFunctionCall: true,
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false }
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
       }
     },
     description: 'DeepSeek API · OpenAI Chat compatible',
@@ -183,6 +187,29 @@ const quickProviderPresets: QuickProviderPreset[] = [
     providerType: 'openai-chat'
   },
   {
+    apiKeyUrl: 'https://opencode.ai/auth',
+    baseUrl: 'https://opencode.ai/zen/v1',
+    builtinId: 'opencode',
+    defaultModel: {
+      id: 'deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    description: 'OpenCode Zen · curated coding models',
+    name: 'OpenCode Zen',
+    providerType: 'openai-chat'
+  },
+  {
     apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
     baseUrl: 'https://api.siliconflow.cn/v1',
     builtinId: 'siliconflow',
@@ -194,7 +221,12 @@ const quickProviderPresets: QuickProviderPreset[] = [
       maxOutputTokens: 8_192,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        disabledBodyParams: { enable_thinking: false },
+        reasoningEffortLevels: ['high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     description: 'SiliconFlow · OpenAI-compatible API',
     name: 'SiliconFlow',

@@ -9,6 +9,8 @@ export const RIGHT_PANEL_MIN_WIDTH = 280
 export const RIGHT_PANEL_MAX_WIDTH = Number.POSITIVE_INFINITY
 // The right panel must never occupy more than 80% of the viewport width.
 export const RIGHT_PANEL_MAX_WIDTH_RATIO = 0.8
+export const RIGHT_PANEL_PLAN_REVIEW_MIN_WIDTH = 640
+export const RIGHT_PANEL_PLAN_REVIEW_WIDTH_RATIO = 0.52
 export const RIGHT_PANEL_RAIL_WIDTH = 48
 export const RIGHT_PANEL_RAIL_SLIM_WIDTH = 12
 export const BOTTOM_TERMINAL_DOCK_DEFAULT_HEIGHT = 220
@@ -28,13 +30,29 @@ export function clampLeftSidebarWidth(width: number): number {
   return Math.min(LEFT_SIDEBAR_MAX_WIDTH, Math.max(LEFT_SIDEBAR_MIN_WIDTH, width))
 }
 
-export function clampRightPanelWidth(width: number): number {
+export function clampRightPanelWidth(width: number, viewportWidth?: number): number {
+  const resolvedViewportWidth =
+    viewportWidth ??
+    (typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 0)
   const viewportMax =
-    typeof window !== 'undefined' && window.innerWidth > 0
-      ? window.innerWidth * RIGHT_PANEL_MAX_WIDTH_RATIO
+    resolvedViewportWidth > 0
+      ? resolvedViewportWidth * RIGHT_PANEL_MAX_WIDTH_RATIO
       : RIGHT_PANEL_MAX_WIDTH
   const maxWidth = Math.min(RIGHT_PANEL_MAX_WIDTH, viewportMax)
   return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width))
+}
+
+export function getPlanReviewRightPanelWidth(viewportWidth?: number): number {
+  const resolvedViewportWidth =
+    viewportWidth ??
+    (typeof window !== 'undefined' && window.innerWidth > 0 ? window.innerWidth : 1440)
+  return clampRightPanelWidth(
+    Math.max(
+      RIGHT_PANEL_PLAN_REVIEW_MIN_WIDTH,
+      Math.round(resolvedViewportWidth * RIGHT_PANEL_PLAN_REVIEW_WIDTH_RATIO)
+    ),
+    resolvedViewportWidth
+  )
 }
 
 export function clampBottomTerminalDockHeight(

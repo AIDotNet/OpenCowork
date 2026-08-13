@@ -821,7 +821,7 @@ internal static class AgentRuntimeTaskExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private const string TaskSelectSql = """

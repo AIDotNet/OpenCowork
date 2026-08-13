@@ -2,7 +2,7 @@ import type { BuiltinProviderPreset } from './types'
 
 export const giteeAiPreset: BuiltinProviderPreset = {
   builtinId: 'gitee-ai',
-  version: 1,
+  version: 2,
   name: 'Gitee AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://ai.gitee.com/v1',
@@ -183,7 +183,14 @@ export const giteeAiPreset: BuiltinProviderPreset = {
       icon: 'deepseek',
       enabled: true,
       inputPrice: 1.6,
-      outputPrice: 3.135
+      outputPrice: 3.135,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'DeepSeek-V4-Flash',
@@ -191,7 +198,14 @@ export const giteeAiPreset: BuiltinProviderPreset = {
       icon: 'deepseek',
       enabled: true,
       inputPrice: 0.13,
-      outputPrice: 0.28
+      outputPrice: 0.28,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'DeepSeek-V3.2',

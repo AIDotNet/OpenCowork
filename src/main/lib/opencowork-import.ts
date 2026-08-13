@@ -38,8 +38,10 @@ function defaultModelFor(classification: RoutinCredentialClassification): JsonRe
     supportsFunctionCall: true,
     supportsThinking: true,
     thinkingConfig: {
-      bodyParams: { enable_thinking: true },
-      disabledBodyParams: { enable_thinking: false }
+      bodyParams: { thinking: { type: 'enabled' } },
+      disabledBodyParams: { thinking: { type: 'disabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'high'
     }
   }
 }

@@ -2,7 +2,7 @@ import type { BuiltinProviderPreset } from './types'
 
 export const siliconflowPreset: BuiltinProviderPreset = {
   builtinId: 'siliconflow',
-  version: 1,
+  version: 2,
   name: '硅基流动',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.siliconflow.cn/v1',
@@ -22,7 +22,12 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 1.6,
       outputPrice: 3.135,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        disabledBodyParams: { enable_thinking: false },
+        reasoningEffortLevels: ['high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'deepseek-ai/DeepSeek-V4-Flash',
@@ -36,7 +41,12 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.13,
       outputPrice: 0.28,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        disabledBodyParams: { enable_thinking: false },
+        reasoningEffortLevels: ['high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'deepseek-ai/DeepSeek-V3.2',

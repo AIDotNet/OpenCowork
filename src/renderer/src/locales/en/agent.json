@@ -9,6 +9,7 @@
     "boundarySummarized": "{{count}} summarized",
     "summaryTitle": "Compressed Context Summary",
     "continuationSessionTitle": "{{title}} · Compressed",
+    "continueInNewSession": "Continue in a new session",
     "summaryMessages": "{{count}} earlier messages",
     "summaryRecentPreserved": "Transcript kept in chat",
     "summaryExpand": "Expand summary",

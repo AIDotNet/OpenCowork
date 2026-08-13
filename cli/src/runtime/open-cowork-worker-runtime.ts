@@ -36,6 +36,9 @@ import type {
   ResumeResult,
   ResumeSessionSummary,
   RuntimeSessionConfig,
+  SubAgentDisplay,
+  SubAgentDisplayPatch,
+  SubAgentPhase,
   TaskItem,
   ToolDiff,
   UiEvent,
@@ -49,6 +52,11 @@ import {
   isSensitiveFileReferencePath,
   normalizePromptReferences
 } from '../lib/file-references.js'
+import {
+  formatSubAgentActivity,
+  toolPrimaryField,
+  usageTokenTotal
+} from '../lib/sub-agent-display.js'
 import { stripTerminalPreviewControls } from '../lib/text.js'
 import {
   resolveThinkingIntensity,
@@ -380,10 +388,31 @@ function encodedToolError(value: unknown): string {
   if (!text) return ''
   try {
     const parsed = JSON.parse(text) as unknown
-    return isRecord(parsed) ? stringValue(parsed.error) : ''
+    const error = isRecord(parsed) ? stringValue(parsed.error) : ''
+    return formatCliToolError(error)
   } catch {
-    return ''
+    return formatCliToolError(text.startsWith('IO_') || text.startsWith('UnauthorizedAccess_') ? text : '')
   }
+}
+
+function formatCliToolError(message: string): string {
+  const trimmed = message.trim()
+  if (!trimmed) return ''
+  const remind = trimmed.match(/^<system-remind(?:er)?>\s*([\s\S]*?)\s*<\/system-remind(?:er)?>$/i)
+  const body = (remind?.[1] ?? trimmed).trim()
+  const resource = body.match(
+    /^(?<key>(?:IO|Arg|UnauthorizedAccess|net)_[A-Za-z0-9_]+)(?:,\s*(?<arg>[\s\S]+))?$/
+  )
+  if (!resource) return body
+  const key = resource.groups?.key ?? ''
+  const arg = resource.groups?.arg?.trim()
+  if (/FileNotFound|PathNotFound|DirectoryNotFound/.test(key)) {
+    return arg ? `Path does not exist: ${arg}` : 'Path does not exist.'
+  }
+  if (/UnauthorizedAccess|IODenied/.test(key)) {
+    return arg ? `Access denied: ${arg}` : 'Access denied.'
+  }
+  return arg ? `The tool failed: ${arg}` : 'The tool failed.'
 }
 
 function normalizePlanStatus(value: unknown): PlanStatus {
@@ -449,20 +478,13 @@ function normalizeAskUserRequest(id: string, value: JsonRecord): AskUserRequest 
 }
 
 function formatToolTitle(name: string, input: JsonRecord): string {
-  const primary =
-    stringValue(input.description) ||
-    stringValue(input.command) ||
-    stringValue(input.file_path) ||
-    stringValue(input.notebook_path) ||
-    stringValue(input.pattern) ||
-    stringValue(input.path) ||
-    stringValue(input.title) ||
-    stringValue(input.subject) ||
-    stringValue(input.query) ||
-    stringValue(input.symbol) ||
-    stringValue(input.taskId) ||
-    stringValue(input.task_id)
+  const primary = toolPrimaryField(input)
   return primary ? `${name}(${compact(primary, 90)})` : name
+}
+
+function requestModelLabel(value: unknown): string {
+  if (!isRecord(value)) return ''
+  return stringValue(value.modelName) || stringValue(value.modelId) || stringValue(value.model)
 }
 
 function normalizeTaskStatus(status: unknown): TaskItem['status'] {
@@ -956,6 +978,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private toolDiffs = new Map<string, ToolDiff>()
   private subAgentReports = new Map<string, string>()
   private subAgentThinking = new Map<string, string>()
+  private subAgentTokens = new Map<string, number>()
+  private subAgentCountedTools = new Map<string, Set<string>>()
   private config: RuntimeSessionConfig
   private sessionCreation: Promise<void> | null = null
   private pendingPlanContext: PendingPlanContext = {}
@@ -1378,7 +1402,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       ),
       fastModeEnabled: configuration.settings.fastModeEnabled === true,
       imageGenerationEnabled:
-        model.supportsImageGeneration === true && responsesImageGeneration?.enabled !== false,
+        model.supportsImageGeneration === true && responsesImageGeneration?.enabled === true,
       ...(inputPrice !== null ? { inputPrice } : {}),
       ...(maxOutputTokens && maxOutputTokens > 0 ? { maxOutputTokens } : {}),
       ...(outputPrice !== null ? { outputPrice } : {}),
@@ -1932,8 +1956,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.assistantIndex = 0
     this.startedTools = new Set()
     this.toolDiffs = new Map()
-    this.subAgentReports = new Map()
-    this.subAgentThinking = new Map()
+    this.resetSubAgentProjection()
     this.queue.length = 0
     this.historyPersistence = null
     this.ensureRewindHistory()
@@ -2680,8 +2703,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.assistantIndex = 0
     this.startedTools = new Set()
     this.toolDiffs = new Map()
-    this.subAgentReports = new Map()
-    this.subAgentThinking = new Map()
+    this.resetSubAgentProjection()
     this.queue.length = 0
     this.notify = null
     this.activeSignal = null
@@ -3424,6 +3446,26 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       const error =
         stringValue(tool.status) === 'error' || Boolean(tool.error) || Boolean(outputError)
       const id = stringValue(tool.id)
+      const name = stringValue(tool.name)
+      if (name === 'Task') {
+        this.push({
+          type: 'tool.done',
+          id,
+          status: error ? 'error' : 'success',
+          ...(error
+            ? {
+                subAgent: {
+                  phase: 'error' as const,
+                  completedAt: Date.now(),
+                  currentActivity: ''
+                }
+              }
+            : {})
+        })
+        const tasks = findTasks(output)
+        if (tasks) this.push({ type: 'tasks.update', tasks })
+        return
+      }
       const diff = error ? undefined : this.toolDiffs.get(id)
       this.toolDiffs.delete(id)
       this.push({
@@ -3517,24 +3559,33 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       type === 'sub_agent_start'
     ) {
       const id = stringValue(event.toolUseId) || `sub-agent-${randomUUID()}`
+      const input = isRecord(event.input) ? event.input : {}
+      const phase: SubAgentPhase =
+        type === 'sub_agent_queued'
+          ? 'queued'
+          : type === 'sub_agent_dequeued'
+            ? 'starting'
+            : 'running'
+      const subAgent = this.buildTaskSubAgent(input, {
+        name: stringValue(event.subAgentName),
+        phase
+      })
       const started = this.pushToolStart({
         type: 'tool.start',
         id,
-        title: `Task(${stringValue(event.subAgentName) || 'sub-agent'})`,
-        detail: formatJson(event.input)
+        title: subAgent.name,
+        detail: formatJson(event.input),
+        subAgent
       })
       if (!started) {
-        const state =
-          type === 'sub_agent_queued'
-            ? 'Queued'
-            : type === 'sub_agent_dequeued'
-              ? 'Starting'
-              : 'Running'
         this.push({
           type: 'tool.update',
           id,
-          title: `Task(${stringValue(event.subAgentName) || 'sub-agent'})`,
-          summary: state
+          subAgent: {
+            name: subAgent.name,
+            phase,
+            ...(subAgent.description ? { description: subAgent.description } : {})
+          }
         })
       }
       return
@@ -3543,7 +3594,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       const id = stringValue(event.toolUseId)
       const report = `${this.subAgentReports.get(id) ?? ''}${stringValue(event.text)}`
       this.subAgentReports.set(id, report)
-      this.push({ type: 'tool.update', id, summary: compact(report) || 'Working…' })
+      this.push({ type: 'tool.update', id, subAgent: { report } })
       return
     }
     if (type === 'sub_agent_thinking_delta') {
@@ -3558,7 +3609,10 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.push({
         type: 'tool.update',
         id,
-        summary: `Using ${stringValue(event.toolUseBlock.name) || 'tool'}`
+        subAgent: {
+          phase: 'running',
+          currentActivity: this.subAgentToolActivity(event.toolUseBlock)
+        }
       })
       return
     }
@@ -3566,11 +3620,20 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       const id = stringValue(event.toolUseId)
       const tool = event.toolCall
       const status = stringValue(tool.status)
-      this.push({
-        type: 'tool.update',
-        id,
-        summary: `${status === 'success' ? 'Completed' : status === 'error' ? 'Failed' : 'Using'} ${stringValue(tool.name) || 'tool'}`
-      })
+      const patch: SubAgentDisplayPatch = {
+        phase: 'running',
+        currentActivity: this.subAgentToolActivity(tool)
+      }
+      if (status === 'success' || status === 'error') {
+        const toolCallId = stringValue(tool.id)
+        const counted = this.subAgentCountedTools.get(id) ?? new Set<string>()
+        if (toolCallId && !counted.has(toolCallId)) {
+          counted.add(toolCallId)
+          this.subAgentCountedTools.set(id, counted)
+        }
+        patch.toolCount = counted.size
+      }
+      this.push({ type: 'tool.update', id, subAgent: patch })
       return
     }
     if (type === 'sub_agent_report_update') {
@@ -3580,7 +3643,31 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.push({
         type: 'tool.update',
         id,
-        summary: compact(report) || 'Report unavailable'
+        subAgent: { report: report || this.subAgentReports.get(id) || '' }
+      })
+      return
+    }
+    if (type === 'sub_agent_message_end') {
+      const id = stringValue(event.toolUseId)
+      const usage = isRecord(event.usage) ? event.usage : null
+      if (usage) {
+        const next =
+          (this.subAgentTokens.get(id) ?? 0) +
+          usageTokenTotal({
+            inputTokens: numberValue(usage.inputTokens),
+            outputTokens: numberValue(usage.outputTokens),
+            reasoningTokens: numberValue(usage.reasoningTokens)
+          })
+        this.subAgentTokens.set(id, next)
+      }
+      const model = requestModelLabel(event.requestModel)
+      this.push({
+        type: 'tool.update',
+        id,
+        subAgent: {
+          ...(this.subAgentTokens.has(id) ? { tokens: this.subAgentTokens.get(id) } : {}),
+          ...(model ? { model } : {})
+        }
       })
       return
     }
@@ -3592,11 +3679,28 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         this.subAgentReports.get(id) ||
         stringValue(result.error) ||
         'Completed'
+      const usage = isRecord(result.usage) ? result.usage : null
+      const tokens = usage
+        ? usageTokenTotal({
+            inputTokens: numberValue(usage.inputTokens),
+            outputTokens: numberValue(usage.outputTokens),
+            reasoningTokens: numberValue(usage.reasoningTokens)
+          })
+        : this.subAgentTokens.get(id)
+      const toolCount = numberValue(result.toolCallCount)
+      const error = result.success === false
       this.push({
         type: 'tool.done',
         id,
-        status: result.success === false ? 'error' : 'success',
-        summary: compact(report)
+        status: error ? 'error' : 'success',
+        subAgent: {
+          phase: error ? 'error' : 'completed',
+          completedAt: Date.now(),
+          currentActivity: '',
+          report: compact(report, 1_000),
+          ...(toolCount !== null ? { toolCount } : {}),
+          ...(tokens !== undefined ? { tokens } : {})
+        }
       })
       return
     }
@@ -3656,6 +3760,35 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     return true
   }
 
+  private resetSubAgentProjection(): void {
+    this.subAgentReports = new Map()
+    this.subAgentThinking = new Map()
+    this.subAgentTokens = new Map()
+    this.subAgentCountedTools = new Map()
+  }
+
+  private buildTaskSubAgent(
+    input: JsonRecord,
+    options: { name?: string; phase: SubAgentPhase }
+  ): SubAgentDisplay {
+    return {
+      name: options.name?.trim() || stringValue(input.subagent_type) || 'custom',
+      description: stringValue(input.description),
+      model: stringValue(input.model) || this.activeModelLabel,
+      effort: this.config.effort,
+      toolCount: 0,
+      startedAt: Date.now(),
+      phase: options.phase
+    }
+  }
+
+  private subAgentToolActivity(tool: JsonRecord): string {
+    const name = stringValue(tool.name) || 'tool'
+    const input = isRecord(tool.input) ? tool.input : {}
+    const primary = toolPrimaryField(input)
+    return formatSubAgentActivity(name, primary ? compact(primary, 80) : undefined)
+  }
+
   private startTool(tool: JsonRecord): void {
     const id = stringValue(tool.id)
     const name = stringValue(tool.name) || 'Tool'
@@ -3663,6 +3796,16 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (!id) return
     const diff = buildEditDiff(name, input)
     if (diff) this.toolDiffs.set(id, diff)
+    if (name === 'Task') {
+      this.pushToolStart({
+        type: 'tool.start',
+        id,
+        title: stringValue(input.subagent_type) || 'custom',
+        detail: Object.keys(input).length > 0 ? formatJson(input) : undefined,
+        subAgent: this.buildTaskSubAgent(input, { phase: 'queued' })
+      })
+      return
+    }
     this.pushToolStart({
       type: 'tool.start',
       id,

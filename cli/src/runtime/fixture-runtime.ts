@@ -63,6 +63,8 @@ export class FixtureAgentRuntime implements AgentRuntime {
     const prompt = submission.text.trim()
 
     const initRequest = prompt.startsWith('OpenCowork /init workflow:')
+    const spawnAgents = /\bspawn agents\b/iu.test(prompt)
+    const startedAt = Date.now() - 150_000
     const script: UiEvent[] = initRequest
       ? [
           { type: 'runtime.activity', activity: 'working' },
@@ -101,22 +103,75 @@ export class FixtureAgentRuntime implements AgentRuntime {
           },
           { type: 'turn.done' }
         ]
-      : [
-          { type: 'runtime.activity', activity: 'working' },
-          { type: 'tool.start', id: toolId, title: `Read fixture.txt` },
-          {
-            type: 'tool.done',
-            id: toolId,
-            status: 'success',
-            summary: 'Read 3 lines',
-            title: 'Read fixture.txt'
-          },
-          { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
-          { type: 'assistant.delta', id: assistantId, text: `You said: ${prompt}` },
-          { type: 'assistant.done', id: assistantId },
-          { type: 'runtime.usage', inputTokens: 42, outputTokens: 7, contextTokens: 42 },
-          { type: 'turn.done' }
-        ]
+      : spawnAgents
+        ? [
+            { type: 'runtime.activity', activity: 'working' },
+            {
+              type: 'tool.start',
+              id: `${toolId}-a`,
+              title: 'explore',
+              subAgent: {
+                name: 'explore',
+                description: 'Inspect fixture workspace layout',
+                model: FIXTURE_MODEL.modelName,
+                effort: 'high',
+                toolCount: 13,
+                tokens: 31_000,
+                startedAt,
+                completedAt: startedAt + 150_000,
+                phase: 'completed',
+                report: 'Found the fixture workspace layout.'
+              }
+            },
+            {
+              type: 'tool.done',
+              id: `${toolId}-a`,
+              status: 'success',
+              subAgent: { phase: 'completed', completedAt: startedAt + 150_000, currentActivity: '' }
+            },
+            {
+              type: 'tool.start',
+              id: `${toolId}-b`,
+              title: 'explore',
+              subAgent: {
+                name: 'explore',
+                description: 'Trace fixture tool rendering path',
+                model: FIXTURE_MODEL.modelName,
+                effort: 'high',
+                toolCount: 30,
+                tokens: 91_000,
+                startedAt,
+                phase: 'running',
+                currentActivity: 'Used Grep (spawn agents)'
+              }
+            },
+            {
+              type: 'tool.update',
+              id: `${toolId}-b`,
+              subAgent: {
+                phase: 'running',
+                toolCount: 30,
+                currentActivity: 'Used Grep (spawn agents)'
+              }
+            },
+            { type: 'turn.done' }
+          ]
+        : [
+            { type: 'runtime.activity', activity: 'working' },
+            { type: 'tool.start', id: toolId, title: 'Read fixture.txt' },
+            {
+              type: 'tool.done',
+              id: toolId,
+              status: 'success',
+              summary: 'Read 3 lines',
+              title: 'Read fixture.txt'
+            },
+            { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
+            { type: 'assistant.delta', id: assistantId, text: `You said: ${prompt}` },
+            { type: 'assistant.done', id: assistantId },
+            { type: 'runtime.usage', inputTokens: 42, outputTokens: 7, contextTokens: 42 },
+            { type: 'turn.done' }
+          ]
     for (const event of script) {
       if (signal.aborted) return
       yield event

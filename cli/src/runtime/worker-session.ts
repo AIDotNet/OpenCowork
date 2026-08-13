@@ -61,6 +61,7 @@ export interface WorkerRunRequest extends JsonRecord {
   provider: JsonRecord
   compressionProvider?: JsonRecord
   tools: WorkerToolDefinition[]
+  subAgentToolCatalog?: WorkerToolDefinition[]
   webSearch?: JsonRecord
   workingFolder: string
   maxIterations: number
@@ -257,7 +258,7 @@ const CORE_TOOL_DEFINITIONS: WorkerToolDefinition[] = [
   {
     name: 'Task',
     description:
-      'Launch a focused OpenCowork sub-agent in the Native Worker. The child inherits the parent tools except Task and returns a self-contained report. Use subagent_type="custom" or the name of an agent configured in ~/.open-cowork/agents.',
+      'Launch a focused OpenCowork sub-agent in the Native Worker. The child receives implementation tools except Task, including Write/Edit/Bash when the parent is restricted, and returns a self-contained report. Use subagent_type="custom" or the name of an agent configured in ~/.open-cowork/agents.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -931,8 +932,8 @@ function buildProvider(
       ...(isRecord(model.responsesImageGeneration) ? model.responsesImageGeneration : {}),
       enabled:
         model.supportsImageGeneration === true &&
-        (!isRecord(model.responsesImageGeneration) ||
-          model.responsesImageGeneration.enabled !== false)
+        isRecord(model.responsesImageGeneration) &&
+        model.responsesImageGeneration.enabled === true
     }
   }
 
@@ -1116,6 +1117,7 @@ export function buildWorkerRunRequest(
     provider,
     ...(compressionProvider ? { compressionProvider } : {}),
     tools,
+    ...(tools.length > 0 ? { subAgentToolCatalog: tools } : {}),
     ...(webSearch ? { webSearch } : {}),
     capabilitySnapshot,
     workingFolder: options.cwd,

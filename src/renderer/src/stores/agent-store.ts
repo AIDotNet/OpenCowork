@@ -26,6 +26,7 @@ import { sendApprovalResponse, sendPlanApprovalResponse } from '../lib/agent/tea
 import { compactBashToolResultContent } from '../lib/tools/bash-output'
 import { summarizeToolInputForHistory } from '../lib/tools/tool-input-sanitizer'
 import { calculateCacheReadRatio } from '../lib/agent/cache-shape'
+import { appendThinkingDeltaToBlocks, sealIncompleteThinkingBlocks } from '../lib/content-blocks'
 import { toMessagePackChannel } from '../../../shared/messagepack/binary-ipc'
 
 // Approval resolvers live outside the store — they hold non-serializable
@@ -450,14 +451,8 @@ function getCurrentAssistantBlocks(sa: SubAgentState): ContentBlock[] | null {
 function appendThinkingToSubAgent(sa: SubAgentState, thinking: string): void {
   const blocks = getCurrentAssistantBlocks(sa)
   if (!blocks) return
+  appendThinkingDeltaToBlocks(blocks, thinking, Date.now())
   const assistant = sa.transcript.find((message) => message.id === sa.currentAssistantMessageId)
-  const last = blocks[blocks.length - 1]
-  if (last?.type === 'thinking') {
-    last.thinking += thinking
-    if (assistant) bumpMessageRevision(assistant)
-    return
-  }
-  blocks.push({ type: 'thinking', thinking })
   if (assistant) bumpMessageRevision(assistant)
 }
 
@@ -536,6 +531,8 @@ function upsertToolUseBlockInSubAgent(
     if (assistant) bumpMessageRevision(assistant)
     return
   }
+  const now = Date.now()
+  sealIncompleteThinkingBlocks(blocks, now)
   blocks.push(block)
   if (assistant) bumpMessageRevision(assistant)
 }
@@ -2154,13 +2151,17 @@ export const useAgentStore = create<AgentStore>()(
             }
             case 'sub_agent_dequeued': {
               const sa = findSubAgentState(state, id, sessionId)
-              if (sa?.isQueued) {
-                delete state.activeSubAgents[id]
+              if (sa?.isQueued && sa.isRunning === false && sa.completedAt == null) {
+                // Keep the in-flight record. Deleting it here opened a gap until
+                // sub_agent_start arrived, and the transcript card defaulted to "done".
+                sa.isQueued = false
+                sa.isRunning = true
+                sa.reportStatus = 'pending'
+                state.activeSubAgents[id] = sa
+                delete state.completedSubAgents[id]
                 if (sessionId) {
-                  const previous = state.sessionSubAgentSummaries[sessionId] ?? []
-                  state.sessionSubAgentSummaries[sessionId] = previous.filter(
-                    (item) => item.toolUseId !== id
-                  )
+                  syncSessionSubAgentState(state, sessionId, id, sa)
+                  upsertSessionSubAgentSummary(state, sa, sessionId)
                   shouldPersistSubAgentHistory = true
                 }
                 rebuildRunningSubAgentDerived(state)
@@ -2168,28 +2169,49 @@ export const useAgentStore = create<AgentStore>()(
               break
             }
             case 'sub_agent_start': {
-              // Upgrade an existing queued record in place rather than recreating.
-              if (existing?.isQueued) {
+              if (existing && !existing.isRunning && existing.completedAt != null) {
+                return
+              }
+              if (existing) {
+                existing.name = event.subAgentName
+                existing.displayName = String(event.input.subagent_type ?? event.subAgentName)
                 existing.isRunning = true
                 existing.isQueued = false
-                existing.mcpServerIds = event.mcpServerIds ?? []
-                existing.permissionMode = event.permissionMode ?? 'default'
-                existing.reportStatus = 'pending'
-                existing.transcript = [event.promptMessage]
-                existing.startedAt = Date.now()
+                existing.mcpServerIds = event.mcpServerIds ?? existing.mcpServerIds ?? []
+                existing.permissionMode =
+                  event.permissionMode ?? existing.permissionMode ?? 'default'
+                if (existing.reportStatus === 'queued') existing.reportStatus = 'pending'
+                if (!existing.description) {
+                  existing.description = String(event.input.description ?? '')
+                }
+                if (!existing.prompt) {
+                  existing.prompt = String(
+                    event.input.prompt ??
+                      event.input.query ??
+                      event.input.task ??
+                      event.input.target ??
+                      ''
+                  )
+                }
+                const shouldReplaceTranscript =
+                  existing.transcript.length === 0 ||
+                  (existing.transcript.length === 1 &&
+                    existing.transcript[0]?.role === 'user' &&
+                    existing.toolCalls.length === 0 &&
+                    !existing.currentAssistantMessageId)
+                if (shouldReplaceTranscript) {
+                  existing.transcript = [event.promptMessage]
+                }
+                state.activeSubAgents[id] = existing
+                delete state.completedSubAgents[id]
                 if (sessionId) {
                   syncSessionSubAgentState(state, sessionId, id, existing)
-                  const previous = state.sessionSubAgentSummaries[sessionId] ?? []
-                  state.sessionSubAgentSummaries[sessionId] = [
-                    buildSubAgentSummary(existing),
-                    ...previous.filter((item) => item.toolUseId !== id)
-                  ]
+                  upsertSessionSubAgentSummary(state, existing, sessionId)
                   shouldPersistSubAgentHistory = true
                 }
                 rebuildRunningSubAgentDerived(state)
                 break
               }
-              if (existing) return
               state.activeSubAgents[id] = {
                 name: event.subAgentName,
                 displayName: String(event.input.subagent_type ?? event.subAgentName),

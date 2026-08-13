@@ -68,26 +68,42 @@
     "compressionBudget": "压缩预算",
     "remaining": "剩余",
     "runtimeMetrics": {
-      "input": "未缓存输入",
-      "cache": "缓存",
-      "cacheHit": "缓存命中",
-      "cacheCreate": "创建缓存",
-      "cacheCreate5m": "创建缓存（5m）",
-      "cacheCreate1h": "创建缓存（1h）",
-      "output": "输出",
+      "input": "Input",
+      "inputFull": "未缓存输入",
+      "inputHint": "未命中 Prompt Cache、按模型 Input 单价计费的 Prompt Token。这类 Token 不享受缓存读取折扣，通常出现在首次请求或缓存未命中时。",
+      "inputShort": "In",
+      "cache": "Cache",
+      "cacheHit": "Cache Hit",
+      "cacheHitFull": "缓存命中",
+      "cacheHitHint": "从 Prompt Cache 读取、按更低的 Cache Read 单价计费的 Prompt Token。命中率越高，后续回合的输入费用通常越低。",
+      "cacheHitShort": "Cache",
+      "cacheCreate": "Cache Write",
+      "cacheCreateFull": "缓存写入",
+      "cacheCreateHint": "写入 Prompt Cache 以便后续复用的 Prompt Token。写入按更高的 Cache Write 单价计费，可能分为 5 分钟或 1 小时 TTL。",
+      "cacheCreateShort": "Write",
+      "cacheCreate5m": "缓存写入（5m）",
+      "cacheCreate1h": "缓存写入（1h）",
+      "output": "Output",
+      "outputFull": "输出",
+      "outputHint": "模型生成的 Completion Token，包含可见文本以及已计费的推理 Token。按模型 Output 单价计费。",
+      "outputShort": "Out",
       "tps": "TPS",
-      "ttft": "首 token",
+      "tpsFull": "每秒输出 Token 数",
+      "ttft": "TTFT",
+      "ttftFull": "首 Token 延迟",
       "cost": "{{label}}：{{cost}}",
-      "tpsHint": "每秒生成的输出 Token 数",
-      "ttftHint": "首个 Token 返回耗时",
-      "totalCost": "消费"
+      "tpsHint": "从首个 Token 到达后到本次 API 请求结束的输出速度。每次请求完成后计算一次。",
+      "ttftHint": "从发出请求到收到第一个流式 Token 的等待时间。TTFT 越低，模型开始响应越快。",
+      "totalCost": "Cost",
+      "detailTokens": "Token 数",
+      "detailCost": "费用",
+      "detailHitRate": "命中率"
     },
     "runtimeStatus": {
       "ready": "就绪",
       "waiting": "等待响应",
       "thinking": "思考中",
       "receiving": "接收中",
-      "optimizing": "优化中",
       "loadingMedia": "载入媒体",
       "generatingImage": "生成图片中",
       "runningTool": "运行 {{tool}}",
@@ -97,12 +113,6 @@
     },
     "sendTooltip": "发送 (Enter)",
     "stopTooltip": "停止 (Esc)",
-    "optimizePrompt": "优化提示词",
-    "optimizing": "优化中...",
-    "selectOptimizedPrompt": "选择一个优化版本：",
-    "optimizationResults": "优化结果",
-    "optimizationResultsDesc": "选择下方的一个优化版本来使用。",
-    "useThisOption": "使用此版本",
     "noWorkingFolder": "使用 {{mode}} 模式前请先选择工作目录，点击此处选择。",
     "planModeMenu": "计划模式",
     "pursueGoalMenu": "追求目标",
@@ -822,6 +832,7 @@
       "emptyMessage": "空消息"
     },
     "assistantRail": {
+      "navigation": "会话导航",
       "jumpLabel": "跳转到第 {{index}} 条消息：{{preview}}",
       "currentLabel": "当前消息 {{index}}：{{preview}}",
       "userLabel": "跳转到第 {{index}} 条用户消息：{{preview}}",
@@ -837,7 +848,19 @@
     "homeWorkspaceCaption": "工作区",
     "homeTitleChatQuestion": "想聊些什么？",
     "homeTitleBuildQuestion": "想在 {{name}} 里构建什么？",
-    "thisWorkspace": "当前工作区"
+    "thisWorkspace": "当前工作区",
+    "homeCopy": {
+      "project": [
+        ["{{name}} 还在这", "问题也是", "说一句具体的，比盯着空白输入框有用"],
+        ["先别想一次改完", "最小的那个切口，往往才是真的", "你开口，我跟"],
+        ["仓库很安静，并不代表它没事", "今天可以只修一件让你烦的事", "从下面开始就好"]
+      ],
+      "chat": [
+        ["想到哪句说哪句", "问得不完整也没关系", "我可以先帮你把问题问清楚"],
+        ["不一定要像在写工单", "一段乱草稿，也够开始了", "丢进来吧"],
+        ["没有必须很聪明的开场", "有一个真正想搞懂的点就够", "其余的我们边聊边补"]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "未选择项目",

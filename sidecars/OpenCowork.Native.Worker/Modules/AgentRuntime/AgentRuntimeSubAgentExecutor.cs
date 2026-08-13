@@ -854,12 +854,23 @@ internal static partial class AgentRuntimeSubAgentExecutor
             "planRevision",
             "planExecution",
             "subAgentToolExpansionDisabled",
-            "subAgentConcurrencySlotInherited"
+            "subAgentConcurrencySlotInherited",
+            "subAgentToolCatalog",
+            "capabilitySnapshot",
+            "sessionPromptMode",
+            "mode"
         };
         if (!string.IsNullOrWhiteSpace(activeTeamName))
         {
             omitted.Add("activeTeamName");
         }
+
+        var parentMode = JsonHelpers.GetString(parentParameters, "sessionPromptMode") ??
+            JsonHelpers.GetString(parentParameters, "mode");
+        var childMode = string.Equals(parentMode, "acp", StringComparison.OrdinalIgnoreCase)
+            ? "code"
+            : parentMode;
+        var childSnapshot = ExpandCapabilitySnapshotForChild(parentParameters, tools, childMode);
 
         return CreateObject(writer =>
         {
@@ -878,6 +889,16 @@ internal static partial class AgentRuntimeSubAgentExecutor
             if (!string.IsNullOrWhiteSpace(activeTeamName))
             {
                 writer.WriteString("activeTeamName", activeTeamName);
+            }
+            if (!string.IsNullOrWhiteSpace(childMode))
+            {
+                writer.WriteString("sessionPromptMode", childMode);
+                writer.WriteString("mode", childMode);
+            }
+            if (childSnapshot.ValueKind == JsonValueKind.Object)
+            {
+                writer.WritePropertyName("capabilitySnapshot");
+                childSnapshot.WriteTo(writer);
             }
             writer.WritePropertyName("messages");
             writer.WriteStartArray();
@@ -971,13 +992,10 @@ internal static partial class AgentRuntimeSubAgentExecutor
         _ = definition;
         var tools = ReadToolDefinitions(parameters, "tools");
 
-        // Give the sub-agent the full base tool set. The parent's `tools` list can be a strict
-        // subset of what is registered -- most importantly while the parent is in plan mode, where
-        // it is filtered down to read-only tools and carries no Write/Edit/Bash. A sub-agent runs
-        // outside plan mode (planMode/planExecution/planModeAllowedTools are stripped in
-        // BuildChildParameters), so inheriting that restricted list would leave it unable to do any
-        // real work. The renderer ships the remaining registered tools in `subAgentToolCatalog`;
-        // merge them in (deduped by name) unless expansion is explicitly disabled.
+        // Give the sub-agent the full implementation tool set. The parent's `tools` list can
+        // be a strict subset -- most importantly in ACP mode, where the lead is orchestration
+        // only and carries no Write/Edit/Bash. Hosts ship the unfiltered registered tools in
+        // `subAgentToolCatalog`; merge them in (deduped by name) unless expansion is disabled.
         if (!JsonHelpers.GetBool(parameters, "subAgentToolExpansionDisabled", false))
         {
             var present = new HashSet<string>(StringComparer.Ordinal);
@@ -1035,13 +1053,295 @@ internal static partial class AgentRuntimeSubAgentExecutor
         return result;
     }
 
+    private static JsonElement ExpandCapabilitySnapshotForChild(
+        JsonElement parentParameters,
+        IReadOnlyList<JsonElement> childTools,
+        string? childMode)
+    {
+        if (!parentParameters.TryGetProperty("capabilitySnapshot", out var parentSnapshot) ||
+            parentSnapshot.ValueKind != JsonValueKind.Object)
+        {
+            return default;
+        }
+
+        var manifestsByName = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        if (parentSnapshot.TryGetProperty("authorizedTools", out var authorized) &&
+            authorized.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tool in authorized.EnumerateArray())
+            {
+                var name = JsonHelpers.GetString(tool, "wireName");
+                if (!string.IsNullOrEmpty(name))
+                {
+                    manifestsByName[name] = tool.Clone();
+                }
+            }
+        }
+
+        var expanded = new List<JsonElement>();
+        var visible = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tool in childTools)
+        {
+            var name = JsonHelpers.GetString(tool, "name");
+            if (string.IsNullOrEmpty(name) || !seen.Add(name))
+            {
+                continue;
+            }
+
+            if (!manifestsByName.TryGetValue(name, out var manifest))
+            {
+                manifest = SynthesizeChildToolManifest(tool);
+            }
+
+            expanded.Add(manifest);
+            visible.Add(JsonHelpers.GetString(manifest, "toolId") ?? name);
+        }
+
+        var parentHash = JsonHelpers.GetString(parentSnapshot, "snapshotHash");
+        var snapshotMode = string.IsNullOrWhiteSpace(childMode)
+            ? JsonHelpers.GetString(parentSnapshot, "mode")
+            : childMode;
+        return CreateObject(writer =>
+        {
+            foreach (var property in parentSnapshot.EnumerateObject())
+            {
+                if (property.NameEquals("authorizedTools") ||
+                    property.NameEquals("providerVisibleTools") ||
+                    property.NameEquals("callerType") ||
+                    property.NameEquals("mode") ||
+                    property.NameEquals("parentSnapshotHash") ||
+                    property.NameEquals("snapshotHash") ||
+                    property.NameEquals("snapshotId") ||
+                    property.NameEquals("resolutionReason"))
+                {
+                    continue;
+                }
+
+                property.WriteTo(writer);
+            }
+
+            writer.WriteString("callerType", "subagent");
+            if (!string.IsNullOrWhiteSpace(snapshotMode))
+            {
+                writer.WriteString("mode", snapshotMode);
+            }
+            if (!string.IsNullOrWhiteSpace(parentHash))
+            {
+                writer.WriteString("parentSnapshotHash", parentHash);
+            }
+            writer.WriteString("resolutionReason", "sub-agent-tool-catalog");
+            writer.WritePropertyName("authorizedTools");
+            writer.WriteStartArray();
+            foreach (var manifest in expanded)
+            {
+                manifest.WriteTo(writer);
+            }
+            writer.WriteEndArray();
+            writer.WritePropertyName("providerVisibleTools");
+            writer.WriteStartArray();
+            foreach (var id in visible)
+            {
+                writer.WriteStringValue(id);
+            }
+            writer.WriteEndArray();
+        });
+    }
+
+    private static JsonElement SynthesizeChildToolManifest(JsonElement tool)
+    {
+        var name = JsonHelpers.GetString(tool, "name") ?? "unknown";
+        var description = JsonHelpers.GetString(tool, "description") ?? string.Empty;
+        var toolId = BuildExpandedToolId(name);
+        var hasSchema = tool.TryGetProperty("inputSchema", out var inputSchema) &&
+            inputSchema.ValueKind == JsonValueKind.Object;
+        return CreateObject(writer =>
+        {
+            writer.WriteNumber("schemaVersion", 2);
+            writer.WriteString("toolId", toolId);
+            writer.WriteString("wireName", name);
+            writer.WriteString("source", InferToolSource(name));
+            writer.WriteString("sourceInstanceId", InferToolSourceInstance(name));
+            writer.WriteString("description", description);
+            writer.WritePropertyName("inputSchema");
+            if (hasSchema)
+            {
+                inputSchema.WriteTo(writer);
+            }
+            else
+            {
+                writer.WriteStartObject();
+                writer.WriteString("type", "object");
+                writer.WriteStartObject("properties");
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+            writer.WriteString("definitionHash", "subagent-expanded");
+            writer.WriteString("executorRoute", $"native/{name}");
+            writer.WriteStartArray("allowedModes");
+            writer.WriteStringValue("chat");
+            writer.WriteStringValue("cowork");
+            writer.WriteStringValue("code");
+            writer.WriteStringValue("clarify");
+            writer.WriteStringValue("acp");
+            writer.WriteStringValue("agent");
+            writer.WriteEndArray();
+            writer.WriteStartArray("allowedCallers");
+            writer.WriteStringValue("root");
+            writer.WriteStringValue("subagent");
+            writer.WriteStringValue("team");
+            writer.WriteStringValue("cron");
+            writer.WriteStringValue("plugin");
+            writer.WriteStringValue("system");
+            writer.WriteEndArray();
+            writer.WriteBoolean("parentOnly", false);
+            writer.WriteBoolean("requiresRenderer", false);
+            writer.WriteString("approvalMode", "policy");
+            writer.WriteString("sideEffectClass", "localMutation");
+            writer.WriteString("parallelClass", "resourceSerial");
+            writer.WriteString("resourceKeyStrategy", "tool-default");
+            writer.WriteString("recoveryMode", "reconcile");
+            writer.WriteString("resultPolicy", "bounded-preview-64k");
+        });
+    }
+
+    private static string BuildExpandedToolId(string wireName)
+    {
+        if (wireName.StartsWith("mcp__", StringComparison.Ordinal))
+        {
+            var rest = wireName["mcp__".Length..];
+            var split = rest.IndexOf("__", StringComparison.Ordinal);
+            var instance = split < 0 ? rest : rest[..split];
+            return $"mcp:{instance}:{wireName}";
+        }
+
+        if (wireName.StartsWith("extension__", StringComparison.Ordinal))
+        {
+            var rest = wireName["extension__".Length..];
+            var split = rest.IndexOf("__", StringComparison.Ordinal);
+            var instance = split < 0 ? rest : rest[..split];
+            return $"extension:{instance}:{wireName}";
+        }
+
+        if (wireName.StartsWith("Browser", StringComparison.Ordinal))
+        {
+            return $"browser:default:{wireName}";
+        }
+
+        if (wireName.StartsWith("Desktop", StringComparison.Ordinal))
+        {
+            return $"desktop:default:{wireName}";
+        }
+
+        if (wireName is "WebSearch" or "WebFetch")
+        {
+            return $"web:configured:{wireName}";
+        }
+
+        if (wireName.StartsWith("codegraph_", StringComparison.Ordinal))
+        {
+            return $"codegraph:native:{wireName}";
+        }
+
+        if (wireName.StartsWith("Plugin", StringComparison.Ordinal))
+        {
+            return $"plugin:channel:{wireName}";
+        }
+
+        return $"core:native:{wireName}";
+    }
+
+    private static string InferToolSource(string wireName)
+    {
+        if (wireName.StartsWith("mcp__", StringComparison.Ordinal))
+        {
+            return "mcp";
+        }
+
+        if (wireName.StartsWith("extension__", StringComparison.Ordinal))
+        {
+            return "extension";
+        }
+
+        if (wireName.StartsWith("Browser", StringComparison.Ordinal))
+        {
+            return "browser";
+        }
+
+        if (wireName.StartsWith("Desktop", StringComparison.Ordinal))
+        {
+            return "desktop";
+        }
+
+        if (wireName is "WebSearch" or "WebFetch")
+        {
+            return "web";
+        }
+
+        if (wireName.StartsWith("codegraph_", StringComparison.Ordinal))
+        {
+            return "codegraph";
+        }
+
+        if (wireName.StartsWith("Plugin", StringComparison.Ordinal))
+        {
+            return "plugin";
+        }
+
+        return "core";
+    }
+
+    private static string InferToolSourceInstance(string wireName)
+    {
+        if (wireName.StartsWith("mcp__", StringComparison.Ordinal))
+        {
+            var rest = wireName["mcp__".Length..];
+            var split = rest.IndexOf("__", StringComparison.Ordinal);
+            return split < 0 ? rest : rest[..split];
+        }
+
+        if (wireName.StartsWith("extension__", StringComparison.Ordinal))
+        {
+            var rest = wireName["extension__".Length..];
+            var split = rest.IndexOf("__", StringComparison.Ordinal);
+            return split < 0 ? rest : rest[..split];
+        }
+
+        if (wireName.StartsWith("Browser", StringComparison.Ordinal))
+        {
+            return "default";
+        }
+
+        if (wireName.StartsWith("Desktop", StringComparison.Ordinal))
+        {
+            return "default";
+        }
+
+        if (wireName is "WebSearch" or "WebFetch")
+        {
+            return "configured";
+        }
+
+        if (wireName.StartsWith("codegraph_", StringComparison.Ordinal))
+        {
+            return "native";
+        }
+
+        if (wireName.StartsWith("Plugin", StringComparison.Ordinal))
+        {
+            return "channel";
+        }
+
+        return "native";
+    }
+
     private static string BuildDefaultSystemPrompt(string? workingFolder)
     {
         var builder = new StringBuilder();
         builder.AppendLine("You are a specialized OpenCowork sub-agent dispatched by a parent agent.");
         builder.AppendLine("Complete exactly one focused task. You do not see the earlier conversation.");
         builder.AppendLine("Use available tools decisively, verify your work, and keep changes scoped to the delegated task.");
-        builder.AppendLine("You inherit the parent's tools and permissions except the Task delegation tool.");
+        builder.AppendLine("You receive the session implementation tools and permissions except the Task delegation tool, including Write/Edit/Bash when the parent is an ACP lead.");
         builder.AppendLine("You are a leaf worker: do not create, spawn, or delegate to another sub-agent.");
         if (!string.IsNullOrWhiteSpace(workingFolder))
         {
@@ -1227,7 +1527,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
 
     private static string EncodeError(string message)
     {
-        return CreateObject(writer => writer.WriteString("error", message)).GetRawText();
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static JsonElement StringElement(string value)

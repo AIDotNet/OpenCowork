@@ -22,6 +22,7 @@ import { PageTransition, PanelTransition } from '@renderer/components/animate-ui
 import { useShallow } from 'zustand/react/shallow'
 import { selectSessionPendingApproval } from '@renderer/lib/agent/session-scoped-agent-state'
 import { isCliSessionId } from '@renderer/lib/cli-session'
+import { getPlanReviewRightPanelWidth } from './right-panel-defs'
 
 const SkillsPage = lazy(async () => {
   const mod = await import('@renderer/components/skills/SkillsPage')
@@ -129,6 +130,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   const setLeftSidebarOpen = useUIStore((s) => s.setLeftSidebarOpen)
   const rightPanelOpen = useUIStore((s) => s.rightPanelOpen)
   const rightPanelWidth = useUIStore((s) => s.rightPanelWidth)
+  const rightPanelExpandedForReading = useUIStore((s) => s.rightPanelExpandedForReading)
   const subAgentExecutionDetailOpen = useUIStore((s) => s.subAgentExecutionDetailOpen)
   const subAgentExecutionDetailToolUseId = useUIStore((s) => s.subAgentExecutionDetailToolUseId)
   const subAgentExecutionDetailInlineText = useUIStore((s) => s.subAgentExecutionDetailInlineText)
@@ -203,7 +205,10 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   }, [])
 
   useEffect(() => {
-    const rightSideWidth = rightPanelOpen ? rightPanelWidth : 0
+    const visualRightPanelWidth = rightPanelExpandedForReading
+      ? Math.max(rightPanelWidth, getPlanReviewRightPanelWidth(viewportWidth))
+      : rightPanelWidth
+    const rightSideWidth = rightPanelOpen ? visualRightPanelWidth : 0
     const widthLeftForMainWorkspace =
       viewportWidth - rightSideWidth - (leftSidebarOpen ? leftSidebarWidth : 0)
     const mainWorkspaceTooNarrow =
@@ -225,6 +230,7 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
     chatView,
     leftSidebarOpen,
     leftSidebarWidth,
+    rightPanelExpandedForReading,
     rightPanelOpen,
     rightPanelWidth,
     setLeftSidebarOpen,

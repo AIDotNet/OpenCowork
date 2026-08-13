@@ -420,22 +420,7 @@ internal static class AgentRuntimeImageGenerateExecutor
 
     private static RendererToolResult Error(string message)
     {
-        return new RendererToolResult(
-            AgentRuntimeProviderSupport.CreateStringElement(EncodeError(message)),
-            true,
-            message);
-    }
-
-    private static string EncodeError(string message)
-    {
-        var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
-        {
-            writer.WriteStartObject();
-            writer.WriteString("error", message);
-            writer.WriteEndObject();
-        }
-        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+        return AgentRuntimeToolError.Failed(message);
     }
 
     private sealed record PersistedGeneratedImage(

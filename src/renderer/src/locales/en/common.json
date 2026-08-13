@@ -85,6 +85,7 @@
     "cowork": "Cowork",
     "code": "Code",
     "acp": "ACP",
+    "switcher": "Session mode",
     "descriptions": {
       "chat": "Quick conversation, no project tools",
       "clarify": "Turn ambiguity into a reviewable plan",

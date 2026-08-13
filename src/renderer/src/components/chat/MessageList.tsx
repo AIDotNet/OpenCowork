@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
-import { MessageSquare, CircleHelp, Briefcase, Code2, ShieldCheck, ArrowDown } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
@@ -12,6 +12,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { cn } from '@renderer/lib/utils'
+import { PreviewRail, type PreviewRailItem } from '@renderer/components/motion/preview-rail'
 import { MessageItem } from './MessageItem'
 import { SessionChangeSummaryCard } from './SessionChangeSummaryCard'
 import {
@@ -34,34 +35,6 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import { DB_MESSAGES_LIST_LOCATOR_MSGPACK_CHANNEL } from '../../../../shared/messagepack/binary-ipc'
 import { applyRuntimeOverlayToMessages } from '@renderer/lib/chat/apply-runtime-overlay'
 import { useSessionRuntimeProjection } from '@renderer/lib/chat/use-session-runtime-projection'
-
-const modeHints = {
-  chat: {
-    icon: <MessageSquare className="size-12 text-muted-foreground/20" />,
-    titleKey: 'messageList.startConversation',
-    descKey: 'messageList.startConversationDesc'
-  },
-  clarify: {
-    icon: <CircleHelp className="size-12 text-muted-foreground/20" />,
-    titleKey: 'messageList.startClarify',
-    descKey: 'messageList.startClarifyDesc'
-  },
-  cowork: {
-    icon: <Briefcase className="size-12 text-muted-foreground/20" />,
-    titleKey: 'messageList.startCowork',
-    descKey: 'messageList.startCoworkDesc'
-  },
-  code: {
-    icon: <Code2 className="size-12 text-muted-foreground/20" />,
-    titleKey: 'messageList.startCoding',
-    descKey: 'messageList.startCodingDesc'
-  },
-  acp: {
-    icon: <ShieldCheck className="size-12 text-muted-foreground/20" />,
-    titleKey: 'messageList.startAcp',
-    descKey: 'messageList.startAcpDesc'
-  }
-}
 
 interface MessageListProps {
   sessionId?: string | null
@@ -269,15 +242,7 @@ const AUTO_SCROLL_MIN_DELTA = 24
 const PROGRAMMATIC_SCROLL_GUARD_MS = 160
 const STREAMING_AUTO_SCROLL_POLL_MS = 500
 const ASSISTANT_RAIL_PREVIEW_LIMIT = 120
-const ASSISTANT_RAIL_HEIGHT_PX = 420
-const ASSISTANT_RAIL_MARKER_HEIGHT_PX = 2
-const ASSISTANT_RAIL_MARKER_WIDTH_PX = 6
-const ASSISTANT_RAIL_MARKER_PITCH_PX = 9
-const ASSISTANT_RAIL_CONTENT_PADDING_PX = 18
-const ASSISTANT_RAIL_ACTIVE_INSET_PX = 24
-const ASSISTANT_RAIL_FADE_SIZE_PX = 18
-const ASSISTANT_RAIL_PREVIEW_INSET_PX = 44
-const ASSISTANT_RAIL_HOVER_WIDTHS_PX = [26, 20, 14, 10, 6] as const
+const ASSISTANT_RAIL_MAX_HEIGHT_PX = 416
 const OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
 const NEWER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
 const MIN_RENDERABLE_HISTORY_ROWS = 3
@@ -288,7 +253,6 @@ const WINDOW_STABLE_FRAME_COUNT = 2
 const INITIAL_TARGET_VIEWPORT_MULTIPLIER = 1.75
 const EMPTY_ORCHESTRATION_STATE = { runs: [], byId: new Map(), byMessageId: new Map() }
 const MESSAGE_COLUMN_CLASS = 'mx-auto w-full max-w-[820px] px-5'
-const MESSAGE_COLUMN_COMPACT_CLASS = 'mx-auto w-full max-w-[720px] px-5'
 const MESSAGE_COLUMN_FULL_WIDTH_CLASS = 'mx-auto w-full max-w-none px-5'
 const EMPTY_MESSAGE_LOCATOR_ROWS: MessageLocatorIndexRow[] = []
 const EMPTY_ASSISTANT_RAIL_LAYOUT: AssistantRailLayout = {
@@ -299,10 +263,6 @@ const EMPTY_ASSISTANT_RAIL_LAYOUT: AssistantRailLayout = {
 
 function getMessageColumnClass(fullWidth: boolean): string {
   return fullWidth ? MESSAGE_COLUMN_FULL_WIDTH_CLASS : MESSAGE_COLUMN_CLASS
-}
-
-function getMessageColumnCompactClass(fullWidth: boolean): string {
-  return fullWidth ? MESSAGE_COLUMN_FULL_WIDTH_CLASS : MESSAGE_COLUMN_COMPACT_CLASS
 }
 
 interface MessageListSessionSelection {
@@ -942,73 +902,8 @@ function buildAssistantRailLayout(args: {
   return { rows, items, totalEstimatedHeight }
 }
 
-function parseLocatorRowSource(row: MessageLocatorIndexRow): MessageLocatorSource {
-  return {
-    id: row.id,
-    role: row.role as UnifiedMessage['role'],
-    content: parseLocatorContent(row.content),
-    meta: parseLocatorMeta(row.meta),
-    createdAt: row.created_at,
-    sortOrder: row.sort_order
-  }
-}
-
-function countImageBlocks(content: UnifiedMessage['content']): number {
-  if (typeof content === 'string') return 0
-  return content.filter((block) => block.type === 'image' || block.type === 'image_error').length
-}
-
-function getAssistantRailMarkerSpanPx(total: number): number {
-  if (total <= 0) return 0
-  return (total - 1) * ASSISTANT_RAIL_MARKER_PITCH_PX + ASSISTANT_RAIL_MARKER_HEIGHT_PX
-}
-
-function getAssistantRailContentHeightPx(total: number): number {
-  const naturalHeight = getAssistantRailMarkerSpanPx(total) + ASSISTANT_RAIL_CONTENT_PADDING_PX * 2
-  return Math.max(ASSISTANT_RAIL_HEIGHT_PX, naturalHeight)
-}
-
-function getAssistantRailMarkerCenterPx(index: number, total: number): number {
-  const contentHeight = getAssistantRailContentHeightPx(total)
-  const markerSpan = getAssistantRailMarkerSpanPx(total)
-  const firstMarkerCenter = (contentHeight - markerSpan) / 2 + ASSISTANT_RAIL_MARKER_HEIGHT_PX / 2
-  return firstMarkerCenter + index * ASSISTANT_RAIL_MARKER_PITCH_PX
-}
-
-function getAssistantRailMaskImage(
-  canScrollUp: boolean,
-  canScrollDown: boolean
-): string | undefined {
-  if (canScrollUp && canScrollDown) {
-    return `linear-gradient(to bottom, transparent 0, black ${ASSISTANT_RAIL_FADE_SIZE_PX}px, black calc(100% - ${ASSISTANT_RAIL_FADE_SIZE_PX}px), transparent 100%)`
-  }
-  if (canScrollUp) {
-    return `linear-gradient(to bottom, transparent 0, black ${ASSISTANT_RAIL_FADE_SIZE_PX}px, black 100%)`
-  }
-  if (canScrollDown) {
-    return `linear-gradient(to bottom, black 0, black calc(100% - ${ASSISTANT_RAIL_FADE_SIZE_PX}px), transparent 100%)`
-  }
-  return undefined
-}
-
 function formatLocatorTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-function splitLocatorPreview(preview: string): { title: string; detail: string | null } {
-  const normalized = preview.trim()
-  if (normalized.length <= 30) return { title: normalized, detail: null }
-
-  const sentenceEnd = normalized.search(/[。.!！?？]/)
-  const splitOnSentence = sentenceEnd >= 12 && sentenceEnd <= 34
-  const titleEnd = splitOnSentence ? sentenceEnd + 1 : Math.min(30, normalized.length)
-  const title = normalized.slice(0, titleEnd).trim()
-  const detail = normalized.slice(titleEnd).trim()
-
-  return {
-    title: !splitOnSentence && title.length < normalized.length ? `${title}...` : title,
-    detail: detail || normalized
-  }
 }
 
 function parseLocatorContent(rawContent: string): UnifiedMessage['content'] {
@@ -1030,351 +925,99 @@ function parseLocatorMeta(rawMeta: string | null): UnifiedMessage['meta'] {
   }
 }
 
+function parseLocatorRowSource(row: MessageLocatorIndexRow): MessageLocatorSource {
+  return {
+    id: row.id,
+    role: row.role as UnifiedMessage['role'],
+    content: parseLocatorContent(row.content),
+    meta: parseLocatorMeta(row.meta),
+    createdAt: row.created_at,
+    sortOrder: row.sort_order
+  }
+}
+
+function countImageBlocks(content: UnifiedMessage['content']): number {
+  if (typeof content === 'string') return 0
+  return content.filter((block) => block.type === 'image' || block.type === 'image_error').length
+}
+
+function getAssistantRailJumpLabelKey(kind: AssistantRailMarkerKind): string {
+  if (kind === 'streaming') return 'messageList.assistantRail.streamingLabel'
+  if (kind === 'summary') return 'messageList.assistantRail.summaryLabel'
+  if (kind === 'user') return 'messageList.assistantRail.userLabel'
+  return 'messageList.assistantRail.jumpLabel'
+}
+
 function AssistantReplyRail({
   items,
   activeMessageIds,
-  onWheel
+  onWheel,
+  onItemSelect
 }: {
   items: AssistantReplyRailItem[]
   activeMessageIds: Set<string>
   onWheel: (event: React.WheelEvent<HTMLDivElement>) => void
+  onItemSelect: (itemId: string) => void
 }): React.JSX.Element | null {
-  const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
-  const [previewMessageId, setPreviewMessageId] = React.useState<string | null>(null)
-  const [pointerPosition, setPointerPosition] = React.useState<{ y: number } | null>(null)
-  const [railScrollTop, setRailScrollTop] = React.useState(0)
-  const railViewportRef = React.useRef<HTMLDivElement | null>(null)
-  const hasPositionedRailRef = React.useRef(false)
-  const pointerFrameRef = React.useRef<number | null>(null)
-  const railScrollFrameRef = React.useRef<number | null>(null)
-  const pendingPointerPositionRef = React.useRef<typeof pointerPosition>(null)
-  const pendingRailScrollTopRef = React.useRef(0)
-  const railContentHeight = getAssistantRailContentHeightPx(items.length)
-  const maxRailScrollTop = Math.max(0, railContentHeight - ASSISTANT_RAIL_HEIGHT_PX)
-  const dense = maxRailScrollTop > 0
-  const itemById = React.useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
-  const itemIndexById = React.useMemo(
-    () => new Map(items.map((item, itemIndex) => [item.id, itemIndex])),
-    [items]
+  const { t } = useTranslation()
+  const previewItems = React.useMemo<PreviewRailItem[]>(
+    () =>
+      items.map((item) => ({
+        id: item.id,
+        label: item.preview,
+        description: item.detail,
+        ariaLabel: t(getAssistantRailJumpLabelKey(item.kind), {
+          index: item.index,
+          preview: item.preview
+        })
+      })),
+    [items, t]
+  )
+  const activeId = React.useMemo(() => {
+    let lastMatch: string | undefined
+    for (const item of items) {
+      if (activeMessageIds.has(item.id)) lastMatch = item.id
+    }
+    return lastMatch ?? items[items.length - 1]?.id
+  }, [activeMessageIds, items])
+  const itemSize = Math.max(
+    8,
+    Math.min(12, Math.floor(ASSISTANT_RAIL_MAX_HEIGHT_PX / Math.max(items.length, 1)))
   )
 
-  const getNearestItem = React.useCallback(
-    (clientY: number, target: HTMLDivElement): AssistantReplyRailItem | null => {
-      if (items.length === 0) return null
-      const rect = target.getBoundingClientRect()
-      if (rect.height <= 0) return null
-      const pointerContentY = clientY - rect.top + target.scrollTop
-      const firstMarkerCenter = getAssistantRailMarkerCenterPx(0, items.length)
-      const nearestIndex = Math.max(
-        0,
-        Math.min(
-          items.length - 1,
-          Math.round((pointerContentY - firstMarkerCenter) / ASSISTANT_RAIL_MARKER_PITCH_PX)
-        )
-      )
-      return items[nearestIndex] ?? null
-    },
-    [items]
-  )
-
-  const schedulePointerPosition = React.useCallback((position: typeof pointerPosition) => {
-    pendingPointerPositionRef.current = position
-    if (pointerFrameRef.current !== null) return
-
-    pointerFrameRef.current = window.requestAnimationFrame(() => {
-      pointerFrameRef.current = null
-      setPointerPosition(pendingPointerPositionRef.current)
-    })
-  }, [])
-
-  const scheduleRailScrollTop = React.useCallback((scrollTop: number) => {
-    pendingRailScrollTopRef.current = scrollTop
-    if (railScrollFrameRef.current !== null) return
-
-    railScrollFrameRef.current = window.requestAnimationFrame(() => {
-      railScrollFrameRef.current = null
-      setRailScrollTop(pendingRailScrollTopRef.current)
-    })
-  }, [])
-
-  const scrollMarkerIntoView = React.useCallback(
-    (itemIndex: number, behaviorOverride?: ScrollBehavior) => {
-      const viewport = railViewportRef.current
-      if (!viewport || maxRailScrollTop <= 0) return
-
-      const markerCenter = getAssistantRailMarkerCenterPx(itemIndex, items.length)
-      const visibleStart = viewport.scrollTop + ASSISTANT_RAIL_ACTIVE_INSET_PX
-      const visibleEnd = viewport.scrollTop + viewport.clientHeight - ASSISTANT_RAIL_ACTIVE_INSET_PX
-      let nextScrollTop = viewport.scrollTop
-
-      if (markerCenter < visibleStart) {
-        nextScrollTop = markerCenter - ASSISTANT_RAIL_ACTIVE_INSET_PX
-      } else if (markerCenter > visibleEnd) {
-        nextScrollTop = markerCenter - viewport.clientHeight + ASSISTANT_RAIL_ACTIVE_INSET_PX
-      } else {
-        return
-      }
-
-      nextScrollTop = Math.max(0, Math.min(maxRailScrollTop, nextScrollTop))
-      if (Math.abs(nextScrollTop - viewport.scrollTop) < 0.5) return
-
-      const behavior = behaviorOverride ?? (animationsEnabled ? 'smooth' : 'auto')
-      if (behavior === 'auto') {
-        viewport.scrollTop = nextScrollTop
-        scheduleRailScrollTop(nextScrollTop)
-        return
-      }
-      viewport.scrollTo({ top: nextScrollTop, behavior })
-    },
-    [animationsEnabled, items.length, maxRailScrollTop, scheduleRailScrollTop]
-  )
-
-  React.useLayoutEffect(() => {
-    const viewport = railViewportRef.current
-    if (!viewport) return
-
-    const nextScrollTop = Math.max(0, Math.min(maxRailScrollTop, viewport.scrollTop))
-    if (Math.abs(nextScrollTop - viewport.scrollTop) >= 0.5) {
-      viewport.scrollTop = nextScrollTop
-    }
-    setRailScrollTop(nextScrollTop)
-  }, [maxRailScrollTop])
-
-  React.useLayoutEffect(() => {
-    if (activeMessageIds.size === 0 || maxRailScrollTop <= 0) return
-
-    const viewport = railViewportRef.current
-    if (!viewport) return
-    const activeIndexes = Array.from(activeMessageIds)
-      .map((messageId) => itemIndexById.get(messageId))
-      .filter((itemIndex): itemIndex is number => itemIndex !== undefined)
-      .sort((first, second) => first - second)
-    if (activeIndexes.length === 0) return
-
-    const visibleStart = viewport.scrollTop + ASSISTANT_RAIL_ACTIVE_INSET_PX
-    const visibleEnd = viewport.scrollTop + viewport.clientHeight - ASSISTANT_RAIL_ACTIVE_INSET_PX
-    const activeCenters = activeIndexes.map((itemIndex) =>
-      getAssistantRailMarkerCenterPx(itemIndex, items.length)
-    )
-    const streamingActiveIndex = activeIndexes.find(
-      (itemIndex) => items[itemIndex]?.kind === 'streaming'
-    )
-
-    if (streamingActiveIndex !== undefined) {
-      const streamingCenter = getAssistantRailMarkerCenterPx(streamingActiveIndex, items.length)
-      if (streamingCenter < visibleStart || streamingCenter > visibleEnd) {
-        scrollMarkerIntoView(
-          streamingActiveIndex,
-          hasPositionedRailRef.current ? undefined : 'auto'
-        )
-      }
-      hasPositionedRailRef.current = true
-      return
-    }
-
-    if (activeCenters.some((center) => center >= visibleStart && center <= visibleEnd)) {
-      hasPositionedRailRef.current = true
-      return
-    }
-
-    const targetIndex =
-      activeCenters[activeCenters.length - 1] < visibleStart
-        ? activeIndexes[activeIndexes.length - 1]
-        : activeIndexes[0]
-    scrollMarkerIntoView(targetIndex, hasPositionedRailRef.current ? undefined : 'auto')
-    hasPositionedRailRef.current = true
-  }, [activeMessageIds, itemIndexById, items, maxRailScrollTop, scrollMarkerIntoView])
-
-  React.useEffect(() => {
-    return () => {
-      if (pointerFrameRef.current !== null) {
-        window.cancelAnimationFrame(pointerFrameRef.current)
-      }
-      if (railScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(railScrollFrameRef.current)
-      }
-    }
-  }, [])
-
-  React.useEffect(() => {
-    if (!dense || !pointerPosition) return
-    const viewport = railViewportRef.current
-    if (!viewport) return
-
-    const rect = viewport.getBoundingClientRect()
-    const item = getNearestItem(rect.top + pointerPosition.y, viewport)
-    setPreviewMessageId((previousId) => (previousId === item?.id ? previousId : (item?.id ?? null)))
-  }, [dense, getNearestItem, pointerPosition, railScrollTop])
-
-  if (items.length < 2) return null
-
-  const previewItem = previewMessageId ? (itemById.get(previewMessageId) ?? null) : null
-  const previewItemIndex = previewItem ? (itemIndexById.get(previewItem.id) ?? -1) : -1
-  const previewCopy = previewItem
-    ? previewItem.detail
-      ? { title: previewItem.preview, detail: previewItem.detail }
-      : splitLocatorPreview(previewItem.preview)
-    : null
-  const rawPreviewTop =
-    previewItemIndex >= 0
-      ? getAssistantRailMarkerCenterPx(previewItemIndex, items.length) - railScrollTop
-      : ASSISTANT_RAIL_HEIGHT_PX / 2
-  const previewTop = Math.max(
-    ASSISTANT_RAIL_PREVIEW_INSET_PX,
-    Math.min(ASSISTANT_RAIL_HEIGHT_PX - ASSISTANT_RAIL_PREVIEW_INSET_PX, rawPreviewTop)
-  )
-  const canScrollUp = railScrollTop > 0.5
-  const canScrollDown = railScrollTop < maxRailScrollTop - 0.5
-  const maskImage = getAssistantRailMaskImage(canScrollUp, canScrollDown)
-
-  const getMarkerWaveScale = (itemIndex: number): number => {
-    if (!pointerPosition) return 1
-    const markerY = getAssistantRailMarkerCenterPx(itemIndex, items.length) - railScrollTop
-    const distance = Math.abs(markerY - pointerPosition.y)
-    const distanceInMarkers = distance / ASSISTANT_RAIL_MARKER_PITCH_PX
-    const lastWidthIndex = ASSISTANT_RAIL_HOVER_WIDTHS_PX.length - 1
-    if (distanceInMarkers >= lastWidthIndex) return 1
-
-    const widthIndex = Math.floor(distanceInMarkers)
-    const progress = distanceInMarkers - widthIndex
-    const startWidth = ASSISTANT_RAIL_HOVER_WIDTHS_PX[widthIndex]
-    const endWidth = ASSISTANT_RAIL_HOVER_WIDTHS_PX[widthIndex + 1]
-    const width = startWidth + (endWidth - startWidth) * progress
-    return width / ASSISTANT_RAIL_MARKER_WIDTH_PX
-  }
-
-  const renderMarker = (
-    item: AssistantReplyRailItem,
-    itemIndex: number,
-    previewing: boolean
-  ): React.JSX.Element => {
-    const active = activeMessageIds.has(item.id)
-    return (
-      <span
-        className={cn(
-          'block h-0.5 origin-left rounded-full transition-[color,background-color,opacity,transform] duration-100 ease-out will-change-transform',
-          'bg-muted-foreground/45',
-          active ? 'bg-foreground/85 opacity-100' : 'opacity-65',
-          previewing && 'bg-foreground/95 opacity-100',
-          item.kind === 'streaming' && active && animationsEnabled && 'animate-pulse'
-        )}
-        style={{
-          width: ASSISTANT_RAIL_MARKER_WIDTH_PX,
-          transform: `scaleX(${getMarkerWaveScale(itemIndex)})`
-        }}
-      />
-    )
-  }
+  if (items.length === 0) return null
 
   return (
     <div
-      className="pointer-events-none absolute left-2 top-1/2 z-20 hidden -translate-y-1/2 md:block"
-      style={{ height: ASSISTANT_RAIL_HEIGHT_PX }}
+      className="pointer-events-none absolute inset-y-0 left-0 z-20 hidden md:block"
+      onWheel={onWheel}
     >
-      <div
-        className="pointer-events-none relative w-[min(320px,calc(100vw-3rem))]"
-        style={{ height: ASSISTANT_RAIL_HEIGHT_PX }}
-      >
-        <AnimatePresence mode="popLayout">
-          {previewItem && previewCopy ? (
-            <motion.div
-              key={previewItem.id}
-              className="absolute left-9 w-[min(276px,calc(100vw-5rem))] -translate-y-1/2"
-              style={{ top: previewTop }}
-              initial={animationsEnabled ? { opacity: 0, x: -4 } : false}
-              animate={{ opacity: 1, x: 0 }}
-              exit={animationsEnabled ? { opacity: 0, x: -4 } : undefined}
-              transition={animationsEnabled ? { duration: 0.12, ease: 'easeOut' } : { duration: 0 }}
-            >
-              <div className="overflow-hidden rounded-xl border border-border/70 bg-popover/95 px-3 py-2.5 text-popover-foreground shadow-xl backdrop-blur-xl">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/70',
-                      previewItem.kind === 'streaming' &&
-                        animationsEnabled &&
-                        'animate-pulse bg-primary'
-                    )}
-                  />
-                  <div className="min-w-0 flex-1 line-clamp-1 text-[12px] font-semibold leading-5">
-                    {previewCopy.title}
-                  </div>
-                </div>
-                {previewCopy.detail ? (
-                  <div className="mt-0.5 line-clamp-2 text-[11px] leading-[18px] text-muted-foreground">
-                    {previewCopy.detail}
-                  </div>
-                ) : null}
+      <PreviewRail
+        items={previewItems}
+        label={t('messageList.assistantRail.navigation', {
+          defaultValue: 'Conversation navigation'
+        })}
+        activeId={activeId}
+        highlightActive
+        itemSize={itemSize}
+        onItemSelect={(item) => onItemSelect(item.id)}
+        className="h-full min-h-0 w-[min(18rem,calc(100%-1rem))]"
+        railClassName="pointer-events-auto w-6 max-h-[min(70vh,26rem)] self-center overflow-y-auto overflow-x-visible"
+        itemClassName="w-6"
+        tickClassName="w-5"
+        previewContainerClassName="left-7 right-2"
+        previewClassName="w-[min(240px,calc(100vw-5rem))]"
+        renderPreview={(item) => (
+          <div className="overflow-hidden rounded-lg border border-border/70 bg-popover/95 px-2.5 py-2 text-popover-foreground shadow-lg backdrop-blur-xl">
+            <div className="line-clamp-1 text-[11px] font-medium leading-4">{item.label}</div>
+            {item.description ? (
+              <div className="mt-0.5 line-clamp-2 text-[11px] leading-[18px] text-muted-foreground">
+                {item.description}
               </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-
-        <div
-          ref={railViewportRef}
-          className="pointer-events-auto absolute left-0 top-0 w-8 overflow-y-hidden"
-          style={{
-            height: ASSISTANT_RAIL_HEIGHT_PX,
-            maskImage,
-            WebkitMaskImage: maskImage
-          }}
-          onScroll={(event) => scheduleRailScrollTop(event.currentTarget.scrollTop)}
-          onWheel={onWheel}
-          onPointerMove={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect()
-            schedulePointerPosition({
-              y: Math.max(0, Math.min(rect.height, event.clientY - rect.top))
-            })
-            if (dense) {
-              const item = getNearestItem(event.clientY, event.currentTarget)
-              setPreviewMessageId((prev) => (prev === item?.id ? prev : (item?.id ?? null)))
-            }
-          }}
-          onPointerLeave={() => {
-            pendingPointerPositionRef.current = null
-            if (pointerFrameRef.current !== null) {
-              window.cancelAnimationFrame(pointerFrameRef.current)
-              pointerFrameRef.current = null
-            }
-            setPointerPosition(null)
-            if (dense) setPreviewMessageId(null)
-          }}
-        >
-          <div className="relative w-8" style={{ height: railContentHeight }}>
-            {items.map((item, itemIndex) => {
-              const previewing = previewMessageId === item.id
-              const markerTop = getAssistantRailMarkerCenterPx(itemIndex, items.length)
-              return dense ? (
-                <span
-                  key={item.id}
-                  className="absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start"
-                  style={{
-                    top: markerTop,
-                    height: ASSISTANT_RAIL_MARKER_PITCH_PX
-                  }}
-                >
-                  {renderMarker(item, itemIndex, previewing)}
-                </span>
-              ) : (
-                <span
-                  key={item.id}
-                  title={item.preview}
-                  className="pointer-events-auto absolute left-0 flex w-8 -translate-y-1/2 items-center justify-start"
-                  style={{
-                    top: markerTop,
-                    // Hit areas tile at the fixed marker pitch without overlapping.
-                    height: ASSISTANT_RAIL_MARKER_PITCH_PX
-                  }}
-                  onPointerEnter={() => setPreviewMessageId(item.id)}
-                  onPointerLeave={() => setPreviewMessageId(null)}
-                >
-                  {renderMarker(item, itemIndex, previewing)}
-                </span>
-              )
-            })}
+            ) : null}
           </div>
-        </div>
-      </div>
+        )}
+      />
     </div>
   )
 }
@@ -1620,13 +1263,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     loadedRangeStart,
     hasOlder,
     hasNewer,
-    projectId: activeProjectId,
     mode: sessionMode
   } = sessionSelection
-  const activeProjectName = useChatStore((s) => {
-    if (!activeProjectId) return null
-    return s.projects.find((project) => project.id === activeProjectId)?.name ?? null
-  })
   const storeStreamingMessageId = useChatStore((s) =>
     targetSessionId ? (s.streamingMessages[targetSessionId] ?? null) : null
   )
@@ -2463,6 +2101,26 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     ref.scrollTop += event.deltaY * multiplier
   }, [])
 
+  const handleAssistantRailSelect = React.useCallback(
+    (itemId: string) => {
+      const item = assistantRailItems.find((entry) => entry.id === itemId)
+      const list = listRef.current
+      if (!list || !item) return
+
+      const messageId = item.messageIds[0]
+      const element = messageId
+        ? list.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(messageId)}"]`)
+        : null
+      if (element) {
+        element.scrollIntoView({ block: 'start', behavior: 'smooth' })
+        return
+      }
+
+      list.scrollTo({ top: Math.max(0, item.estimatedTop - 24), behavior: 'smooth' })
+    },
+    [assistantRailItems]
+  )
+
   React.useEffect(() => {
     if (!activeSessionId) return
     let cancelled = false
@@ -2860,13 +2518,6 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }
 
   if (messages.length === 0) {
-    const hint = modeHints[mode]
-    const projectScoped = Boolean(activeProjectId)
-    const emptyTitle = projectScoped
-      ? `What should we build in ${activeProjectName ?? 'this project'}?`
-      : mode === 'chat'
-        ? 'What should we talk through?'
-        : t(hint.titleKey)
     const suggestedPrompts =
       mode === 'chat'
         ? [t('messageList.explainAsync'), t('messageList.compareRest'), t('messageList.writeRegex')]
@@ -2884,23 +2535,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
     return (
       <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-        <motion.div
-          initial={animationsEnabled ? { opacity: 0, y: 8 } : false}
-          animate={{ opacity: 1, y: 0 }}
-          transition={animationsEnabled ? { duration: 0.25, ease: 'easeOut' } : { duration: 0 }}
-          className={`flex flex-col items-center gap-3 ${getMessageColumnCompactClass(fullWidth)}`}
-        >
-          <div>
-            <p className="text-[18px] font-semibold tracking-tight text-foreground/92 sm:text-[19px]">
-              {emptyTitle}
-            </p>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground/70 sm:text-[14px]">
-              {projectScoped ? t('messageList.startCodingDesc') : t(hint.descKey)}
-            </p>
-          </div>
-        </motion.div>
-
-        <div className="mt-6 flex max-w-[520px] flex-wrap justify-center gap-2">
+        <div className="flex max-w-[520px] flex-wrap justify-center gap-2">
           {suggestedPrompts.map((prompt, index) => (
             <motion.button
               key={prompt}
@@ -2909,7 +2544,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
               animate={{ opacity: 1, y: 0 }}
               transition={
                 animationsEnabled
-                  ? { duration: 0.2, delay: 0.08 + index * 0.04, ease: 'easeOut' }
+                  ? { duration: 0.22, delay: index * 0.08, ease: 'easeOut' }
                   : { duration: 0 }
               }
               whileHover={animationsEnabled ? { y: -1 } : undefined}
@@ -2976,7 +2611,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     <div ref={containerRef} className="relative flex-1" data-message-list>
       <div
         ref={listRef}
-        className="absolute inset-0 overflow-y-auto pl-7 md:pl-9"
+        className="absolute inset-0 overflow-y-auto pl-8 md:pl-9"
         data-message-content
         style={{
           overflowAnchor: 'none',
@@ -3152,6 +2787,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         items={assistantRailItems}
         activeMessageIds={activeAssistantRailMessageIds}
         onWheel={handleAssistantRailWheel}
+        onItemSelect={handleAssistantRailSelect}
       />
 
       <AnimatePresence>

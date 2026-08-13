@@ -26,6 +26,7 @@ import {
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
 import { sendImplementPlan, sendImplementPlanInNewSession } from '@renderer/hooks/use-chat-actions'
+import { presentPlanReviewInRightPanel } from '@renderer/lib/plan-review-panel'
 import { cn } from '@renderer/lib/utils'
 import {
   MARKDOWN_REHYPE_PLUGINS,
@@ -214,6 +215,7 @@ export function PlanReviewCard({
   const displayStatus: PlanStatus =
     plan?.status ?? (payload?.awaitingUserReview ? 'awaiting_review' : 'drafting')
   const statusAppearance = getStatusAppearance(displayStatus)
+  const presentKey = payload ? `${payload.planId}:${plan?.updatedAt ?? planContent.length}` : ''
 
   if (isProcessing) {
     return (
@@ -260,18 +262,14 @@ export function PlanReviewCard({
 
   const handleExpandPlan = (): void => {
     const targetSessionId = sessionId ?? activeSessionId ?? undefined
-    const uiStore = useUIStore.getState()
-    if (payload.filePath) {
-      const session = useChatStore.getState().sessions.find((s) => s.id === targetSessionId)
-      uiStore.openFilePreview(
-        payload.filePath,
-        'preview',
-        session?.sshConnectionId ?? undefined,
-        targetSessionId
-      )
-      return
-    }
-    uiStore.openMarkdownPreview(payload.title, planContent, targetSessionId)
+    presentPlanReviewInRightPanel({
+      presentKey,
+      title: payload.title,
+      content: planContent,
+      filePath: payload.filePath,
+      sessionId: targetSessionId,
+      force: true
+    })
   }
 
   return (

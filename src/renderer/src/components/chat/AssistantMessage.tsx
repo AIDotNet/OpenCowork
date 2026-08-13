@@ -121,6 +121,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useTranslateStore } from '@renderer/stores/translate-store'
 import { useUIStore } from '@renderer/stores/ui-store'
+import { StreamingResponse } from '@renderer/components/agents/streaming-response'
 import { useStreamingRenderPool } from '@renderer/hooks/use-typewriter'
 import { useStreamingMarkdownBlocks } from '@renderer/hooks/use-streaming-markdown-blocks'
 import {
@@ -1450,11 +1451,10 @@ function StreamingMarkdownContent({
   // re-parsing them; each render-pool tick only re-parses the small tail.
   const blocks = useStreamingMarkdownBlocks(renderPool.text, isStreaming)
 
+  let body: React.JSX.Element
   if (!text.trim()) {
-    return <div className="whitespace-pre-wrap break-words leading-relaxed">{text}</div>
-  }
-
-  if (isStreaming) {
+    body = <div className="whitespace-pre-wrap break-words leading-relaxed">{text}</div>
+  } else if (isStreaming) {
     const hiddenSettledBlocks = Math.max(0, blocks.settled.length - MAX_LIVE_MARKDOWN_BLOCKS)
     const visibleSettledBlocks =
       hiddenSettledBlocks > 0 ? blocks.settled.slice(-MAX_LIVE_MARKDOWN_BLOCKS) : blocks.settled
@@ -1463,7 +1463,7 @@ function StreamingMarkdownContent({
       ? blocks.tail.slice(-MAX_LIVE_MARKDOWN_TAIL_CHARS)
       : blocks.tail
 
-    return (
+    body = (
       <div
         className="contents"
         data-render-pool-size={renderPool.poolSize}
@@ -1490,9 +1490,19 @@ function StreamingMarkdownContent({
         ) : null}
       </div>
     )
+  } else {
+    body = <MarkdownContent text={text} isStreaming={false} />
   }
 
-  return <MarkdownContent text={text} isStreaming={false} />
+  return (
+    <StreamingResponse
+      status={isStreaming ? 'streaming' : 'complete'}
+      showActions={false}
+      announce={false}
+    >
+      {body}
+    </StreamingResponse>
+  )
 }
 
 interface ThinkSegment {
@@ -2347,7 +2357,7 @@ export function AssistantMessage({
                 })}
               />
             ) : null}
-            <div className={MARKDOWN_WRAPPER_CLASS}>
+            <div>
               <StreamingMarkdownContent text={content} isStreaming={!!isStreaming} />
               {isStreaming && (
                 <span className={getLiveOutputCursorClass(liveOutputAnimationStyle)} />
@@ -2362,11 +2372,14 @@ export function AssistantMessage({
         -1
       )
       const lastSegment = segments[segments.length - 1]
+      const hasActiveThink = Boolean(
+        isStreaming && segments.some((segment) => segment.type === 'think' && !segment.closed)
+      )
       const showOuterCursor = isStreaming && !(lastSegment?.type === 'think' && !lastSegment.closed)
 
       return (
         <div className="space-y-2">
-          {isStreaming ? (
+          {isStreaming && !hasActiveThink ? (
             <ModelThinkingIndicator
               modelName={thinkingModel.modelName}
               label={t('assistantMessage.thinkingStatus', {
@@ -2378,19 +2391,18 @@ export function AssistantMessage({
             if (seg.type === 'think') {
               return (
                 <ThinkingBlock
-                  key={`${idx}-${seg.closed ? 'settled' : 'active'}`}
+                  key={`think-${idx}`}
                   thinking={seg.content}
                   isStreaming={!!isStreaming && !seg.closed}
                 />
               )
             }
             return (
-              <div key={idx} className={MARKDOWN_WRAPPER_CLASS}>
-                <StreamingMarkdownContent
-                  text={seg.content}
-                  isStreaming={!!isStreaming && idx === lastTextSegIdx}
-                />
-              </div>
+              <StreamingMarkdownContent
+                key={idx}
+                text={seg.content}
+                isStreaming={!!isStreaming && idx === lastTextSegIdx}
+              />
             )
           })}
           {showOuterCursor && (
@@ -2501,8 +2513,11 @@ export function AssistantMessage({
                 name={block.name}
                 toolUseId={block.id}
                 input={block.input}
-                output={result?.content}
+                output={result?.content ?? effectiveLiveToolCallMap?.get(block.id)?.output}
                 isLive={!!isStreaming}
+                liveStatus={
+                  executionItem?.status ?? effectiveLiveToolCallMap?.get(block.id)?.status
+                }
                 sessionId={sessionId}
                 isBackground={block.input.run_in_background === true}
               />
@@ -2763,7 +2778,7 @@ export function AssistantMessage({
           case 'thinking':
             return (
               <ThinkingBlock
-                key={`${item.index}-${block.completedAt ? 'settled' : 'active'}`}
+                key={`thinking-${item.index}`}
                 thinking={block.thinking}
                 isStreaming={isStreaming}
                 startedAt={block.startedAt}
@@ -2777,12 +2792,11 @@ export function AssistantMessage({
               const visibleText = stripThinkTags(block.text)
               if (!visibleText.trim()) return null
               return (
-                <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
-                  <StreamingMarkdownContent
-                    text={visibleText}
-                    isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
-                  />
-                </div>
+                <StreamingMarkdownContent
+                  key={item.index}
+                  text={visibleText}
+                  isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
+                />
               )
             }
 
@@ -2790,12 +2804,11 @@ export function AssistantMessage({
             const hasThinkInBlock = textSegments.some((s) => s.type === 'think')
             if (!hasThinkInBlock) {
               return (
-                <div key={item.index} className={MARKDOWN_WRAPPER_CLASS}>
-                  <StreamingMarkdownContent
-                    text={block.text}
-                    isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
-                  />
-                </div>
+                <StreamingMarkdownContent
+                  key={item.index}
+                  text={block.text}
+                  isStreaming={!!isStreaming && item.index === lastStructuredTextIdx}
+                />
               )
             }
             const isBlockStreaming = !!(isStreaming && item.index === lastStructuredTextIdx)
@@ -2809,19 +2822,18 @@ export function AssistantMessage({
                   if (seg.type === 'think') {
                     return (
                       <ThinkingBlock
-                        key={`${item.index}-${j}-${seg.closed ? 'settled' : 'active'}`}
+                        key={`think-${item.index}-${j}`}
                         thinking={seg.content}
                         isStreaming={isBlockStreaming && !seg.closed}
                       />
                     )
                   }
                   return (
-                    <div key={j} className={MARKDOWN_WRAPPER_CLASS}>
-                      <StreamingMarkdownContent
-                        text={seg.content}
-                        isStreaming={isBlockStreaming && j === lastTxtSeg}
-                      />
-                    </div>
+                    <StreamingMarkdownContent
+                      key={j}
+                      text={seg.content}
+                      isStreaming={isBlockStreaming && j === lastTxtSeg}
+                    />
                   )
                 })}
               </div>

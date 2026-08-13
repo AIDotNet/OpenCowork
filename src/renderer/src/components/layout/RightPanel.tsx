@@ -21,7 +21,11 @@ import { AgentFilesPanel } from './AgentFilesPanel'
 import { SessionChangeReviewPanel } from '@renderer/components/layout/SessionChangeReviewPanel'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import { RIGHT_PANEL_DEFAULT_WIDTH, clampRightPanelWidth } from './right-panel-defs'
+import {
+  RIGHT_PANEL_DEFAULT_WIDTH,
+  clampRightPanelWidth,
+  getPlanReviewRightPanelWidth
+} from './right-panel-defs'
 
 const LocalTerminal = React.lazy(() =>
   import('@renderer/components/terminal/LocalTerminal').then((m) => ({ default: m.LocalTerminal }))
@@ -225,6 +229,7 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   const { t } = useTranslation('layout')
   const rightPanelOpen = useUIStore((state) => state.rightPanelOpen)
   const rightPanelWidth = useUIStore((state) => state.rightPanelWidth)
+  const rightPanelExpandedForReading = useUIStore((state) => state.rightPanelExpandedForReading)
   const rightPanelTabs = useUIStore((state) => state.rightPanelTabs)
   const activeTabId = useUIStore((state) => state.rightPanelActiveTabId)
   const setRightPanelOpen = useUIStore((state) => state.setRightPanelOpen)
@@ -291,9 +296,25 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
   const startXRef = useRef(0)
   const startWidthRef = useRef(rightPanelWidth)
   const [isDragging, setIsDragging] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === 'undefined' ? 1440 : window.innerWidth
+  )
 
+  useEffect(() => {
+    if (!rightPanelExpandedForReading) return
+    const handleResize = (): void => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', handleResize)
+    handleResize()
+    return () => window.removeEventListener('resize', handleResize)
+  }, [rightPanelExpandedForReading])
+
+  const readingWidth = rightPanelExpandedForReading
+    ? getPlanReviewRightPanelWidth(viewportWidth)
+    : 0
   const targetPanelWidth = clampRightPanelWidth(
-    compact ? Math.min(rightPanelWidth, RIGHT_PANEL_DEFAULT_WIDTH) : rightPanelWidth
+    compact
+      ? Math.min(rightPanelWidth, RIGHT_PANEL_DEFAULT_WIDTH)
+      : Math.max(rightPanelWidth, readingWidth)
   )
 
   useEffect(() => {

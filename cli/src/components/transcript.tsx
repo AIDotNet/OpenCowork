@@ -2,11 +2,13 @@ import React from 'react'
 import { Box, Text } from 'ink'
 import { t } from '../i18n.js'
 import { formatTokenCount } from '../lib/metrics.js'
+import { groupTranscriptMessages } from '../lib/sub-agent-display.js'
 import { fitText, padText, stripTerminalPreviewControls } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { AssistantContentSegment, Message, ToolDiff, ToolDiffLine } from '../types.js'
 import { ShimmerText } from './shimmer-text.js'
 import { Spinner } from './spinner.js'
+import { SubAgentBlock } from './sub-agent-block.js'
 
 interface TranscriptProps {
   /** Per-message detail expansion (click / future per-message toggle) on top of the global Ctrl-O state. */
@@ -334,17 +336,31 @@ export function Transcript({
   showDetails,
   width
 }: TranscriptProps): React.JSX.Element {
+  const blocks = groupTranscriptMessages(messages)
   return (
     <Box flexDirection="column" width={width}>
-      {messages.map((message) => (
-        <TranscriptMessage
-          key={message.id}
-          hideStreamingStatus={hideStreamingStatus}
-          message={message}
-          showDetails={showDetails || (expandedMessageIds?.has(message.id) ?? false)}
-          width={width}
-        />
-      ))}
+      {blocks.map((block) => {
+        if (block.kind === 'subAgentGroup') {
+          return (
+            <SubAgentBlock
+              expandedIds={expandedMessageIds}
+              key={block.messages[0]?.id ?? 'sub-agents'}
+              messages={block.messages}
+              showDetails={showDetails}
+              width={width}
+            />
+          )
+        }
+        return (
+          <TranscriptMessage
+            key={block.message.id}
+            hideStreamingStatus={hideStreamingStatus}
+            message={block.message}
+            showDetails={showDetails || (expandedMessageIds?.has(block.message.id) ?? false)}
+            width={width}
+          />
+        )
+      })}
     </Box>
   )
 }

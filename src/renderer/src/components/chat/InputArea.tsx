@@ -13,7 +13,6 @@ import {
   ImagePlus,
   ClipboardList,
   Globe,
-  Wand2,
   CornerDownRight,
   Ellipsis,
   Command,
@@ -22,7 +21,6 @@ import {
   Activity,
   Brain,
   CheckCircle2,
-  CircleHelp,
   Clock,
   ImageIcon,
   RefreshCcw,
@@ -74,6 +72,7 @@ import {
 import { formatDurationMs } from '@renderer/lib/format-duration'
 import {
   getEffectiveContextWindow,
+  isCompactArtifactMessage,
   resolveCompressionContextLength,
   resolveCompressionReservedOutputBudget,
   resolveCompressionThreshold
@@ -162,14 +161,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@renderer/components/ui/alert-dialog'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@renderer/components/ui/dialog'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { cn } from '@renderer/lib/utils'
@@ -183,6 +175,45 @@ interface ContextRingProps {
   sessionId?: string | null
   onCompressContext?: () => void | Promise<void>
   isCompressing?: boolean
+}
+
+/**
+ * Cheap ~4 chars/token estimate for the post-compression context (summary +
+ * trailing messages). Runs inside a store selector on every update, so it must
+ * stay allocation-light; the next provider turn replaces it with real usage.
+ */
+function estimatePostCompactContextTokens(
+  messages: readonly UnifiedMessage[],
+  compactArtifactIndex: number
+): number {
+  let chars = 0
+  for (let index = compactArtifactIndex; index < messages.length; index += 1) {
+    const message = messages[index]
+    if (!message) continue
+    const content = message.content
+    if (typeof content === 'string') {
+      chars += content.length
+      continue
+    }
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      switch (block.type) {
+        case 'text':
+          chars += block.text.length
+          break
+        case 'thinking':
+          chars += block.thinking.length
+          break
+        case 'tool_result':
+          chars += typeof block.content === 'string' ? block.content.length : 512
+          break
+        default:
+          chars += 128
+          break
+      }
+    }
+  }
+  return Math.ceil(chars / 4)
 }
 
 function ContextRing({
@@ -249,7 +280,14 @@ function ContextRing({
         const messages = activeSession.messages
         for (let index = messages.length - 1; index >= 0; index -= 1) {
           const message = messages[index]
-          const usage = message?.usage
+          if (!message) continue
+          // Usage recorded before the active compact boundary belongs to the
+          // pre-compression context. Scanning past the boundary would keep the
+          // gauge pinned at the old near-full reading right after a compression.
+          if (isCompactArtifactMessage(message)) {
+            return [estimatePostCompactContextTokens(messages, index), null]
+          }
+          const usage = message.usage
           if (!usage) continue
           const contextTokens = usage.contextTokens ?? 0
           if (contextTokens <= 0) continue
@@ -636,12 +674,53 @@ function MetricHoverTip({
         side="top"
         align="center"
         sideOffset={6}
-        className="w-auto max-w-[260px] px-2.5 py-1.5 text-[11px] leading-snug"
+        className="w-auto min-w-[200px] max-w-[280px] px-3 py-2 text-[11px] leading-snug"
       >
         {label}
       </HoverCardContent>
     </HoverCard>
   )
+}
+
+function MetricDetail({
+  title,
+  description,
+  rows
+}: {
+  title: string
+  description?: string
+  rows: Array<{ label: string; value: string }>
+}): React.JSX.Element {
+  return (
+    <div className="space-y-1.5">
+      <div className="font-medium text-foreground">{title}</div>
+      {description ? (
+        <p className="text-[10px] leading-snug text-muted-foreground">{description}</p>
+      ) : null}
+      {rows.length > 0 ? (
+        <div className="space-y-1">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-4">
+              <span className="text-muted-foreground">{row.label}</span>
+              <span className="shrink-0 tabular-nums font-medium text-foreground">{row.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function resolveMetricCost(
+  cumulative: number | null,
+  tokens: number,
+  pricePerMillion: number | null
+): number | null {
+  if (typeof cumulative === 'number' && Number.isFinite(cumulative) && cumulative > 0) {
+    return cumulative
+  }
+  if (pricePerMillion == null || !Number.isFinite(pricePerMillion) || tokens <= 0) return null
+  return (tokens * pricePerMillion) / 1_000_000
 }
 
 function RuntimeMetric({
@@ -678,40 +757,28 @@ function RuntimeTextMetric({
   value,
   tone,
   suffix,
-  hint
+  title
 }: {
   label: string
   value: string
   tone: RuntimeMetricTone
   suffix?: string
-  hint?: string
+  title?: React.ReactNode
 }): React.JSX.Element {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1">
-      <span className="inline-flex items-center gap-1">
-        <span className="text-muted-foreground/60">{label}</span>{' '}
-        <span className={cn('tabular-nums font-medium', metricToneClasses[tone])}>{value}</span>
-      </span>
+  const body = (
+    <span className={cn('inline-flex shrink-0 items-center gap-1', title && 'cursor-help')}>
+      <span className="text-muted-foreground/60">{label}</span>{' '}
+      <span className={cn('tabular-nums font-medium', metricToneClasses[tone])}>{value}</span>
       {suffix && <span className="ml-0.5 tabular-nums text-muted-foreground/50">{suffix}</span>}
-      {hint ? (
-        <MetricHoverTip label={hint}>
-          <span className="inline-flex items-center">
-            <CircleHelp
-              className="size-3 shrink-0 cursor-help text-muted-foreground/50 hover:text-muted-foreground"
-              aria-label={hint}
-            />
-          </span>
-        </MetricHoverTip>
-      ) : null}
     </span>
   )
+  return <MetricHoverTip label={title}>{body}</MetricHoverTip>
 }
 
 interface ComposerRuntimeStatusProps {
   sessionId: string
   isStreaming: boolean
   draftInputTokens: number
-  isOptimizing?: boolean
   pendingImageReads?: number
   contextCompressionStatus: ContextCompressionStatus
   contextCompressionStatusLabel: string
@@ -727,7 +794,6 @@ function ComposerRuntimeStatus({
   sessionId,
   isStreaming,
   draftInputTokens,
-  isOptimizing = false,
   pendingImageReads = 0,
   contextCompressionStatus,
   contextCompressionStatusLabel,
@@ -793,7 +859,6 @@ function ComposerRuntimeStatus({
 
       return {
         targetSessionId,
-        streamingMessageId,
         content: message?.content,
         previousUserContent: previousUserMessage?.content,
         revision: message?._revision ?? 0,
@@ -947,74 +1012,37 @@ function ComposerRuntimeStatus({
     const cacheCreate1hPrice = inputPrice != null ? inputPrice * 2 : null
     return { inputPrice, outputPrice, cacheReadPrice, cacheCreatePrice, cacheCreate1hPrice }
   }, [model])
-  const buildCostTitle = React.useCallback(
-    (label: string, tokens: number, pricePerMillion: number | null): string | undefined => {
-      if (pricePerMillion == null || !Number.isFinite(pricePerMillion) || tokens <= 0)
-        return undefined
-      return t('input.runtimeMetrics.cost', {
-        defaultValue: '{{label}}: {{cost}}',
-        label,
-        cost: formatCost((tokens * pricePerMillion) / 1_000_000)
-      })
-    },
-    [t]
+  const tokensLabel = t('input.runtimeMetrics.detailTokens', { defaultValue: 'Tokens' })
+  const costLabel = t('input.runtimeMetrics.detailCost', { defaultValue: 'Cost' })
+  const buildTokenMetricDetail = React.useCallback(
+    ({
+      title,
+      description,
+      tokens,
+      cost,
+      extraRows = []
+    }: {
+      title: string
+      description: string
+      tokens: number
+      cost: number | null
+      extraRows?: Array<{ label: string; value: string }>
+    }) => (
+      <MetricDetail
+        title={title}
+        description={description}
+        rows={[
+          { label: tokensLabel, value: tokens.toLocaleString() },
+          ...(cost != null ? [{ label: costLabel, value: formatCost(cost) }] : []),
+          ...extraRows
+        ]}
+      />
+    ),
+    [costLabel, tokensLabel]
   )
-  // Cache-write tokens are billed at two different TTL rates (5m vs 1h). Split the hover
-  // tooltip so each bucket's tokens and cost are shown separately instead of one lumped total.
-  const cacheCreationTitle = React.useMemo<React.ReactNode>(() => {
-    if (cacheCreationTokens <= 0) return undefined
-    const rows = [
-      {
-        key: '5m',
-        label: t('input.runtimeMetrics.cacheCreate5m', { defaultValue: 'Cache write (5m)' }),
-        tokens: cacheCreation5mTokens,
-        price: metricPricing.cacheCreatePrice
-      },
-      {
-        key: '1h',
-        label: t('input.runtimeMetrics.cacheCreate1h', { defaultValue: 'Cache write (1h)' }),
-        tokens: cacheCreation1hTokens,
-        price: metricPricing.cacheCreate1hPrice
-      }
-    ].filter((row) => row.tokens > 0)
-    if (rows.length === 0) return undefined
-    return (
-      <div className="flex flex-col gap-0.5">
-        {rows.map((row) => {
-          const cost =
-            row.price != null && Number.isFinite(row.price)
-              ? formatCost((row.tokens * row.price) / 1_000_000)
-              : null
-          return (
-            <div key={row.key} className="flex items-center justify-between gap-3 tabular-nums">
-              <span className="text-muted-foreground/70">{row.label}</span>
-              <span>
-                {formatTokens(row.tokens)}
-                {cost ? ` · ${cost}` : ''}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    )
-  }, [
-    cacheCreationTokens,
-    cacheCreation5mTokens,
-    cacheCreation1hTokens,
-    metricPricing.cacheCreatePrice,
-    metricPricing.cacheCreate1hPrice,
-    t
-  ])
   const latestTps = toFinitePositiveNumber(live.latestRequestTiming?.tps)
   const latestTtftMs = toFinitePositiveNumber(live.latestRequestTiming?.ttftMs)
   const statusView = React.useMemo<RuntimeStatusView>(() => {
-    if (isOptimizing) {
-      return {
-        text: t('input.runtimeStatus.optimizing', { defaultValue: 'Optimizing' }),
-        Icon: Sparkles,
-        className: 'text-violet-500/80 dark:text-violet-300/80'
-      }
-    }
     if (pendingImageReads > 0) {
       return {
         text: t('input.runtimeStatus.loadingMedia', { defaultValue: 'Loading media' }),
@@ -1122,7 +1150,6 @@ function ComposerRuntimeStatus({
     agentRuntime.sessionStatus,
     contextCompressionStatus,
     contextCompressionStatusLabel,
-    isOptimizing,
     isStreaming,
     live.isGeneratingImage,
     outputSnapshot.hasActiveThinking,
@@ -1137,19 +1164,19 @@ function ComposerRuntimeStatus({
       [
         {
           key: 'input',
-          label: t('input.runtimeMetrics.input', { defaultValue: 'Uncached input' }),
+          label: t('input.runtimeMetrics.input', { defaultValue: 'Input' }),
           color: '#38bdf8',
           value: totalInputCost
         },
         {
           key: 'cacheHit',
-          label: t('input.runtimeMetrics.cacheHit', { defaultValue: 'Cache hit' }),
+          label: t('input.runtimeMetrics.cacheHit', { defaultValue: 'Cache Hit' }),
           color: '#84cc16',
           value: totalCacheReadCost
         },
         {
           key: 'cacheCreate',
-          label: t('input.runtimeMetrics.cacheCreate', { defaultValue: 'Cache write' }),
+          label: t('input.runtimeMetrics.cacheCreate', { defaultValue: 'Cache Write' }),
           color: '#f59e0b',
           value: totalCacheCreationCost
         },
@@ -1169,92 +1196,170 @@ function ComposerRuntimeStatus({
   return (
     <div
       className={cn(
-        'flex min-h-4 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10px] leading-4 text-muted-foreground/65',
+        'flex min-h-4 w-full min-w-0 justify-center overflow-hidden text-[10px] leading-4 text-muted-foreground/65',
         className
       )}
       aria-live={isStreaming ? 'polite' : 'off'}
     >
-      <RuntimeMetric
-        label={t('input.runtimeMetrics.input', { defaultValue: 'Uncached input' })}
-        value={inputTokens}
-        tone="input"
-        animate={isStreaming}
-        duration={520}
-        title={buildCostTitle(
-          t('input.runtimeMetrics.input', { defaultValue: 'Uncached input' }),
-          inputTokens,
-          metricPricing.inputPrice
+      <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap">
+        <RuntimeMetric
+          label={t('input.runtimeMetrics.input', { defaultValue: 'Input' })}
+          value={inputTokens}
+          tone="input"
+          animate={isStreaming}
+          duration={520}
+          title={buildTokenMetricDetail({
+            title: t('input.runtimeMetrics.inputFull', { defaultValue: 'Uncached Input' }),
+            description: t('input.runtimeMetrics.inputHint', {
+              defaultValue:
+                'Prompt tokens that missed the prompt cache and are billed at the model input price. These tokens do not receive a cache-read discount, and usually appear on the first request or after a cache miss.'
+            }),
+            tokens: inputTokens,
+            cost: resolveMetricCost(totalInputCost, inputTokens, metricPricing.inputPrice)
+          })}
+        />
+        <span className="shrink-0 text-muted-foreground/35">/</span>
+        <RuntimeMetric
+          label={t('input.runtimeMetrics.cacheHit', { defaultValue: 'Cache Hit' })}
+          value={cacheReadTokens}
+          tone="cacheHit"
+          animate={isStreaming}
+          duration={620}
+          suffix={formatCacheHitRate(cacheHitRate)}
+          title={buildTokenMetricDetail({
+            title: t('input.runtimeMetrics.cacheHitFull', { defaultValue: 'Cache Hit' }),
+            description: t('input.runtimeMetrics.cacheHitHint', {
+              defaultValue:
+                'Prompt tokens served from the prompt cache and billed at the lower cache-read rate. A higher hit rate usually means lower input cost on follow-up turns.'
+            }),
+            tokens: cacheReadTokens,
+            cost: resolveMetricCost(
+              totalCacheReadCost,
+              cacheReadTokens,
+              metricPricing.cacheReadPrice
+            ),
+            extraRows: [
+              {
+                label: t('input.runtimeMetrics.detailHitRate', { defaultValue: 'Hit rate' }),
+                value: formatCacheHitRate(cacheHitRate)
+              }
+            ]
+          })}
+        />
+        <span className="shrink-0 text-muted-foreground/35">/</span>
+        <RuntimeMetric
+          label={t('input.runtimeMetrics.cacheCreate', { defaultValue: 'Cache Write' })}
+          value={cacheCreationTokens}
+          tone="cacheCreate"
+          animate={isStreaming}
+          duration={620}
+          title={buildTokenMetricDetail({
+            title: t('input.runtimeMetrics.cacheCreateFull', { defaultValue: 'Cache Write' }),
+            description: t('input.runtimeMetrics.cacheCreateHint', {
+              defaultValue:
+                'Prompt tokens written into the prompt cache for later reuse. Cache writes are billed at a higher write rate and may use a 5-minute or 1-hour TTL.'
+            }),
+            tokens: cacheCreationTokens,
+            cost: resolveMetricCost(
+              totalCacheCreationCost,
+              cacheCreationTokens,
+              metricPricing.cacheCreatePrice
+            ),
+            extraRows: [
+              ...(cacheCreation5mTokens > 0
+                ? [
+                    {
+                      label: t('input.runtimeMetrics.cacheCreate5m', {
+                        defaultValue: 'Cache Write (5m)'
+                      }),
+                      value: cacheCreation5mTokens.toLocaleString()
+                    }
+                  ]
+                : []),
+              ...(cacheCreation1hTokens > 0
+                ? [
+                    {
+                      label: t('input.runtimeMetrics.cacheCreate1h', {
+                        defaultValue: 'Cache Write (1h)'
+                      }),
+                      value: cacheCreation1hTokens.toLocaleString()
+                    }
+                  ]
+                : [])
+            ]
+          })}
+        />
+        <span className="shrink-0 text-muted-foreground/35">/</span>
+        <RuntimeMetric
+          label={t('input.runtimeMetrics.output', { defaultValue: 'Output' })}
+          value={outputTokens}
+          tone="output"
+          animate
+          duration={760}
+          title={buildTokenMetricDetail({
+            title: t('input.runtimeMetrics.outputFull', { defaultValue: 'Output' }),
+            description: t('input.runtimeMetrics.outputHint', {
+              defaultValue:
+                'Completion tokens generated by the model, including visible text and any billed reasoning tokens. These are billed at the model output price.'
+            }),
+            tokens: outputTokens,
+            cost: resolveMetricCost(totalOutputCost, outputTokens, metricPricing.outputPrice)
+          })}
+        />
+        <span className="shrink-0 text-muted-foreground/35">/</span>
+        <RuntimeTextMetric
+          label={t('input.runtimeMetrics.tps', { defaultValue: 'TPS' })}
+          value={latestTps !== null ? formatRuntimeThroughput(latestTps) : '—'}
+          tone="speed"
+          title={
+            <MetricDetail
+              title={t('input.runtimeMetrics.tpsFull', { defaultValue: 'Tokens per Second' })}
+              description={t('input.runtimeMetrics.tpsHint', {
+                defaultValue:
+                  'Output tokens generated per second after the first token arrives, measured when each API request completes.'
+              })}
+              rows={[
+                {
+                  label: t('input.runtimeMetrics.tps', { defaultValue: 'TPS' }),
+                  value: latestTps !== null ? formatRuntimeThroughput(latestTps) : '—'
+                },
+                ...(latestTtftMs != null
+                  ? [
+                      {
+                        label: t('input.runtimeMetrics.ttft', { defaultValue: 'TTFT' }),
+                        value: formatRuntimeTtft(latestTtftMs)
+                      }
+                    ]
+                  : [])
+              ]}
+            />
+          }
+        />
+        {latestTtftMs !== null && (
+          <>
+            <span className="shrink-0 text-muted-foreground/35">/</span>
+            <RuntimeTextMetric
+              label={t('input.runtimeMetrics.ttft', { defaultValue: 'TTFT' })}
+              value={formatRuntimeTtft(latestTtftMs)}
+              tone="latency"
+              title={
+                <MetricDetail
+                  title={t('input.runtimeMetrics.ttftFull', { defaultValue: 'Time to First Token' })}
+                  description={t('input.runtimeMetrics.ttftHint', {
+                    defaultValue:
+                      'Time from sending the request to receiving the first streamed token. Lower TTFT means the model started responding sooner.'
+                  })}
+                  rows={[
+                    {
+                      label: t('input.runtimeMetrics.ttft', { defaultValue: 'TTFT' }),
+                      value: formatRuntimeTtft(latestTtftMs)
+                    }
+                  ]}
+                />
+              }
+            />
+          </>
         )}
-      />
-      <span className="shrink-0 text-muted-foreground/35">/</span>
-      <RuntimeMetric
-        label={t('input.runtimeMetrics.cacheHit', { defaultValue: 'Cache hit' })}
-        value={cacheReadTokens}
-        tone="cacheHit"
-        animate={isStreaming}
-        duration={620}
-        suffix={formatCacheHitRate(cacheHitRate)}
-        title={buildCostTitle(
-          t('input.runtimeMetrics.cacheHit', { defaultValue: 'Cache hit' }),
-          cacheReadTokens,
-          metricPricing.cacheReadPrice
-        )}
-      />
-      <span className="shrink-0 text-muted-foreground/35">/</span>
-      <RuntimeMetric
-        label={t('input.runtimeMetrics.cacheCreate', { defaultValue: 'Cache write' })}
-        value={cacheCreationTokens}
-        tone="cacheCreate"
-        animate={isStreaming}
-        duration={620}
-        title={
-          cacheCreationTitle ??
-          buildCostTitle(
-            t('input.runtimeMetrics.cacheCreate', { defaultValue: 'Cache write' }),
-            cacheCreationTokens,
-            metricPricing.cacheCreatePrice
-          )
-        }
-      />
-      <span className="shrink-0 text-muted-foreground/35">/</span>
-      <RuntimeMetric
-        label={t('input.runtimeMetrics.output', { defaultValue: 'Output' })}
-        value={outputTokens}
-        tone="output"
-        animate
-        duration={760}
-        title={buildCostTitle(
-          t('input.runtimeMetrics.output', { defaultValue: 'Output' }),
-          outputTokens,
-          metricPricing.outputPrice
-        )}
-      />
-      {latestTps !== null && (
-        <>
-          <span className="shrink-0 text-muted-foreground/35">/</span>
-          <RuntimeTextMetric
-            label={t('input.runtimeMetrics.tps', { defaultValue: 'TPS' })}
-            value={formatRuntimeThroughput(latestTps)}
-            tone="speed"
-            hint={t('input.runtimeMetrics.tpsHint', {
-              defaultValue: 'Output tokens generated per second'
-            })}
-          />
-        </>
-      )}
-      {latestTtftMs !== null && (
-        <>
-          <span className="shrink-0 text-muted-foreground/35">/</span>
-          <RuntimeTextMetric
-            label={t('input.runtimeMetrics.ttft', { defaultValue: 'TTFT' })}
-            value={formatRuntimeTtft(latestTtftMs)}
-            tone="latency"
-            hint={t('input.runtimeMetrics.ttftHint', {
-              defaultValue: 'Time to first token'
-            })}
-          />
-        </>
-      )}
       {showStatus ? (
         <>
           <span className="shrink-0 text-muted-foreground/35">/</span>
@@ -1316,6 +1421,7 @@ function ComposerRuntimeStatus({
           </HoverCard>
         </>
       )}
+      </div>
     </div>
   )
 }
@@ -1391,6 +1497,47 @@ function getSlashCommandQuery(text: string): string | null {
   const normalized = text.trimStart()
   const match = normalized.match(/^\/([^\s]*)$/)
   return match ? (match[1] ?? '') : null
+}
+
+/** Chromium synthesizes a mousemove at the resting pointer after list re-renders. */
+function hasFlyoutPointerMoved(
+  pointerRef: React.MutableRefObject<{ x: number; y: number } | null>,
+  event: React.MouseEvent
+): boolean {
+  const next = { x: event.clientX, y: event.clientY }
+  const prev = pointerRef.current
+  pointerRef.current = next
+  if (!prev) return false
+  return prev.x !== next.x || prev.y !== next.y
+}
+
+function isComposerListKeyTarget(event: KeyboardEvent): boolean {
+  const matches = (el: EventTarget | null): boolean => {
+    if (el instanceof Text) return matches(el.parentElement)
+    if (!(el instanceof HTMLElement)) return false
+    return (
+      el.isContentEditable ||
+      Boolean(el.closest('.composer-editor-content')) ||
+      Boolean(el.closest('.composer-flyout'))
+    )
+  }
+
+  if (matches(event.target) || matches(document.activeElement)) return true
+  return Boolean(document.querySelector('.composer-editor-content:focus'))
+}
+
+function scrollFlyoutChildIntoView(list: HTMLElement | null, index: number): void {
+  if (!list) return
+  const item = list.querySelectorAll<HTMLElement>('[data-flyout-item]')[index]
+  if (!item) return
+
+  const listRect = list.getBoundingClientRect()
+  const itemRect = item.getBoundingClientRect()
+  if (itemRect.bottom > listRect.bottom) {
+    list.scrollTop += itemRect.bottom - listRect.bottom
+  } else if (itemRect.top < listRect.top) {
+    list.scrollTop -= listRect.top - itemRect.top
+  }
 }
 
 function scoreSlashCommand(name: string, query: string): number {
@@ -1592,16 +1739,8 @@ export function InputArea({
   const [attachedImages, setAttachedImages] = React.useState<ImageAttachment[]>([])
   const [previewImage, setPreviewImage] = React.useState<ImageAttachment | null>(null)
   const [pendingImageReads, setPendingImageReads] = React.useState(0)
-  const [isOptimizing, setIsOptimizing] = React.useState(false)
   const [contextCompressionStatus, setContextCompressionStatus] =
     React.useState<ContextCompressionStatus>('idle')
-  const [, setOptimizingText] = React.useState('')
-  const [optimizationOptions, setOptimizationOptions] = React.useState<
-    Array<{ title: string; focus: string; content: string }>
-  >([])
-  const [showOptimizationDialog, setShowOptimizationDialog] = React.useState(false)
-  const [selectedOptionIndex, setSelectedOptionIndex] = React.useState(0)
-  const currentLanguage = useSettingsStore((state) => state.language)
   const mainModelSelectionMode = useSettingsStore((state) => state.mainModelSelectionMode)
   const fileReferenceLabels = React.useMemo(
     () => ({
@@ -1618,7 +1757,6 @@ export function InputArea({
     (state) => state.clarifyAutoAcceptRecommended
   )
   const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
-  const contentScrollRef = React.useRef<HTMLDivElement>(null)
   const editorRef = React.useRef<FileAwareEditorHandle | null>(null)
   const queueFileInputRef = React.useRef<HTMLInputElement>(null)
   const rootRef = React.useRef<HTMLDivElement>(null)
@@ -2222,15 +2360,6 @@ export function InputArea({
     [workingFolder]
   )
 
-  const setText = React.useCallback(
-    (value: string | ((prev: string) => string)) => {
-      const previousText = textRef.current
-      const nextText = typeof value === 'function' ? value(previousText) : value
-      applyEditorStateFromSerializedText(nextText, selectedFilesRef.current)
-    },
-    [applyEditorStateFromSerializedText]
-  )
-
   const focusInputAtEnd = React.useCallback(() => {
     editorRef.current?.focusAtEnd()
   }, [])
@@ -2304,7 +2433,7 @@ export function InputArea({
     ? t('input.recommendationInitWorkspace')
     : t(defaultRecommendationKeys[mode])
   const shouldAutoAcceptRecommendation =
-    mode === 'clarify' && clarifyAutoAcceptRecommended && !disabled && !isOptimizing && !isStreaming
+    mode === 'clarify' && clarifyAutoAcceptRecommended && !disabled && !isStreaming
   const getCaretAtEnd = React.useCallback(() => {
     return editorSelection.start === editorSelection.end && editorSelection.end === text.length
   }, [editorSelection.end, editorSelection.start, text.length])
@@ -2325,7 +2454,7 @@ export function InputArea({
     getRecentMessages: getSessionMessages,
     selectedSkill,
     images: attachedImages,
-    disabled: disabled || isOptimizing,
+    disabled,
     isStreaming,
     fallbackSuggestion: recommendationFallback,
     getCaretAtEnd
@@ -2448,24 +2577,22 @@ export function InputArea({
 
   React.useEffect(() => {
     setSelectedSlashIndex(0)
+    flyoutPointerRef.current = null
   }, [slashQuery])
 
   React.useEffect(() => {
     setSelectedFileSearchIndex(0)
+    flyoutPointerRef.current = null
   }, [fileQuery])
 
-  // Keep the keyboard-selected item visible; a no-op for hover-driven changes
-  // since hovered items are visible by definition.
   React.useEffect(() => {
     if (!slashMenuOpen) return
-    const items = slashListRef.current?.querySelectorAll('button')
-    items?.[selectedSlashIndex]?.scrollIntoView({ block: 'nearest' })
+    scrollFlyoutChildIntoView(slashListRef.current, selectedSlashIndex)
   }, [selectedSlashIndex, slashMenuOpen])
 
   React.useEffect(() => {
     if (!fileMenuOpen) return
-    const items = fileListRef.current?.querySelectorAll('button')
-    items?.[selectedFileSearchIndex]?.scrollIntoView({ block: 'nearest' })
+    scrollFlyoutChildIntoView(fileListRef.current, selectedFileSearchIndex)
   }, [selectedFileSearchIndex, fileMenuOpen])
 
   React.useEffect(() => {
@@ -3192,7 +3319,7 @@ export function InputArea({
 
   const handleGoalModeChange = React.useCallback(
     (enabled: boolean): void => {
-      if (disabled || isStreaming || isOptimizing || pendingImageReads > 0) return
+      if (disabled || isStreaming || pendingImageReads > 0) return
 
       if (!enabled) {
         setPendingGoalMode(false)
@@ -3216,85 +3343,115 @@ export function InputArea({
         focusInputAtEnd()
       })
     },
-    [
-      disabled,
-      draftSessionId,
-      focusInputAtEnd,
-      hasActiveGoal,
-      isOptimizing,
-      isStreaming,
-      pendingImageReads,
-      t
-    ]
+    [disabled, draftSessionId, focusInputAtEnd, hasActiveGoal, isStreaming, pendingImageReads, t]
   )
 
-  const handleKeyDown = React.useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>): void => {
-      // keyCode 229 marks the keydown that starts an IME composition, which
-      // fires before nativeEvent.isComposing becomes true.
-      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229 || isOptimizing) return
+  const handleComposerListKeyDown = React.useCallback(
+    (event: KeyboardEvent | React.KeyboardEvent): boolean => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return false
+      const isComposing = 'nativeEvent' in event ? event.nativeEvent.isComposing : event.isComposing
+      if (isComposing) return false
 
       if (fileMenuOpen) {
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
-          e.preventDefault()
+        if (event.key === 'ArrowDown') {
           setSelectedFileSearchIndex((prev) =>
             fileSearchResults.length === 0 ? 0 : (prev + 1) % fileSearchResults.length
           )
-          return
+          return true
         }
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
-          e.preventDefault()
+        if (event.key === 'ArrowUp') {
           setSelectedFileSearchIndex((prev) =>
             fileSearchResults.length === 0
               ? 0
               : (prev - 1 + fileSearchResults.length) % fileSearchResults.length
           )
-          return
+          return true
         }
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
+        if (event.key === 'Tab' || event.key === 'Enter') {
           const selectedFile = fileSearchResults[selectedFileSearchIndex]
           if (selectedFile) {
-            e.preventDefault()
             insertSelectedFile(selectedFile.path)
-            return
+            return true
           }
         }
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'Escape') {
-          e.preventDefault()
+        if (event.key === 'Escape') {
           const nextCursor = activeFileMention?.start ?? 0
           editorRef.current?.focus()
           editorRef.current?.setSelectionOffsets(nextCursor, nextCursor)
           setEditorSelection({ start: nextCursor, end: nextCursor })
           handleRecommendationSelectionChange()
-          return
+          return true
         }
       }
 
       if (slashMenuOpen) {
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowDown') {
-          e.preventDefault()
+        if (event.key === 'ArrowDown') {
           setSelectedSlashIndex((prev) =>
             filteredSlashSuggestions.length === 0 ? 0 : (prev + 1) % filteredSlashSuggestions.length
           )
-          return
+          return true
         }
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowUp') {
-          e.preventDefault()
+        if (event.key === 'ArrowUp') {
           setSelectedSlashIndex((prev) =>
             filteredSlashSuggestions.length === 0
               ? 0
               : (prev - 1 + filteredSlashSuggestions.length) % filteredSlashSuggestions.length
           )
-          return
+          return true
         }
-        if (!e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'Tab' || e.key === 'Enter')) {
+        if (event.key === 'Tab' || event.key === 'Enter') {
           const selectedSuggestion = filteredSlashSuggestions[selectedSlashIndex]
           if (selectedSuggestion) {
-            e.preventDefault()
             applySlashSuggestion(selectedSuggestion)
-            return
+            return true
           }
         }
+      }
+
+      return false
+    },
+    [
+      fileMenuOpen,
+      slashMenuOpen,
+      fileSearchResults,
+      selectedFileSearchIndex,
+      filteredSlashSuggestions,
+      selectedSlashIndex,
+      activeFileMention,
+      insertSelectedFile,
+      applySlashSuggestion,
+      handleRecommendationSelectionChange
+    ]
+  )
+
+  React.useEffect(() => {
+    if (!slashMenuOpen && !fileMenuOpen) return
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!isComposerListKeyTarget(event)) return
+      if (!handleComposerListKeyDown(event)) return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [fileMenuOpen, handleComposerListKeyDown, slashMenuOpen])
+
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (e.nativeEvent.isComposing) return
+      const isListNavKey =
+        e.key === 'ArrowUp' ||
+        e.key === 'ArrowDown' ||
+        e.key === 'Enter' ||
+        e.key === 'Tab' ||
+        e.key === 'Escape'
+      if (e.nativeEvent.keyCode === 229 && !isListNavKey) return
+
+      if (handleComposerListKeyDown(e)) {
+        e.preventDefault()
+        return
       }
 
       if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.key === 'Tab') {
@@ -3316,16 +3473,7 @@ export function InputArea({
       }
     },
     [
-      isOptimizing,
-      fileMenuOpen,
-      slashMenuOpen,
-      fileSearchResults,
-      selectedFileSearchIndex,
-      filteredSlashSuggestions,
-      selectedSlashIndex,
-      activeFileMention,
-      insertSelectedFile,
-      applySlashSuggestion,
+      handleComposerListKeyDown,
       acceptSuggestion,
       applyEditorStateFromSerializedText,
       selectedFiles,
@@ -3437,120 +3585,6 @@ export function InputArea({
     [addFilesToEditor, getDraggedFilePaths, handleDropFiles, setDragging]
   )
 
-  // Optimize prompt handler
-  const handleOptimizePrompt = React.useCallback(async () => {
-    const trimmed = text.trim()
-    if (!trimmed || isOptimizing) return
-
-    console.log('[Optimizer] Starting optimization...')
-    setIsOptimizing(true)
-    setOptimizingText('')
-    setOptimizationOptions([])
-
-    try {
-      const { optimizePrompt } = await import('@renderer/lib/prompt-optimizer/optimizer')
-
-      console.log('[Optimizer] Current language:', currentLanguage)
-
-      // Find a fast model (haiku) from available providers
-      const providerStore = useProviderStore.getState()
-      const { providers } = providerStore
-
-      let fastProvider = providers.find(
-        (p) =>
-          p.enabled &&
-          p.models.some(
-            (m) =>
-              m.enabled &&
-              (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-          )
-      )
-
-      if (!fastProvider) {
-        fastProvider = providers.find((p) => p.enabled && p.models.some((m) => m.enabled))
-      }
-
-      if (!fastProvider) {
-        console.error('[Optimizer] No enabled provider found')
-        toast.error('No AI provider available', {
-          description: 'Please configure an AI provider in Settings'
-        })
-        setIsOptimizing(false)
-        return
-      }
-
-      const fastModel =
-        fastProvider.models.find(
-          (m) =>
-            m.enabled &&
-            (m.id.includes('haiku') || m.id.includes('4o-mini') || m.id.includes('gpt-4o-mini'))
-        ) || fastProvider.models.find((m) => m.enabled)
-
-      if (!fastModel) {
-        console.error('[Optimizer] No enabled model found')
-        toast.error('No AI model available', { description: 'Please enable a model in Settings' })
-        setIsOptimizing(false)
-        return
-      }
-
-      console.log('[Optimizer] Using provider:', fastProvider.type, 'model:', fastModel.id)
-
-      const providerConfig = {
-        type: fastProvider.type,
-        apiKey: fastProvider.apiKey,
-        baseUrl: fastProvider.baseUrl,
-        model: fastModel.id,
-        providerId: fastProvider.id,
-        maxTokens: 4096,
-        temperature: 0.7,
-        systemPrompt: ''
-      }
-
-      console.log('[Optimizer] Starting optimization stream...')
-      for await (const event of optimizePrompt(trimmed, providerConfig, currentLanguage)) {
-        console.log('[Optimizer] Event:', event.type)
-        if (event.type === 'text') {
-          setOptimizingText((prev) => prev + event.content)
-        } else if (event.type === 'result' && event.options && event.options.length > 0) {
-          console.log('[Optimizer] Got results:', event.options.length, 'options')
-          setOptimizationOptions(event.options)
-          setSelectedOptionIndex(0)
-          setShowOptimizationDialog(true)
-        }
-      }
-      console.log('[Optimizer] Stream completed')
-    } catch (error) {
-      console.error('[Optimizer] Error:', error)
-      toast.error('Optimization failed', {
-        description: error instanceof Error ? error.message : String(error)
-      })
-    } finally {
-      console.log('[Optimizer] Cleanup')
-      setIsOptimizing(false)
-    }
-  }, [text, isOptimizing, currentLanguage])
-
-  const handleSelectOption = React.useCallback(
-    (content: string) => {
-      setText(content)
-      setOptimizationOptions([])
-      setOptimizingText('')
-      setSelectedOptionIndex(0)
-      setShowOptimizationDialog(false)
-      requestAnimationFrame(() => {
-        focusInputAtEnd()
-      })
-    },
-    [focusInputAtEnd, setText]
-  )
-
-  const handleCancelOptimization = React.useCallback(() => {
-    setOptimizationOptions([])
-    setOptimizingText('')
-    setSelectedOptionIndex(0)
-    setShowOptimizationDialog(false)
-  }, [])
-
   const handleCompressContext = React.useCallback(() => {
     if (!onCompressContext || isContextCompressing) return
 
@@ -3622,15 +3656,8 @@ export function InputArea({
 
   const skillsMenuControl = (
     <SkillsMenu
-      onSelectSkill={(name) => {
-        setSelectedSkill(name)
-        editorRef.current?.focus()
-      }}
       onSelectCommand={(name) => {
         insertSlashCommand(name)
-      }}
-      onSelectPlugin={(pluginId) => {
-        insertPluginPrompt(pluginId)
       }}
       onAttachMedia={() => void handleAttachMedia()}
       disabled={disabled || isStreaming}
@@ -3642,7 +3669,7 @@ export function InputArea({
       planModeEnabled={planMode}
       goalModeEnabled={goalModeEnabled}
       planModeDisabled={disabled || isStreaming || !projectScoped}
-      goalModeDisabled={disabled || isStreaming || isOptimizing || pendingImageReads > 0}
+      goalModeDisabled={disabled || isStreaming || pendingImageReads > 0}
       onPlanModeChange={handlePlanModeChange}
       onGoalModeChange={handleGoalModeChange}
     />
@@ -3661,25 +3688,6 @@ export function InputArea({
         </Button>
       </TooltipTrigger>
       <TooltipContent>{t('input.selectFolder')}</TooltipContent>
-    </Tooltip>
-  )
-
-  const optimizeControl = !isStreaming && (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={composerIconControlClass}
-          onClick={handleOptimizePrompt}
-          disabled={!text.trim() || disabled || isOptimizing}
-        >
-          {isOptimizing ? <Spinner className="size-4" /> : <Wand2 className="size-4" />}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {isOptimizing ? t('input.optimizing') : t('input.optimizePrompt')}
-      </TooltipContent>
     </Tooltip>
   )
 
@@ -3811,8 +3819,7 @@ export function InputArea({
               : (!finalSerializedText.trim() && attachedImages.length === 0) ||
                 disabled ||
                 needsWorkingFolder ||
-                pendingImageReads > 0 ||
-                isOptimizing
+                pendingImageReads > 0
           }
           aria-label={isStreaming ? t('input.stopTooltip') : t('input.sendTooltip')}
         >
@@ -4307,105 +4314,6 @@ export function InputArea({
             </DialogContent>
           </Dialog>
 
-          {/* Optimizing indicator - only show spinner, hide text */}
-          {isOptimizing && (
-            <div className="shrink-0 px-3 pt-3 pb-1">
-              <div className="composer-panel rounded-[14px] px-3 py-2">
-                <div className="flex items-center gap-2 text-[var(--composer-chip-text)]">
-                  <Spinner className="size-3.5" />
-                  <span className="text-xs font-semibold">
-                    {t('input.optimizing', { defaultValue: 'Optimizing your prompt...' })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Optimization Dialog */}
-          <Dialog open={showOptimizationDialog} onOpenChange={setShowOptimizationDialog}>
-            <DialogContent className="max-w-7xl max-h-[90vh] overflow-hidden flex flex-col gap-4">
-              <DialogHeader className="space-y-2">
-                <DialogTitle className="text-xl flex items-center gap-2">
-                  <Wand2 className="size-5 text-primary" />
-                  {t('input.optimizationResults', { defaultValue: 'Optimized Prompt Options' })}
-                </DialogTitle>
-                <DialogDescription className="text-sm">
-                  {t('input.optimizationResultsDesc', {
-                    defaultValue:
-                      'Select one of the optimized versions below to use in your prompt.'
-                  })}
-                </DialogDescription>
-              </DialogHeader>
-
-              {/* Tab-style Layout */}
-              <div className="flex-1 flex flex-col overflow-hidden gap-4">
-                {/* Tabs - Options as tabs at top */}
-                <div className="flex gap-2 border-b border-border pb-2">
-                  {optimizationOptions.map((option, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      className={`flex-1 px-4 py-3 rounded-t-lg border-2 border-b-0 transition-all ${
-                        selectedOptionIndex === idx
-                          ? 'border-primary bg-primary/5 -mb-[2px] border-b-2 border-b-background'
-                          : 'border-transparent hover:bg-muted/30'
-                      }`}
-                      onClick={() => {
-                        setSelectedOptionIndex(idx)
-                        // Scroll content to top when switching tabs
-                        if (contentScrollRef.current) {
-                          contentScrollRef.current.scrollTop = 0
-                        }
-                      }}
-                    >
-                      <div className="flex items-center justify-center gap-2">
-                        <span
-                          className={`inline-flex items-center justify-center size-6 rounded-full text-xs font-bold ${
-                            selectedOptionIndex === idx
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground'
-                          }`}
-                        >
-                          {idx + 1}
-                        </span>
-                        <div className="text-left">
-                          <p className="text-sm font-semibold text-foreground">{option.title}</p>
-                          <p className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {option.focus}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Content Area - Show selected option's detailed content */}
-                <div className="flex-1 overflow-hidden rounded-lg border border-border bg-background">
-                  <div ref={contentScrollRef} className="h-full overflow-y-auto px-6 py-4">
-                    <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <div className="text-sm text-foreground/90 whitespace-pre-wrap leading-relaxed font-sans">
-                        {optimizationOptions[selectedOptionIndex]?.content}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="flex items-center justify-between">
-                <Button variant="outline" onClick={handleCancelOptimization}>
-                  {t('action.cancel', { ns: 'common' })}
-                </Button>
-                <Button
-                  onClick={() =>
-                    handleSelectOption(optimizationOptions[selectedOptionIndex]?.content)
-                  }
-                >
-                  {t('input.useThisOption', { defaultValue: 'Use This' })}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
           {/* Text input area */}
           <div
             className={cn(
@@ -4437,7 +4345,7 @@ export function InputArea({
                 ref={editorRef}
                 document={documentNodes}
                 files={selectedFiles}
-                disabled={disabled || isOptimizing}
+                disabled={disabled}
                 placeholder={
                   pendingReviewPlanId
                     ? t('input.placeholderPlanReview', {
@@ -4477,7 +4385,7 @@ export function InputArea({
                 className="h-full w-full"
               />
               {fileMenuOpen && (
-                <div className="composer-flyout absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[18px]">
+                <div className="composer-flyout absolute inset-x-0 bottom-full z-50 mb-2 overflow-hidden rounded-[18px]">
                   <div className="composer-flyout-header flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
                     <Command className="size-3.5" />
                     <span>{t('input.fileSuggestions', { defaultValue: 'File suggestions' })}</span>
@@ -4520,15 +4428,17 @@ export function InputArea({
                           <button
                             key={file.path}
                             type="button"
-                            className={`flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${
+                            tabIndex={-1}
+                            data-flyout-item=""
+                            aria-selected={isSelected}
+                            className={cn(
+                              'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
                               isSelected
-                                ? 'bg-accent text-accent-foreground'
+                                ? 'composer-flyout-item--active'
                                 : 'hover:bg-muted/50 text-foreground'
-                            }`}
+                            )}
                             onMouseMove={(event) => {
-                              const prev = flyoutPointerRef.current
-                              if (prev?.x === event.clientX && prev?.y === event.clientY) return
-                              flyoutPointerRef.current = { x: event.clientX, y: event.clientY }
+                              if (!hasFlyoutPointerMoved(flyoutPointerRef, event)) return
                               if (index !== selectedFileSearchIndex) {
                                 setSelectedFileSearchIndex(index)
                               }
@@ -4556,7 +4466,7 @@ export function InputArea({
                 </div>
               )}
               {slashMenuOpen && (
-                <div className="composer-flyout absolute inset-x-0 bottom-full z-30 mb-2 overflow-hidden rounded-[18px]">
+                <div className="composer-flyout absolute inset-x-0 bottom-full z-50 mb-2 overflow-hidden rounded-[18px]">
                   <div className="composer-flyout-header flex items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground">
                     <Command className="size-3.5" />
                     <span>
@@ -4591,15 +4501,17 @@ export function InputArea({
                           <button
                             key={item.key}
                             type="button"
-                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                            tabIndex={-1}
+                            data-flyout-item=""
+                            aria-selected={isSelected}
+                            className={cn(
+                              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
                               isSelected
-                                ? 'bg-accent text-accent-foreground'
+                                ? 'composer-flyout-item--active'
                                 : 'hover:bg-muted/50 text-foreground'
-                            }`}
+                            )}
                             onMouseMove={(event) => {
-                              const prev = flyoutPointerRef.current
-                              if (prev?.x === event.clientX && prev?.y === event.clientY) return
-                              flyoutPointerRef.current = { x: event.clientX, y: event.clientY }
+                              if (!hasFlyoutPointerMoved(flyoutPointerRef, event)) return
                               if (index !== selectedSlashIndex) {
                                 setSelectedSlashIndex(index)
                               }
@@ -4733,7 +4645,6 @@ export function InputArea({
                   </AlertDialog>
                 )}
 
-                {optimizeControl}
                 {permissionControl}
                 {sendControl}
               </div>
@@ -4746,7 +4657,6 @@ export function InputArea({
             sessionId={draftSessionId}
             isStreaming={isStreaming}
             draftInputTokens={debouncedTokens}
-            isOptimizing={isOptimizing}
             pendingImageReads={pendingImageReads}
             contextCompressionStatus={contextCompressionStatus}
             contextCompressionStatusLabel={contextCompressionStatusLabel}

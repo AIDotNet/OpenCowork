@@ -677,39 +677,44 @@
     "copyError": "Erro de Cópia",
     "errorDetails": "Detalhes do erro",
     "modeTooltip": {
-      "solvesTitle": "Melhor para",
+      "solvesTitle": "Ideal para",
+      "flowTitle": "Como funciona",
       "current": "Modo atual",
       "switchHint": "Mudar para {{mode}} com {{shortcut}}",
       "clarify": {
-        "summary": "Use isso quando a solicitação ainda estiver confusa e você quiser que o agente diminua, faça perguntas de acompanhamento melhores e alinhem-se no alvo antes de agir.",
+        "summary": "Clarify transforma um pedido pouco claro num plano concreto e revísavel. Inspeciona o projeto o suficiente para fazer perguntas precisas, escreve o plano e espera — não implementa primeiro.",
+        "flow": "Inspecionar evidências → perguntar decisões importantes via AskUserQuestion → fechar o âmbito → escrever um plano → parar para a tua revisão.",
         "solves": [
-          "Requisitos não claros, contexto incompleto ou múltiplas interpretações possíveis",
-          "Precisa de ajuda para transformar ideias ásperas em tarefas concretas, especificações ou critérios de aceitação",
-          "Quer que o agente desafie suposições antes de começar a fazer mudanças"
+          "O pedido ainda é vago, incompleto ou admite várias interpretações",
+          "Precisas de requisitos, critérios de aceitação e passos ao nível do ficheiro antes de alguém programar",
+          "Queres questionar pressupostos antes de alterar ficheiros ou comandos"
         ]
       },
       "cowork": {
-        "summary": "O agente trabalha como um parceiro colaborativo: explica sua abordagem, segue um loop Plan-Act-Observe, e lida com tarefas de codificação e não-codificação como pesquisa, DevOps ou configuração de projeto. O painel direito abre automaticamente para rastreamento de passos.",
+        "summary": "Cowork é um parceiro colaborativo com todas as ferramentas do projeto. Segue Planear–Agir–Observar: explicar o próximo passo, executar e verificar, para orientares pesquisa, código e ops numa sessão.",
+        "flow": "Declarar o próximo passo → usar ficheiros, terminal e pesquisa → verificar resultados → repetir até terminar.",
         "solves": [
-          "Fluxos de trabalho em várias etapas misturando pesquisas, planejamento, alterações de arquivos e comandos de terminal — o agente explica cada passo",
-          "Tarefas além da codificação pura: configuração do projeto, documentação, DevOps, análise ou qualquer coisa que exija coordenação",
-          "Situações onde você quer visibilidade no processo de pensamento do agente e resultados intermediários"
+          "Trabalho em vários passos que mistura pesquisa, planeamento, ficheiros e comandos",
+          "Setup de projeto, documentação, DevOps, análise e outro trabalho além de código puro",
+          "Queres uma explicação contínua do que está a acontecer para redirecionar a meio"
         ]
       },
       "code": {
-        "summary": "O agente atua como um programador de pares focado. Ele lê antes de editar, combina com seu estilo de base de código, faz mudanças cirúrgicas e mantém explicações mínimas — deixando o código falar por si mesmo.",
+        "summary": "Code é um pair programmer focado. O âmbito é só implementação: ler primeiro, seguir este repositório, editar de forma cirúrgica e narrar pouco. Trabalho que não é código fica no Cowork.",
+        "flow": "Ler os ficheiros relevantes → fazer a alteração completa mais pequena → confirmar brevemente o que mudou.",
         "solves": [
-          "Implementação precisa: recursos de escrita, correção de bugs, refatoração ou completar módulos com disciplina de engenharia",
-          "Quando você deseja saída de código limpo com narração mínima — confirmação terse em vez de verbose walk-throughs",
-          "Alterações que exigem atenção estrita às convenções, tipos, importações e contratos de API existentes"
+          "Funcionalidades, correções, refactors e outra implementação prática",
+          "Alterações que devem respeitar nomes, tipos, imports e contratos de API existentes",
+          "Queres o código, não uma explicação do que ele faz"
         ]
       },
       "acp": {
-        "summary": "Planejamento de Controle de Arquitetura é para trabalhos complexos que precisam de controle antes da implementação: esclarecer objetivos e fronteiras primeiro, em seguida, projetar a arquitetura, decompor execução e delegar entrega.",
+        "summary": "ACP (Architecture Control Planning) mantém o agente principal no desenho e no controlo. Pode inspecionar, planear e perguntar, mas não escreve código de implementação nem edita ficheiros. Os subagentes recebem Write, Edit e Bash.",
+        "flow": "Clarificar objetivos e restrições → desenhar a arquitetura → dividir o trabalho → delegar em paralelo → sintetizar resumos estruturados.",
         "solves": [
-          "Tarefas complexas que exigem antecedentes, escopo, restrições, dependências e critérios de aceitação a serem esclarecidos antes da implementação",
-          "Trabalhar onde o agente principal deve focar na arquitetura, orquestração e controle de processo em vez de codificação diretamente",
-          "Casos em que as subtarefas devem ser realizadas em paralelo e reenviar resumos de marcação estruturados para uma coordenação continuada"
+          "Trabalho complexo que precisa de contexto, limites e critérios de aceitação antes da implementação",
+          "Queres o agente principal na arquitetura, sequência e revisão — não a escrever diffs",
+          "Subtarefas independentes devem correr em paralelo e devolver resumos em Markdown"
         ]
       }
     },

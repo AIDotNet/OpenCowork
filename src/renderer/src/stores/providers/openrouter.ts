@@ -2,7 +2,7 @@ import type { BuiltinProviderPreset } from './types'
 
 export const openrouterPreset: BuiltinProviderPreset = {
   builtinId: 'openrouter',
-  version: 1,
+  version: 2,
   name: 'OpenRouter',
   type: 'openai-chat',
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
@@ -489,7 +489,11 @@ export const openrouterPreset: BuiltinProviderPreset = {
       inputPrice: 0.435,
       outputPrice: 0.87,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        reasoningEffortLevels: ['high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'deepseek/deepseek-v3.2',

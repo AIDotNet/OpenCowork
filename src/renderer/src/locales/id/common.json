@@ -85,6 +85,7 @@
     "cowork": "Kowork",
     "code": "Kode",
     "acp": "ACP",
+    "switcher": "Mode sesi",
     "descriptions": {
       "acp": "Rancang arsitektur dan delegasikan ke sub-agen",
       "chat": "Percakapan cepat, tanpa alat proyek",

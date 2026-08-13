@@ -23,6 +23,12 @@ import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assista
 import { computeTranscriptWindow, estimateChromeLines } from './lib/message-height.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import {
+  groupTranscriptMessages,
+  isSubAgentToolMessage,
+  mergeSubAgentDisplay,
+  subAgentGroupStartIndex
+} from './lib/sub-agent-display.js'
+import {
   formatThinkingNotice,
   formatThinkingStatus,
   parseThinkingIntensity,
@@ -292,6 +298,7 @@ export function CliApp({
   const noticeTimerRef = useRef<NodeJS.Timeout | undefined>(undefined)
   const messageIdRef = useRef(0)
   const terminalRevisionRef = useRef(terminalRevision)
+  const committedCountRef = useRef(0)
 
   const contentWidth = Math.max(35, columns - 1)
   const fullscreen = tuiMode === 'fullscreen'
@@ -309,11 +316,22 @@ export function CliApp({
         )
     : undefined
   const supportsVision = selectedModelOption?.supportsVision === true
-  const firstMutableMessage = messages.findIndex(
+  if (messages.length < committedCountRef.current) committedCountRef.current = 0
+  const firstRunningMessage = messages.findIndex(
     (message) =>
       (message.kind === 'assistant' && message.streaming) ||
       (message.kind === 'tool' && message.status === 'running')
   )
+  let firstMutableMessage = firstRunningMessage
+  if (firstMutableMessage >= 0 && isSubAgentToolMessage(messages[firstMutableMessage]!)) {
+    firstMutableMessage = subAgentGroupStartIndex(messages, firstMutableMessage)
+  }
+  if (firstMutableMessage < 0) {
+    committedCountRef.current = messages.length
+  } else {
+    firstMutableMessage = Math.max(firstMutableMessage, committedCountRef.current)
+    committedCountRef.current = firstMutableMessage
+  }
   const committedMessages = fullscreen
     ? []
     : messages.slice(0, firstMutableMessage < 0 ? messages.length : firstMutableMessage)
@@ -400,8 +418,16 @@ export function CliApp({
         if (message.kind === 'tool' && message.status === 'running') {
           return {
             ...message,
-            status: 'error',
-            summary: message.summary ?? t('cli.statuses.interrupted', 'Interrupted')
+            status: 'error' as const,
+            ...(message.subAgent
+              ? {
+                  subAgent: mergeSubAgentDisplay(message.subAgent, {
+                    phase: 'error',
+                    completedAt,
+                    currentActivity: ''
+                  })
+                }
+              : { summary: message.summary ?? t('cli.statuses.interrupted', 'Interrupted') })
           }
         }
         return message
@@ -485,7 +511,7 @@ export function CliApp({
       const height = transcriptWindow.heights[index] ?? 0
       if (row > cursor && row <= cursor + height) {
         const target = transcriptWindow.messages[index]
-        if (target && target.kind === 'tool' && (target.detail || target.summary)) {
+        if (target && target.kind === 'tool' && (target.detail || target.summary || target.subAgent?.report)) {
           toggleMessageExpanded(target.id)
         }
         return
@@ -878,7 +904,8 @@ export function CliApp({
           kind: 'tool',
           title: event.title,
           detail: event.detail,
-          status: 'running'
+          status: 'running',
+          ...(event.subAgent ? { subAgent: event.subAgent } : {})
         }
       ])
       return
@@ -889,9 +916,12 @@ export function CliApp({
         updateMessageById(current, event.id, 'tool', (message) => ({
           ...message,
           status: event.status,
-          summary: event.summary,
+          ...(event.summary !== undefined ? { summary: event.summary } : {}),
           ...(event.title ? { title: event.title } : {}),
-          ...(event.diff ? { diff: event.diff } : {})
+          ...(event.diff ? { diff: event.diff } : {}),
+          ...(event.subAgent
+            ? { subAgent: mergeSubAgentDisplay(message.subAgent, event.subAgent) }
+            : {})
         }))
       )
       return
@@ -903,7 +933,10 @@ export function CliApp({
           ...message,
           ...(event.title ? { title: event.title } : {}),
           ...(event.detail ? { detail: event.detail } : {}),
-          ...(event.summary ? { summary: event.summary } : {})
+          ...(event.summary ? { summary: event.summary } : {}),
+          ...(event.subAgent
+            ? { subAgent: mergeSubAgentDisplay(message.subAgent, event.subAgent) }
+            : {})
         }))
       )
       return
@@ -1183,6 +1216,7 @@ export function CliApp({
     try {
       await operation.call(runtime)
       if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
+      committedCountRef.current = 0
       setMessages([])
       setPromptImages([])
       setPromptReferences([])
@@ -1288,6 +1322,7 @@ export function CliApp({
 
   const completeResume = (result: ResumeResult): void => {
     if (!fullscreen) process.stdout.write('[2J[3J[H')
+    committedCountRef.current = 0
     setMessages(result.transcript)
     setPromptImages([])
     setPromptReferences([])
@@ -1343,6 +1378,7 @@ export function CliApp({
       if (changesConversation) {
         if (!fullscreen) process.stdout.write('\u001B[2J\u001B[3J\u001B[H')
         setTranscriptEpoch((current) => current + 1)
+        committedCountRef.current = 0
         setMessages(() => {
           if (!result.summarized) return result.transcript
           const marker: Message = {
@@ -2059,15 +2095,19 @@ export function CliApp({
   return (
     <>
       {!fullscreen && committedMessages.length > 0 ? (
-        <Static items={committedMessages} key={transcriptEpoch}>
-          {(message) => (
-            <Transcript
-              key={message.id}
-              messages={[message]}
-              showDetails={showDetails}
-              width={contentWidth}
-            />
-          )}
+        <Static items={groupTranscriptMessages(committedMessages)} key={transcriptEpoch}>
+          {(block) => {
+            const blockMessages =
+              block.kind === 'subAgentGroup' ? block.messages : [block.message]
+            return (
+              <Transcript
+                key={blockMessages[0]?.id ?? 'block'}
+                messages={blockMessages}
+                showDetails={showDetails}
+                width={contentWidth}
+              />
+            )
+          }}
         </Static>
       ) : null}
       <Box

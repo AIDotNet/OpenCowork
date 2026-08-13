@@ -155,6 +155,8 @@ function inferBuiltinId(source: OpenCodeSourceProvider): string | undefined {
   if (baseUrl.includes('api.minimax.chat')) return 'minimax'
   if (baseUrl.includes('qianfan.baidubce.com')) return 'baidu'
   if (baseUrl.includes('api.siliconflow.cn')) return 'siliconflow'
+  if (baseUrl.includes('opencode.ai/zen/go')) return 'opencode-go'
+  if (baseUrl.includes('opencode.ai/zen')) return 'opencode'
   if (baseUrl.includes('open.bigmodel.cn')) return 'bigmodel'
   if (baseUrl.includes('openai.azure.com')) return 'azure-openai'
   if (baseUrl.includes('127.0.0.1:11434') || baseUrl.includes('localhost:11434')) return 'ollama'
@@ -166,6 +168,8 @@ function inferBuiltinId(source: OpenCodeSourceProvider): string | undefined {
     return 'google'
   }
   if (name.includes('openrouter')) return 'openrouter'
+  if (name.includes('opencode go') || name.includes('opencode-go')) return 'opencode-go'
+  if (name.includes('opencode')) return 'opencode'
   if (name.includes('openai')) return 'openai'
   if (name.includes('deepseek')) return 'deepseek'
   if (name.includes('moonshot') || name.includes('kimi')) return 'moonshot'

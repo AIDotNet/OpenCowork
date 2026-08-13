@@ -7,7 +7,8 @@ import type {
   ProviderConfig,
   ProviderType,
   ModelCategory,
-  RequestOverrides
+  RequestOverrides,
+  ThinkingConfig
 } from '../lib/api/types'
 import { builtinProviderPresets } from './providers'
 import type { BuiltinProviderPreset } from './providers'
@@ -24,7 +25,7 @@ export { builtinProviderPresets }
 export type { BuiltinProviderPreset }
 
 const DEFAULT_FAST_PROVIDER_BUILTIN_ID = 'routin-ai'
-const DEFAULT_FAST_MODEL_ID = 'doubao-seed-2-0-mini-260215'
+const DEFAULT_FAST_MODEL_ID = 'deepseek-v4-flash'
 // Kimi K2.7 Code rejects thinking.type values other than "enabled"; off means omitting it.
 const KIMI_ENABLED_ONLY_THINKING_MODEL_KEYS = new Set([
   'kimi-for-coding',
@@ -239,28 +240,66 @@ function sortManagedModels(models: ManagedModelConfig[]): ManagedModelConfig[] {
 /**
  * Effort levels are capability enums that evolve with the builtin presets. Persisted
  * snapshots saved before new levels existed would otherwise pin the old list forever
- * (mergeMissingValue never touches existing arrays), so adopt the canonical list whenever
- * the saved one is a strict subset of it. Lists carrying levels the preset doesn't know
- * (user customizations) are left untouched.
+ * (mergeMissingValue never touches existing arrays), so adopt the canonical list when
+ * the saved one is missing or a strict subset. Lists carrying levels the preset doesn't
+ * know (user customizations) are left untouched.
  */
 function reconcileReasoningEffortLevels<T extends AIModelConfig>(
   model: T,
   canonical: AIModelConfig
 ): T {
-  const canonicalLevels = canonical.thinkingConfig?.reasoningEffortLevels
-  const savedLevels = model.thinkingConfig?.reasoningEffortLevels
-  if (!canonicalLevels?.length || !savedLevels?.length) return model
-  if (savedLevels.length >= canonicalLevels.length) return model
+  const canonicalThinking = canonical.thinkingConfig
+  const canonicalLevels = canonicalThinking?.reasoningEffortLevels
+  if (!canonicalLevels?.length) return model
+
+  const savedThinking = model.thinkingConfig
+  const savedLevels = savedThinking?.reasoningEffortLevels
   const canonicalSet = new Set(canonicalLevels)
-  if (!savedLevels.every((level) => canonicalSet.has(level))) return model
+  const savedMissing = !savedLevels?.length
+  const savedIsSubset =
+    !!savedLevels?.length &&
+    savedLevels.length < canonicalLevels.length &&
+    savedLevels.every((level) => canonicalSet.has(level))
+  if (!savedMissing && !savedIsSubset) return model
+
+  const savedDefault = savedThinking?.defaultReasoningEffort
   return {
     ...model,
     thinkingConfig: {
-      ...model.thinkingConfig,
-      bodyParams: model.thinkingConfig?.bodyParams ?? {},
-      reasoningEffortLevels: [...canonicalLevels]
+      ...canonicalThinking,
+      ...savedThinking,
+      bodyParams: savedThinking?.bodyParams ?? canonicalThinking?.bodyParams ?? {},
+      reasoningEffortLevels: [...canonicalLevels],
+      defaultReasoningEffort:
+        savedDefault && canonicalLevels.includes(savedDefault)
+          ? savedDefault
+          : (canonicalThinking?.defaultReasoningEffort ?? canonicalLevels[0])
     }
   }
+}
+
+/** Use the persisted thinking config, filling in builtin effort levels when they were never saved. */
+export function resolveModelThinkingConfig(
+  model: AIModelConfig | undefined,
+  builtinId?: string | null
+): ThinkingConfig | undefined {
+  const own = model?.thinkingConfig
+  if (own?.reasoningEffortLevels?.length) return own
+  if (!model?.id || !builtinId) return own
+
+  const preset = builtinProviderPresets.find((item) => item.builtinId === builtinId)
+  const canonical = preset?.defaultModels.find(
+    (item) => normalizeModelKey(item.id) === normalizeModelKey(model.id)
+  )
+  if (!canonical?.thinkingConfig?.reasoningEffortLevels?.length) return own
+  return reconcileReasoningEffortLevels(
+    {
+      ...canonical,
+      ...model,
+      thinkingConfig: own ?? canonical.thinkingConfig
+    },
+    canonical
+  ).thinkingConfig
 }
 
 export function buildProviderModelSnapshot(
@@ -442,8 +481,8 @@ export function modelSupportsResponsesImageGeneration(
 
 /**
  * Resolve the effective `image_generation` tool config for a request. Always returns an
- * explicit `enabled` flag for Responses models — the runtime treats a missing config as
- * enabled, so unsupported models must send `enabled: false` rather than nothing.
+ * explicit `enabled` flag for Responses models. The tool is opt-in: a missing config is
+ * treated as disabled.
  */
 export function resolveModelResponsesImageGeneration(
   model: AIModelConfig | null | undefined,
@@ -1418,6 +1457,7 @@ export const useProviderStore = create<ProviderStore>()(
           provider,
           requestType
         )
+        const thinkingConfig = resolveModelThinkingConfig(activeModel, provider.builtinId)
         const serviceTier = resolveServiceTier(activeModel, provider.builtinId)
         const accountId = resolveProviderAccountId(provider)
         const responsesImageGeneration = resolveModelResponsesImageGeneration(
@@ -1454,7 +1494,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { instructionsPrompt: provider.instructionsPrompt }
             : {}),
           ...(accountId ? { accountId } : {}),
-          ...(activeModel?.thinkingConfig ? { thinkingConfig: activeModel.thinkingConfig } : {}),
+          ...(thinkingConfig ? { thinkingConfig } : {}),
           ...(websocketUrl ? { websocketUrl } : {}),
           ...(websocketMode ? { websocketMode } : {})
         }
@@ -1544,6 +1584,7 @@ export const useProviderStore = create<ProviderStore>()(
           provider,
           requestType
         )
+        const thinkingConfig = resolveModelThinkingConfig(model, provider.builtinId)
         const serviceTier = resolveServiceTier(model, provider.builtinId)
         const accountId = resolveProviderAccountId(provider)
         const responsesImageGeneration = resolveModelResponsesImageGeneration(model, requestType)
@@ -1577,7 +1618,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { instructionsPrompt: provider.instructionsPrompt }
             : {}),
           ...(accountId ? { accountId } : {}),
-          ...(model?.thinkingConfig ? { thinkingConfig: model.thinkingConfig } : {}),
+          ...(thinkingConfig ? { thinkingConfig } : {}),
           ...(websocketUrl ? { websocketUrl } : {}),
           ...(websocketMode ? { websocketMode } : {})
         }
@@ -1723,7 +1764,8 @@ export const useProviderStore = create<ProviderStore>()(
 
       getActiveModelThinkingConfig: () => {
         const model = get().getActiveModelConfig()
-        return model?.thinkingConfig
+        const provider = get().providers.find((item) => item.id === get().activeProviderId)
+        return resolveModelThinkingConfig(model, provider?.builtinId)
       },
 
       _markMigrated: () => set({ _migrated: true })

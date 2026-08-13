@@ -15,6 +15,7 @@ const providerIconSlugMap: Record<string, string> = {
   google: 'google',
   deepseek: 'deepseek',
   openrouter: 'openrouter',
+  opencode: 'opencode',
   'opencode-go': 'opencode',
   ollama: 'ollama',
   'azure-openai': 'azureai',

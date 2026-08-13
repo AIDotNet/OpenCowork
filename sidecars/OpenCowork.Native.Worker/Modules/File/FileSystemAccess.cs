@@ -54,12 +54,19 @@ internal static class FileSystemAccess
 
         if (ex is IOException ioException)
         {
+            if (ioException.HResult == unchecked((int)0x80070005))
+            {
+                return true;
+            }
+
             var message = ioException.Message;
             return message.Contains("permission denied", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("access denied", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("operation not permitted", StringComparison.OrdinalIgnoreCase) ||
                 message.Contains("EACCES", StringComparison.OrdinalIgnoreCase) ||
-                message.Contains("EPERM", StringComparison.OrdinalIgnoreCase);
+                message.Contains("EPERM", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("UnauthorizedAccess_", StringComparison.Ordinal) ||
+                message.Contains("IODenied", StringComparison.Ordinal);
         }
 
         return false;

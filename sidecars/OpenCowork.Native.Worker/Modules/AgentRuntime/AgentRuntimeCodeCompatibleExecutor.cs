@@ -127,7 +127,7 @@ internal static class AgentRuntimeCodeCompatibleExecutor
         {
             WorkerLog.Warn(
                 $"code-compatible powershell failed elapsedMs={ElapsedMs(startedAt)} error={ex.GetType().Name}: {ex.Message}");
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
     }
 
@@ -198,7 +198,7 @@ internal static class AgentRuntimeCodeCompatibleExecutor
             process.Dispose();
             WorkerLog.Warn(
                 $"code-compatible monitor failed id={id} error={ex.GetType().Name}: {ex.Message}");
-            return EncodeError(ex.Message);
+            return AgentRuntimeToolError.Encode(ex);
         }
     }
 
@@ -324,7 +324,7 @@ internal static class AgentRuntimeCodeCompatibleExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private sealed record ShellLaunch(string Shell, IReadOnlyList<string> Arguments);

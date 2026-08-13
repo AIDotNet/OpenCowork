@@ -13,6 +13,7 @@ import {
   NewSessionProjectSelector,
   type NewSessionProjectOption
 } from './NewSessionProjectSelector'
+import { ChatHomeInsights } from './ChatHomeInsights'
 
 type HomeProjectSnapshot = NewSessionProjectOption
 
@@ -110,7 +111,9 @@ export function ChatHomePage(): React.JSX.Element {
     activeProjectId && selectableProjects.some((project) => project.id === activeProjectId)
       ? activeProjectId
       : null
-  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = React.useState<string | null>(
+    defaultSelectedProjectId
+  )
   const selectedProject =
     selectableProjects.find((project) => project.id === selectedProjectId) ?? null
   const homeProject = selectedProject ?? activeProject
@@ -235,51 +238,15 @@ export function ChatHomePage(): React.JSX.Element {
             t('messageList.refactorError')
           ]
 
-  const title =
-    mode === 'chat'
-      ? t('messageList.homeTitleChatQuestion')
-      : homeWorkingFolder
-        ? t('messageList.homeTitleBuildQuestion', {
-            name: homeProject?.name ?? t('messageList.thisWorkspace')
-          })
-        : t('messageList.startCoding')
-
-  const description =
-    mode === 'chat'
-      ? t('messageList.startConversationDesc')
-      : homeWorkingFolder
-        ? t('messageList.startCodingDesc')
-        : t('input.noWorkingFolder', { mode })
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="flex flex-1 flex-col overflow-auto px-6 pb-14 pt-8 sm:pt-10">
         <div className="flex flex-1 items-start justify-center pt-8 lg:items-center lg:pt-0">
           <div className="w-full max-w-[760px]">
-            <div className="mb-6 flex flex-col items-center gap-3 text-center sm:mb-7">
-              <p className="max-w-[760px] text-[30px] font-semibold tracking-tight text-foreground/92 sm:text-[42px]">
-                {title}
-              </p>
-              <p className="max-w-[560px] text-sm leading-6 text-muted-foreground/72">
-                {description}
-              </p>
-
-              {mode !== 'chat' && homeProject ? (
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <span className="truncate text-foreground/88">{homeProject.name}</span>
-                  {homeWorkingFolder ? (
-                    <span className="max-w-[320px] truncate text-[11px] text-muted-foreground">
-                      {homeWorkingFolder}
-                    </span>
-                  ) : null}
-                  {homeSshConnectionId ? (
-                    <span className="rounded-md border border-border/60 bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
-                      SSH
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
+            <ChatHomeInsights
+              projectName={homeProject?.name}
+              variant={mode === 'chat' ? 'chat' : 'project'}
+            />
 
             <InputArea
               sessionId={null}

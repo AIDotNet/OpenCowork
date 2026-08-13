@@ -68,19 +68,20 @@ internal static class FileTools
 
     // AOT publish strips exception resource strings (UseSystemResourceKeys), so
     // FileNotFoundException.Message degrades to a raw key like
-    // "IO_FileNotFound_FileName, /path". Normalize not-found errors to a stable
-    // ENOENT form that callers (renderer/main missing-file detection) can match.
+    // "IO_FileNotFound_FileName, /path". IPC callers still match ENOENT / "no such
+    // file"; agent tools go through AgentRuntimeToolError instead.
     private static string DescribeIoError(Exception ex, string? requestedPath)
     {
-        if (ex is FileNotFoundException or DirectoryNotFoundException)
+        if (AgentRuntimeToolError.IsNotFound(ex))
         {
             var target = (ex as FileNotFoundException)?.FileName;
             if (string.IsNullOrEmpty(target)) target = requestedPath;
+            if (string.IsNullOrEmpty(target)) target = AgentRuntimeToolError.TryExtractPath(ex.Message);
             return string.IsNullOrEmpty(target)
                 ? "ENOENT: no such file or directory"
                 : $"ENOENT: no such file or directory, open '{target}'";
         }
-        return ex.Message;
+        return AgentRuntimeToolError.Describe(ex, path: requestedPath);
     }
 
     public static async Task<WorkerResponse> ReadFileAsync(JsonElement parameters)
@@ -177,7 +178,7 @@ internal static class FileTools
         catch (Exception ex)
         {
             return WorkerResponse.Json(
-                new FileWriteResult(false, string.Empty, ex.Message),
+                new FileWriteResult(false, string.Empty, DescribeIoError(ex, JsonHelpers.GetString(parameters, "path"))),
                 WorkerJsonContext.Default.FileWriteResult);
         }
     }
@@ -200,7 +201,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return FileMutation(success: false, error: ex.Message);
+            return FileMutation(success: false, error: DescribeIoError(ex, JsonHelpers.GetString(parameters, "path")));
         }
     }
 
@@ -244,7 +245,7 @@ internal static class FileTools
         catch (Exception ex)
         {
             return WorkerResponse.Json(
-                new FileStatResult(false, null, null, null, ex.Message),
+                new FileStatResult(false, null, null, null, DescribeIoError(ex, JsonHelpers.GetString(parameters, "path"))),
                 WorkerJsonContext.Default.FileStatResult);
         }
     }
@@ -258,7 +259,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return FileMutation(success: false, error: ex.Message);
+            return FileMutation(success: false, error: DescribeIoError(ex, JsonHelpers.GetString(parameters, "path")));
         }
     }
 
@@ -279,7 +280,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return FileMutation(success: false, error: ex.Message);
+            return FileMutation(success: false, error: DescribeIoError(ex, JsonHelpers.GetString(parameters, "path")));
         }
     }
 
@@ -307,7 +308,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return FileMutation(success: false, error: ex.Message);
+            return FileMutation(success: false, error: DescribeIoError(ex, JsonHelpers.GetString(parameters, "from")));
         }
     }
 
@@ -395,7 +396,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Error(ex.Message);
+            return WorkerResponse.Error(DescribeIoError(ex, JsonHelpers.GetString(parameters, "path")));
         }
     }
 
@@ -456,7 +457,7 @@ internal static class FileTools
         catch (Exception ex)
         {
             return WorkerResponse.Json(
-                new GlobToolResult("glob", new List<GlobMatchItem>(), CreateSearchMeta(cwd, pattern, null, null, "matches", false, false, null, "native_aot", null, true, false, false, null, 0, 0, null, null, null), ex.Message),
+                new GlobToolResult("glob", new List<GlobMatchItem>(), CreateSearchMeta(cwd, pattern, null, null, "matches", false, false, null, "native_aot", null, true, false, false, null, 0, 0, null, null, null), DescribeIoError(ex, cwd)),
                 WorkerJsonContext.Default.GlobToolResult);
         }
     }
@@ -501,7 +502,7 @@ internal static class FileTools
         }
         catch (Exception ex)
         {
-            return WorkerResponse.Error(ex.Message);
+            return WorkerResponse.Error(DescribeIoError(ex, JsonHelpers.GetString(parameters, "path")));
         }
     }
 
@@ -526,7 +527,7 @@ internal static class FileTools
         {
             var meta = CreateSearchMeta(searchTarget, string.Empty, null, null, "matches", false, false, null, "native_aot", 0, true, true, false, null, 0, 0, null, null, null);
             return WorkerResponse.Json(
-                new GrepToolResult("grep", new List<GrepMatchItem>(), meta, string.Empty, $"Invalid grep options: {ex.Message}"),
+                new GrepToolResult("grep", new List<GrepMatchItem>(), meta, string.Empty, $"Invalid grep options: {AgentRuntimeToolError.Describe(ex)}"),
                 WorkerJsonContext.Default.GrepToolResult);
         }
 
@@ -640,7 +641,7 @@ internal static class FileTools
         {
             var meta = CreateSearchMeta(searchTarget, options.Pattern, options.Include, options.Exclude, options.OutputMode, false, false, null, "native_aot", (int)stopwatch.ElapsedMilliseconds, options.Hidden, options.RespectGitignore, options.FollowSymlinks, options.MaxDepth, options.BeforeContext, options.AfterContext, options.MaxResults, options.MaxOutputBytes, options.MaxLineLength);
             return WorkerResponse.Json(
-                new GrepToolResult("grep", new List<GrepMatchItem>(), meta, string.Empty, ex.Message),
+                new GrepToolResult("grep", new List<GrepMatchItem>(), meta, string.Empty, DescribeIoError(ex, searchTarget)),
                 WorkerJsonContext.Default.GrepToolResult);
         }
     }

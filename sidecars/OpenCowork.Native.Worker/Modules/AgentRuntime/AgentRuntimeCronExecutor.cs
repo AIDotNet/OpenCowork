@@ -770,7 +770,7 @@ internal static partial class AgentRuntimeCronExecutor
 
     private static string EncodeError(string message)
     {
-        return EncodeJsonObject(writer => writer.WriteString("error", message));
+        return AgentRuntimeToolError.Encode(message);
     }
 
     private static string EncodeJsonObject(Action<Utf8JsonWriter> writeProperties)

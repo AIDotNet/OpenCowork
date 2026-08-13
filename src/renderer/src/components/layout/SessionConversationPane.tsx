@@ -45,11 +45,14 @@ import {
 } from '@renderer/hooks/use-chat-actions'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { presentPlanReviewInRightPanel } from '@renderer/lib/plan-review-panel'
 import { openDetachedSessionWindow } from '@renderer/lib/session-window'
 import { exportSessionMarkdownFromDb } from '@renderer/lib/utils/export-chat'
 import { copySessionAsImageToClipboard } from '@renderer/lib/utils/export-session-image'
 import { cn } from '@renderer/lib/utils'
+import { useAgentStore } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { usePlanStore } from '@renderer/stores/plan-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { toast } from 'sonner'
@@ -116,6 +119,10 @@ export function SessionConversationPane({
   const setConversationPanelFullWidth = useUIStore((state) => state.setConversationPanelFullWidth)
   const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const isStreaming = Boolean(streamingMessageId)
+  const isSessionActive = useAgentStore((state) => state.isSessionActive(resolvedSessionId))
+  const pendingReviewPlan = usePlanStore((state) =>
+    resolvedSessionId ? state.getPendingReviewPlan(resolvedSessionId) : undefined
+  )
   const {
     sendMessage,
     stopStreaming,
@@ -168,6 +175,22 @@ export function SessionConversationPane({
   useEffect(() => {
     setTerminalDockFullscreen(false)
   }, [sessionView.projectId])
+
+  useEffect(() => {
+    if (!resolvedSessionId || !pendingReviewPlan) return
+    if (isStreaming || isSessionActive) return
+    if (!pendingReviewPlan.filePath && !pendingReviewPlan.content?.trim()) return
+    if (useChatStore.getState().activeSessionId !== resolvedSessionId) return
+    if (useUIStore.getState().chatView !== 'session') return
+
+    presentPlanReviewInRightPanel({
+      presentKey: `${pendingReviewPlan.id}:${pendingReviewPlan.updatedAt}`,
+      title: pendingReviewPlan.title,
+      content: pendingReviewPlan.content ?? '',
+      filePath: pendingReviewPlan.filePath,
+      sessionId: resolvedSessionId
+    })
+  }, [isSessionActive, isStreaming, pendingReviewPlan, resolvedSessionId])
 
   const updateSessionProjectDirectory = useCallback(
     async (patch: Partial<{ workingFolder: string | null; sshConnectionId: string | null }>) => {

@@ -11,8 +11,8 @@ export function resolveSubAgentTools(
   allTools: ToolDefinition[]
 ): ResolvedSubAgentTools {
   return {
-    // Sub-agents are leaf workers. Keep the parent's other tools, but never expose
-    // the delegation tool that could recursively create another sub-agent.
+    // Sub-agents are leaf workers. Native runtime expands ACP/plan-restricted
+    // parent lists from `subAgentToolCatalog`; this helper only drops Task.
     tools: allTools.filter((tool) => tool.name !== 'Task'),
     invalidTools: []
   }

@@ -74,6 +74,7 @@ function applyReattachEvent(ctx: ReattachRunContext, event: AgentStreamEvent): b
 
   switch (event.type) {
     case 'thinking_delta':
+      ctx.thinkingComplete = false
       appendRuntimeThinkingDelta(sessionId, assistantMessageId, event.thinking)
       return false
 
@@ -101,6 +102,10 @@ function applyReattachEvent(ctx: ReattachRunContext, event: AgentStreamEvent): b
     case 'tool_use_generated': {
       const block = event.toolUseBlock
       if (block?.id && block.name) {
+        if (!ctx.thinkingComplete) {
+          completeRuntimeThinking(sessionId, assistantMessageId)
+          ctx.thinkingComplete = true
+        }
         appendRuntimeToolUse(sessionId, assistantMessageId, {
           type: 'tool_use',
           id: block.id,

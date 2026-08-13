@@ -8,6 +8,7 @@ import { longcatPreset } from './longcat'
 import { googlePreset } from './google'
 import { deepseekPreset } from './deepseek'
 import { openrouterPreset } from './openrouter'
+import { opencodePreset } from './opencode'
 import { opencodeGoPreset } from './opencode-go'
 import { ollamaPreset } from './ollama'
 import { azureOpenaiPreset } from './azure-openai'
@@ -33,7 +34,8 @@ import type { BuiltinProviderPreset } from './types'
 //
 // - Built-in web search: Anthropic `web_search_20250305`, OpenAI Responses `web_search`
 //   (official API + ChatGPT-backed Codex). Supported models default to enabled.
-// - Responses `image_generation` tool: official OpenAI API only.
+// - Responses `image_generation` tool: official OpenAI API only. Capability is marked
+//   on supported models; the tool itself stays off until the user enables it.
 // - Responses WebSocket transport: no default here; presets that support it (e.g.
 //   Routin AI gpt-5.4+) set `supportsWebsocket` explicitly on their model literals.
 const BUILTIN_SEARCH_CAPABLE_PRESETS = new Set(['openai', 'anthropic', 'codex-oauth'])
@@ -109,6 +111,7 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   googlePreset,
   deepseekPreset,
   openrouterPreset,
+  opencodePreset,
   opencodeGoPreset,
   ollamaPreset,
   azureOpenaiPreset,

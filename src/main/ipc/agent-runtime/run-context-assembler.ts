@@ -6,6 +6,7 @@ import {
 import { MULTI_AGENT_MODE_PROMPT } from '../../../shared/agent-system-prompt'
 import type { SessionRunSettings } from './session-run-settings'
 import type { SessionToolDefinition } from './session-tool-catalog'
+import { splitToolsForSubAgentCatalog } from '../../../shared/session-mode-tools'
 import { CODEGRAPH_SYSTEM_GUIDANCE } from './session-tool-families'
 
 export type AssembleSessionIntent = {
@@ -129,13 +130,17 @@ export async function assembleSessionContext(
 
   const permissionPolicy = deps.readPermissionPolicy()
   const runSettings = deps.readRunSettings()
-  const tools = [
+  const availableTools = [
     ...(await deps.listTools({
       sessionId: intent.sessionId,
       mode,
       projectId: session.projectId
     }))
   ].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+  const { parentTools: tools, subAgentToolCatalog } = splitToolsForSubAgentCatalog({
+    mode,
+    availableTools
+  })
   let systemPrompt = await deps.resolveSystemPrompt({
     sessionId: intent.sessionId,
     mode,
@@ -183,6 +188,7 @@ export async function assembleSessionContext(
     workingFolder: session.workingFolder,
     messages: historyMessages,
     tools,
+    ...(subAgentToolCatalog.length > 0 ? { subAgentToolCatalog } : {}),
     capabilitySnapshot,
     maxIterations: runSettings.maxIterations,
     forceApproval: false,
@@ -199,7 +205,9 @@ export async function assembleSessionContext(
   if (permissionPolicy) {
     openTemplate.permissionPolicy = permissionPolicy
   }
-  const hasWebTools = tools.some((tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch')
+  const hasWebTools = subAgentToolCatalog.some(
+    (tool) => tool.name === 'WebSearch' || tool.name === 'WebFetch'
+  )
   if (runSettings.webSearch && hasWebTools) {
     openTemplate.webSearch = runSettings.webSearch
   }

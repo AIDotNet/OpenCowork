@@ -71,25 +71,7 @@ export const PLAN_MODE_ALLOWED_TOOLS = new Set([
   'visualize_show_widget'
 ])
 
-export const ACP_MODE_ALLOWED_TOOLS = new Set([
-  'Read',
-  'LS',
-  'Glob',
-  'Grep',
-  'EnterPlanMode',
-  'ExitPlanMode',
-  'AskUserQuestion',
-  'TaskCreate',
-  'TaskGet',
-  'TaskUpdate',
-  'TaskList',
-  'Task',
-  'Agent',
-  'get_goal',
-  'create_goal',
-  'update_goal',
-  'visualize_show_widget'
-])
+export { ACP_MODE_ALLOWED_TOOLS } from '../../../../shared/session-mode-tools'
 
 export function registerPlanTools(): void {
   toolRegistry.register(enterPlanModeHandler)

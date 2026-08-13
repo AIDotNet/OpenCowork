@@ -17,7 +17,8 @@ import {
   modelSupportsVision,
   modelSupportsBuiltinSearch,
   modelSupportsResponsesWebsocket,
-  modelSupportsResponsesImageGeneration
+  modelSupportsResponsesImageGeneration,
+  resolveModelThinkingConfig
 } from '@renderer/stores/provider-store'
 import {
   useSettingsStore,
@@ -402,7 +403,11 @@ function ModelSettingsPopover({
     model,
     providerType
   )
-  const levels = model?.thinkingConfig?.reasoningEffortLevels
+  const providerBuiltinId = useProviderStore((s) =>
+    providerId ? s.providers.find((provider) => provider.id === providerId)?.builtinId : undefined
+  )
+  const thinkingConfig = resolveModelThinkingConfig(model, providerBuiltinId)
+  const levels = thinkingConfig?.reasoningEffortLevels
   const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled)
   const fastModeEnabled = useSettingsStore((s) => s.fastModeEnabled)
   const reasoningEffort = useSettingsStore((s) => s.reasoningEffort)
@@ -413,7 +418,7 @@ function ModelSettingsPopover({
     reasoningEffortByModel,
     providerId,
     modelId: model?.id,
-    thinkingConfig: model?.thinkingConfig
+    thinkingConfig
   })
 
   const toggleThinking = useCallback(() => {

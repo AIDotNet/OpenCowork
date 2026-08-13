@@ -305,9 +305,13 @@ function normalizeAgentChangeKey(initialChangeId?: string | null): string | null
   return initialChangeId.includes(':') ? initialChangeId : `agent:${initialChangeId}`
 }
 
-function closeRightSidePanels(): { rightPanelOpen: false } {
+function closeRightSidePanels(): {
+  rightPanelOpen: false
+  rightPanelExpandedForReading: false
+} {
   return {
-    rightPanelOpen: false
+    rightPanelOpen: false,
+    rightPanelExpandedForReading: false
   }
 }
 
@@ -376,6 +380,8 @@ interface UIStore {
   closeRightPanelTab: (tabId: string) => void
   rightPanelWidth: number
   setRightPanelWidth: (width: number) => void
+  rightPanelExpandedForReading: boolean
+  expandRightPanelForReading: () => void
   agentFilesActiveTabBySurface: Partial<Record<AgentFilesSurface, AgentFilesTab>>
   agentFilesSelectedChangeKey: string | null
   agentFilesChangeSource: AgentFilesChangeSource
@@ -984,7 +990,7 @@ export const useUIStore = create<UIStore>()(
       toggleRightPanel: () =>
         set((state) => {
           const nextOpen = !state.rightPanelOpen
-          if (!nextOpen) return { rightPanelOpen: false }
+          if (!nextOpen) return closeRightSidePanels()
           const sanitized = ensureRightPanelTabs(state.rightPanelTabs)
           const rightPanelTabs = sanitized.length > 0 ? sanitized : [createReviewTab()]
           const rightPanelActiveTabId = rightPanelTabs.some(
@@ -1000,7 +1006,7 @@ export const useUIStore = create<UIStore>()(
         }),
       setRightPanelOpen: (open) =>
         set((state) => {
-          if (!open) return { rightPanelOpen: false }
+          if (!open) return closeRightSidePanels()
           const sanitized = ensureRightPanelTabs(state.rightPanelTabs)
           const rightPanelTabs = sanitized.length > 0 ? sanitized : [createReviewTab()]
           const rightPanelActiveTabId = rightPanelTabs.some(
@@ -1356,7 +1362,7 @@ export const useUIStore = create<UIStore>()(
           return {
             rightPanelTabs: nextRightPanelTabs,
             rightPanelActiveTabId,
-            ...(panelEmpty ? { rightPanelOpen: false } : {}),
+            ...(panelEmpty ? closeRightSidePanels() : {}),
             ...(target?.kind === 'preview'
               ? {
                   previewPanelTabs: nextPreviewTabs,
@@ -1375,7 +1381,13 @@ export const useUIStore = create<UIStore>()(
           }
         }),
       rightPanelWidth: 384,
-      setRightPanelWidth: (width) => set({ rightPanelWidth: clampRightPanelWidth(width) }),
+      setRightPanelWidth: (width) =>
+        set({
+          rightPanelWidth: clampRightPanelWidth(width),
+          rightPanelExpandedForReading: false
+        }),
+      rightPanelExpandedForReading: false,
+      expandRightPanelForReading: () => set({ rightPanelExpandedForReading: true }),
       agentFilesActiveTabBySurface: {},
       agentFilesSelectedChangeKey: null,
       agentFilesChangeSource: 'all',
@@ -2232,6 +2244,7 @@ export const useUIStore = create<UIStore>()(
               ? state.conversationPanelFullWidth
               : current.conversationPanelFullWidth,
           rightPanelWidth: clampRightPanelWidth(state.rightPanelWidth ?? current.rightPanelWidth),
+          rightPanelExpandedForReading: false,
           runtimeStatusPanelOpen:
             typeof state.runtimeStatusPanelOpen === 'boolean'
               ? state.runtimeStatusPanelOpen

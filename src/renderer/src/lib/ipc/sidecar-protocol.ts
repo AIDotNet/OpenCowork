@@ -610,8 +610,10 @@ export function buildSidecarAgentRunRequest(args: {
   messages: UnifiedMessage[]
   provider: ProviderConfig
   tools: ToolDefinition[]
+  subAgentToolCatalog?: ToolDefinition[]
   runId?: string
   sessionId?: string
+  /** Must match the session row's projectId; omitting it on a project-bound session fails runtime v2 checks. */
   projectId?: string | null
   sessionPromptMode?: string
   rolloutMode?: RuntimeRolloutMode
@@ -658,7 +660,10 @@ export function buildSidecarAgentRunRequest(args: {
   }
 
   const maxParallelTools = normalizeMaxParallelTools(args.maxParallelTools)
-  const webSearch = mapSidecarWebSearchConfig(args.tools)
+  const webSearch = mapSidecarWebSearchConfig([
+    ...args.tools,
+    ...(args.subAgentToolCatalog ?? [])
+  ])
   // Global settings snapshot, applied to every run this module builds (incl. sub-agents,
   // which inherit the parent's parameters in the native worker).
   const settings = useSettingsStore.getState()
@@ -714,6 +719,9 @@ export function buildSidecarAgentRunRequest(args: {
     provider,
     ...(compressionProvider ? { compressionProvider } : {}),
     tools: args.tools.map(mapSidecarTool),
+    ...(args.subAgentToolCatalog && args.subAgentToolCatalog.length > 0
+      ? { subAgentToolCatalog: args.subAgentToolCatalog.map(mapSidecarTool) }
+      : {}),
     capabilitySnapshot,
     ...(webSearch ? { webSearch } : {}),
     ...(imagePluginProvider ? { imagePluginProvider } : {}),

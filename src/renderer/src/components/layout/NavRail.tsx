@@ -1,10 +1,10 @@
 import {
   CalendarDays,
   CloudSync,
-  FolderOpen,
-  Image,
+  Library,
   MessageSquare,
-  Monitor,
+  Palette,
+  Server,
   Settings,
   Sparkles,
   SquareKanban,
@@ -25,13 +25,13 @@ const navItems: { value: NavItem | 'ssh'; icon: React.ReactNode; labelKey: strin
   { value: 'chat', icon: <MessageSquare className="size-5" />, labelKey: 'navRail.conversations' },
   { value: 'taskboard', icon: <SquareKanban className="size-5" />, labelKey: 'navRail.taskBoard' },
   { value: 'tasks', icon: <CalendarDays className="size-5" />, labelKey: 'navRail.tasks' },
-  { value: 'resources', icon: <FolderOpen className="size-5" />, labelKey: 'navRail.resources' },
+  { value: 'resources', icon: <Library className="size-5" />, labelKey: 'navRail.resources' },
   { value: 'skills', icon: <Wand2 className="size-5" />, labelKey: 'navRail.skills' },
   { value: 'souls', icon: <Sparkles className="size-5" />, labelKey: 'navRail.souls' },
   { value: 'sync', icon: <CloudSync className="size-5" />, labelKey: 'navRail.sync' },
-  { value: 'draw', icon: <Image className="size-5" />, labelKey: 'navRail.draw' },
+  { value: 'draw', icon: <Palette className="size-5" />, labelKey: 'navRail.draw' },
   { value: 'codegraph', icon: <Waypoints className="size-5" />, labelKey: 'navRail.codegraph' },
-  { value: 'ssh', icon: <Monitor className="size-5" />, labelKey: 'navRail.ssh' }
+  { value: 'ssh', icon: <Server className="size-5" />, labelKey: 'navRail.ssh' }
 ]
 
 export function NavRail(): React.JSX.Element {

@@ -2,7 +2,6 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Plus,
-  Sparkles,
   Loader2,
   Command,
   Paperclip,
@@ -12,7 +11,6 @@ import {
   Cable,
   ClipboardList,
   Target,
-  Puzzle,
   Shapes
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -31,13 +29,10 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { cn } from '@renderer/lib/utils'
-import { useSkillsStore } from '@renderer/stores/skills-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { resolveConfiguredActiveMcpIds, useMcpStore } from '@renderer/stores/mcp-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { listCommands, type CommandCatalogItem } from '@renderer/lib/commands/command-loader'
-import { resolvePluginsForProject, useAppPluginStore } from '@renderer/stores/app-plugin-store'
-import { APP_PLUGIN_DESCRIPTORS, type AppPluginId } from '@renderer/lib/app-plugin/types'
 import {
   resolveEffectiveActiveExtensionIds,
   useExtensionStore
@@ -45,9 +40,7 @@ import {
 import { refreshExtensionTools } from '@renderer/lib/extensions/extension-tools'
 
 interface SkillsMenuProps {
-  onSelectSkill: (skillName: string) => void
   onSelectCommand?: (commandName: string) => void
-  onSelectPlugin?: (pluginId: AppPluginId) => void
   onAttachMedia?: () => void
   disabled?: boolean
   projectId?: string | null
@@ -112,10 +105,6 @@ function useActiveAdditionsCount(projectId?: string | null, showChannels = true)
   ])
 }
 
-function MenuSectionLabel({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div className="composer-menu-section-label">{children}</div>
-}
-
 interface MenuRowProps {
   icon: React.ReactNode
   label: React.ReactNode
@@ -151,26 +140,8 @@ function MenuRow({
   )
 }
 
-function PluginGlyph({ index, kind }: { index: number; kind: 'skill' | 'plugin' }) {
-  const tones = [
-    'bg-blue-500/15 text-blue-400',
-    'bg-red-500/15 text-red-400',
-    'bg-emerald-500/15 text-emerald-400',
-    'bg-amber-500/15 text-amber-400',
-    'bg-violet-500/15 text-violet-400'
-  ]
-  const Icon = kind === 'plugin' ? Puzzle : Sparkles
-  return (
-    <span className={cn('composer-menu-plugin-icon', tones[index % tones.length])}>
-      <Icon className="size-3.5" />
-    </span>
-  )
-}
-
 export function SkillsMenu({
-  onSelectSkill,
   onSelectCommand,
-  onSelectPlugin,
   onAttachMedia,
   disabled = false,
   projectId,
@@ -226,9 +197,7 @@ export function SkillsMenu({
 
       {open && (
         <SkillsMenuContent
-          onSelectSkill={onSelectSkill}
           onSelectCommand={onSelectCommand}
-          onSelectPlugin={onSelectPlugin}
           onAttachMedia={onAttachMedia}
           projectId={projectId}
           showChannels={showChannels}
@@ -248,9 +217,7 @@ export function SkillsMenu({
 }
 
 function SkillsMenuContent({
-  onSelectSkill,
   onSelectCommand,
-  onSelectPlugin,
   onAttachMedia,
   projectId,
   showChannels = true,
@@ -267,9 +234,6 @@ function SkillsMenuContent({
   const { t } = useTranslation('chat')
   const [commands, setCommands] = React.useState<CommandCatalogItem[]>([])
   const [commandsLoading, setCommandsLoading] = React.useState(false)
-  const skills = useSkillsStore((s) => s.skills)
-  const loading = useSkillsStore((s) => s.loading)
-  const loadSkills = useSkillsStore((s) => s.loadSkills)
 
   const channels = useChannelStore((s) => s.channels)
   const activeChannelIdsByProject = useChannelStore((s) => s.activeChannelIdsByProject)
@@ -297,44 +261,6 @@ function SkillsMenuContent({
   const toggleActiveMcp = useMcpStore((s) => s.toggleActiveMcp)
   const loadMcpServers = useMcpStore((s) => s.loadServers)
   const refreshAllMcpServers = useMcpStore((s) => s.refreshAllServers)
-  const pluginsByProject = useAppPluginStore((s) => s.pluginsByProject)
-  const availablePlugins = React.useMemo(() => {
-    const projectPlugins = resolvePluginsForProject(pluginsByProject, projectId)
-
-    return APP_PLUGIN_DESCRIPTORS.filter((descriptor) => !descriptor.hidden)
-      .map((descriptor) => {
-        const plugin = projectPlugins.find((item) => item.id === descriptor.id)
-        if (!plugin?.enabled) return null
-
-        return {
-          id: descriptor.id,
-          title: t(`plugin.items.${descriptor.id}.title`, {
-            ns: 'settings',
-            defaultValue: descriptor.id
-          }),
-          description: t(`plugin.items.${descriptor.id}.description`, {
-            ns: 'settings',
-            defaultValue: ''
-          })
-        }
-      })
-      .filter(
-        (item): item is { id: AppPluginId; title: string; description: string } => item !== null
-      )
-  }, [pluginsByProject, projectId, t])
-  const pluginBackedSkillNames = React.useMemo(
-    () =>
-      new Set(
-        APP_PLUGIN_DESCRIPTORS.filter((descriptor) => !descriptor.hidden).map(
-          (descriptor) => descriptor.id
-        )
-      ),
-    []
-  )
-  const visibleSkills = React.useMemo(
-    () => skills.filter((skill) => !pluginBackedSkillNames.has(skill.name as AppPluginId)),
-    [pluginBackedSkillNames, skills]
-  )
   const availableMcpServers = React.useMemo(
     () =>
       mcpServers.filter(
@@ -365,7 +291,6 @@ function SkillsMenuContent({
   const showModeSection = showModeToggles && Boolean(onPlanModeChange || onGoalModeChange)
 
   React.useEffect(() => {
-    loadSkills()
     loadProviders()
     loadChannels()
     loadMcpServers()
@@ -389,14 +314,7 @@ function SkillsMenuContent({
     return () => {
       cancelled = true
     }
-  }, [
-    loadSkills,
-    loadProviders,
-    loadChannels,
-    loadMcpServers,
-    refreshAllMcpServers,
-    loadExtensions
-  ])
+  }, [loadProviders, loadChannels, loadMcpServers, refreshAllMcpServers, loadExtensions])
 
   return (
     <DropdownMenuContent
@@ -484,69 +402,7 @@ function SkillsMenuContent({
 
       {(onAttachMedia || showModeSection) && <DropdownMenuSeparator />}
 
-      <MenuSectionLabel>{t('skills.pluginsLabel')}</MenuSectionLabel>
-      <div className="composer-menu-section">
-        {loading ? (
-          <div className="composer-menu-loading">
-            <Loader2 className="size-3.5 animate-spin" />
-            {t('skills.loadingSkills')}
-          </div>
-        ) : (
-          visibleSkills.map((skill, index) => (
-            <MenuRow
-              key={`skill:${skill.name}`}
-              icon={<PluginGlyph index={index} kind="skill" />}
-              label={skill.name}
-              description={
-                skill.description ||
-                t('skills.skillDescription', { defaultValue: 'Add this skill to the message' })
-              }
-              onSelect={(event) => {
-                event.preventDefault()
-                onSelectSkill(skill.name)
-                setOpen(false)
-              }}
-            />
-          ))
-        )}
-
-        {onSelectPlugin &&
-          availablePlugins.map((plugin, index) => (
-            <MenuRow
-              key={`plugin:${plugin.id}`}
-              icon={<PluginGlyph index={visibleSkills.length + index} kind="plugin" />}
-              label={plugin.title}
-              description={plugin.description}
-              onSelect={(event) => {
-                event.preventDefault()
-                onSelectPlugin(plugin.id)
-                setOpen(false)
-              }}
-            />
-          ))}
-
-        {!loading &&
-          visibleSkills.length === 0 &&
-          (!onSelectPlugin || availablePlugins.length === 0) && (
-            <div className="composer-menu-empty">{t('skills.noPlugins')}</div>
-          )}
-
-        {onSelectPlugin && (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault()
-              setOpen(false)
-              openSettingsPage('plugin')
-            }}
-            className="composer-menu-settings-row"
-          >
-            <Settings2 className="size-3.5" />
-            {t('skills.configurePlugins')}
-          </DropdownMenuItem>
-        )}
-      </div>
-
-      <DropdownMenuSeparator />
+      {/* Plugins and skills are attached from the composer `/` suggestions. */}
 
       <div className="composer-menu-section">
         <DropdownMenuGroup>

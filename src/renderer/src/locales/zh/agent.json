@@ -9,6 +9,7 @@
     "boundarySummarized": "{{count}} 条已总结",
     "summaryTitle": "压缩上下文摘要",
     "continuationSessionTitle": "{{title}} · 压缩上下文",
+    "continueInNewSession": "以新会话继续",
     "summaryMessages": "早期 {{count}} 条消息",
     "summaryRecentPreserved": "原文仍可查看",
     "summaryExpand": "展开摘要",

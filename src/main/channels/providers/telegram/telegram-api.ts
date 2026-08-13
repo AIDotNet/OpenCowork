@@ -1,6 +1,8 @@
 import * as https from 'https'
+import { requireTextChunks } from '../../split-text'
 
 const BASE_URL = 'https://api.telegram.org'
+const TEXT_LIMIT = 4096
 
 interface HttpResponse {
   statusCode: number
@@ -70,17 +72,25 @@ export class TelegramApi {
 
   /** Send a message to a chat */
   async sendMessage(chatId: string, content: string): Promise<{ messageId: string }> {
-    const res = await request(
-      'POST',
-      `${this.baseUrl}/sendMessage`,
-      {},
-      JSON.stringify({ chat_id: chatId, text: content })
-    )
-    const data = JSON.parse(res.body)
-    if (!data.ok) {
-      throw new Error(`Telegram sendMessage failed: ${data.description ?? data.error_code}`)
+    if (!chatId) {
+      throw new Error('Telegram sendMessage requires chatId')
     }
-    return { messageId: String(data.result?.message_id ?? '') }
+
+    let messageId = ''
+    for (const text of requireTextChunks(content, TEXT_LIMIT, 'Telegram')) {
+      const res = await request(
+        'POST',
+        `${this.baseUrl}/sendMessage`,
+        {},
+        JSON.stringify({ chat_id: chatId, text })
+      )
+      const data = JSON.parse(res.body)
+      if (!data.ok) {
+        throw new Error(`Telegram sendMessage failed: ${data.description ?? data.error_code}`)
+      }
+      messageId = String(data.result?.message_id ?? '')
+    }
+    return { messageId }
   }
 
   /** Reply to a specific message */
@@ -89,13 +99,19 @@ export class TelegramApi {
     chatId: string,
     content: string
   ): Promise<{ messageId: string }> {
+    if (!chatId) {
+      throw new Error('Telegram replyMessage requires chatId')
+    }
+
+    const chunks = requireTextChunks(content, TEXT_LIMIT, 'Telegram')
+    const first = chunks[0] ?? ''
     const res = await request(
       'POST',
       `${this.baseUrl}/sendMessage`,
       {},
       JSON.stringify({
         chat_id: chatId,
-        text: content,
+        text: first,
         reply_to_message_id: parseInt(messageId, 10)
       })
     )
@@ -103,6 +119,10 @@ export class TelegramApi {
     if (!data.ok) {
       throw new Error(`Telegram replyMessage failed: ${data.description ?? data.error_code}`)
     }
-    return { messageId: String(data.result?.message_id ?? '') }
+    let lastId = String(data.result?.message_id ?? '')
+    for (const text of chunks.slice(1)) {
+      lastId = (await this.sendMessage(chatId, text)).messageId
+    }
+    return { messageId: lastId }
   }
 }

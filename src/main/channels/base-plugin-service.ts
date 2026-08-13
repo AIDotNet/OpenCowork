@@ -2,10 +2,12 @@ import type {
   MessagingChannelService,
   ChannelInstance,
   ChannelEvent,
+  ChannelIncomingMessageData,
   ChannelMessage,
   ChannelGroup,
   ChannelWsMessageParser
 } from './channel-types'
+import { ReplyContextCache } from './reply-context'
 import { WebSocketTransport } from './ws-transport'
 
 /**
@@ -18,6 +20,7 @@ export abstract class BasePluginService implements MessagingChannelService {
   abstract readonly pluginType: string
 
   protected _instance: ChannelInstance
+  protected readonly replyContext = new ReplyContextCache()
   private _notify: (event: ChannelEvent) => void
   private ws: WebSocketTransport | null = null
   private _running = false
@@ -137,12 +140,19 @@ export abstract class BasePluginService implements MessagingChannelService {
       return
     }
 
+    this.onIncomingParsed(parsed)
+
     this.emit({
       type: 'incoming_message',
       pluginId: this.pluginId,
       pluginType: this.pluginType,
       data: parsed
     })
+  }
+
+  /** Called after a fresh inbound message is parsed. Default: cache reply routing. */
+  protected onIncomingParsed(parsed: ChannelIncomingMessageData): void {
+    this.replyContext.remember(parsed.messageId, parsed.chatId)
   }
 
   // ── Abstract API methods — subclasses must implement ──

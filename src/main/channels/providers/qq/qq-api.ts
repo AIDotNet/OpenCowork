@@ -1,3 +1,5 @@
+import { requireTextChunks } from '../../split-text'
+
 export type QQChatTargetType = 'c2c' | 'group' | 'channel'
 
 export interface QQChatTarget {
@@ -24,6 +26,7 @@ interface QQMessageResponse {
 const PROD_API_BASE = 'https://api.sgroup.qq.com'
 const SANDBOX_API_BASE = 'https://sandbox.api.sgroup.qq.com'
 const TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken'
+const TEXT_LIMIT = 4000
 
 interface QQApiOptions {
   useSandbox?: boolean
@@ -106,6 +109,20 @@ export class QQApi {
   }
 
   async sendMessage(
+    target: QQChatTarget,
+    content: string,
+    replyToMessageId?: string,
+    options: QQSendMessageOptions = {}
+  ): Promise<{ messageId: string }> {
+    const chunks = requireTextChunks(content, TEXT_LIMIT, 'QQ')
+    let messageId = ''
+    for (const chunk of chunks) {
+      messageId = (await this.sendOne(target, chunk, replyToMessageId, options)).messageId
+    }
+    return { messageId }
+  }
+
+  private async sendOne(
     target: QQChatTarget,
     content: string,
     replyToMessageId?: string,

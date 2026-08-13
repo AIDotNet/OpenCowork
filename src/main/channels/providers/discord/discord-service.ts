@@ -30,9 +30,12 @@ export class DiscordService extends BasePluginService {
     return this.api.sendMessage(chatId, content)
   }
 
-  async replyMessage(_messageId: string, content: string): Promise<{ messageId: string }> {
-    // Discord reply requires channelId — stub for now
-    return this.api.sendMessage('', content)
+  async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
+    const channelId = this.replyContext.getChatId(messageId)
+    if (!channelId) {
+      throw new Error('Discord reply context not found for messageId')
+    }
+    return this.api.replyMessage(channelId, messageId, content)
   }
 
   async getGroupMessages(_chatId: string, _count?: number): Promise<ChannelMessage[]> {

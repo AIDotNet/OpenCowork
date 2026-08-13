@@ -25,8 +25,12 @@ export class WhatsAppService extends BasePluginService {
     return this.api.sendMessage(chatId, content)
   }
 
-  async replyMessage(_messageId: string, content: string): Promise<{ messageId: string }> {
-    return this.api.sendMessage('', content)
+  async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
+    const to = this.replyContext.getChatId(messageId)
+    if (!to) {
+      throw new Error('WhatsApp reply context not found for messageId')
+    }
+    return this.api.replyMessage(to, messageId, content)
   }
 
   async getGroupMessages(_chatId: string, _count?: number): Promise<ChannelMessage[]> {

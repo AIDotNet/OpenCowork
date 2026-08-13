@@ -69,6 +69,7 @@ export class QQService implements MessagingChannelService {
   private sessionId: string | null = null
   private isConnecting = false
   private shouldRefreshToken = false
+  private lastInboundMsgIds = new Map<string, string>()
 
   constructor(instance: ChannelInstance, notify: (event: ChannelEvent) => void) {
     this.instance = instance
@@ -139,8 +140,9 @@ export class QQService implements MessagingChannelService {
     allowWakeup = false
   ): Promise<{ messageId: string }> {
     const target = parseQQChatId(chatId)
-    if (target.type !== 'c2c' || !allowWakeup) {
-      return this.api.sendMessage(target, content)
+    const replyTo = this.lastInboundMsgIds.get(chatId)
+    if (target.type !== 'c2c' || !allowWakeup || replyTo) {
+      return this.api.sendMessage(target, content, replyTo)
     }
 
     const wakeup = await resolveQqWakeupEligibility(this.pluginId, target.id)
@@ -403,6 +405,15 @@ export class QQService implements MessagingChannelService {
         console.warn(`[qq-bot:${this.pluginId}] Ignored dispatch event: ${payload.t}`)
       }
       return
+    }
+
+    const replyRef = decodeQQReplyReference(parsed.messageId)
+    if (replyRef) {
+      this.lastInboundMsgIds.set(replyRef.chatId, replyRef.messageId)
+      if (this.lastInboundMsgIds.size > 500) {
+        const oldest = this.lastInboundMsgIds.keys().next().value
+        if (oldest) this.lastInboundMsgIds.delete(oldest)
+      }
     }
 
     this.emit('incoming_message', parsed)

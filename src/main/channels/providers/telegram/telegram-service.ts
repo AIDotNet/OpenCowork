@@ -25,10 +25,12 @@ export class TelegramService extends BasePluginService {
     return this.api.sendMessage(chatId, content)
   }
 
-  async replyMessage(_messageId: string, content: string): Promise<{ messageId: string }> {
-    // Telegram reply requires chatId — for now send without reply context
-    // In practice, the auto-reply pipeline provides chatId
-    return this.api.sendMessage('', content)
+  async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
+    const chatId = this.replyContext.getChatId(messageId)
+    if (!chatId) {
+      throw new Error('Telegram reply context not found for messageId')
+    }
+    return this.api.replyMessage(messageId, chatId, content)
   }
 
   async getGroupMessages(_chatId: string, _count?: number): Promise<ChannelMessage[]> {

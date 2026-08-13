@@ -2,6 +2,9 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 
 export const DEFAULT_WEIXIN_BASE_URL = 'https://ilinkai.weixin.qq.com'
 export const DEFAULT_WEIXIN_CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c'
+const CHANNEL_VERSION = '1.0.0'
+/** Conservative Weixin text limit used by community iLink clients. */
+const TEXT_CHUNK_LIMIT = 2000
 
 export interface WeixinCdnMedia {
   encrypt_query_param?: string
@@ -78,8 +81,66 @@ interface WeixinUploadedFileInfo {
   fileSizeCiphertext: number
 }
 
+interface WeixinApiResponse {
+  ret?: number
+  errcode?: number
+  errmsg?: string
+}
+
 function normalizeBaseUrl(baseUrl: string): string {
   return (baseUrl || DEFAULT_WEIXIN_BASE_URL).replace(/\/+$/, '')
+}
+
+function withBaseInfo(body: unknown): unknown {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return body
+  }
+  return {
+    ...(body as Record<string, unknown>),
+    base_info: { channel_version: CHANNEL_VERSION }
+  }
+}
+
+function assertWeixinOk(response: WeixinApiResponse, action: string): void {
+  const code = response.errcode ?? response.ret ?? 0
+  if (code !== 0) {
+    throw new Error(response.errmsg || `Weixin ${action} failed: ${code}`)
+  }
+}
+
+function splitTextChunks(text: string, limit = TEXT_CHUNK_LIMIT): string[] {
+  if (!text) return []
+  if (text.length <= limit) return [text]
+
+  const chunks: string[] = []
+  let remaining = text
+  while (remaining.length > limit) {
+    const window = remaining.slice(0, limit)
+    const paragraphBreak = window.lastIndexOf('\n\n')
+    const lineBreak = window.lastIndexOf('\n')
+    const spaceBreak = window.lastIndexOf(' ')
+    const breakAt =
+      paragraphBreak > 0
+        ? paragraphBreak + 2
+        : lineBreak > 0
+          ? lineBreak + 1
+          : spaceBreak > 0
+            ? spaceBreak + 1
+            : limit
+    chunks.push(remaining.slice(0, breakAt).trimEnd())
+    remaining = remaining.slice(breakAt).trimStart()
+  }
+  if (remaining) {
+    chunks.push(remaining)
+  }
+  return chunks.filter((chunk) => chunk.length > 0)
+}
+
+function textItems(text?: string): Array<Record<string, unknown>> {
+  return splitTextChunks(text || '').map((chunk) => ({
+    type: 1,
+    text_item: { text: chunk }
+  }))
 }
 
 function buildXWechatUin(): string {
@@ -129,7 +190,7 @@ async function postJson<T>(params: {
     const response = await fetch(`${normalizeBaseUrl(params.baseUrl)}/${params.path}`, {
       method: 'POST',
       headers: buildHeaders(params.token, params.routeTag, params.wechatUin),
-      body: JSON.stringify(params.body),
+      body: JSON.stringify(withBaseInfo(params.body)),
       signal
     })
 
@@ -164,7 +225,7 @@ async function postBinary(params: {
     const response = await fetch(`${normalizeBaseUrl(params.baseUrl)}/${params.path}`, {
       method: 'POST',
       headers: buildHeaders(params.token, params.routeTag, params.wechatUin),
-      body: JSON.stringify(params.body),
+      body: JSON.stringify(withBaseInfo(params.body)),
       signal
     })
 
@@ -370,7 +431,9 @@ async function uploadBufferToCdn(params: {
   throw lastError instanceof Error ? lastError : new Error('Weixin CDN upload failed')
 }
 
-function normalizeUploadUrlResponse(response: WeixinGetUploadUrlResponse): WeixinGetUploadUrlResponse {
+function normalizeUploadUrlResponse(
+  response: WeixinGetUploadUrlResponse
+): WeixinGetUploadUrlResponse {
   const nested = response.data
   if (!nested) return response
   return {
@@ -432,10 +495,7 @@ export class WeixinApi {
         rawfilemd5: params.rawFileMd5,
         filesize: params.fileSize,
         no_need_thumb: true,
-        aeskey: params.aesKeyHex,
-        base_info: {
-          channel_version: '1.0.0'
-        }
+        aeskey: params.aesKeyHex
       },
       token: this.token,
       routeTag: this.routeTag,
@@ -472,12 +532,7 @@ export class WeixinApi {
 
     const uploadParam = uploadUrl.upload_param?.trim()
     const uploadFullUrl = uploadUrl.upload_full_url?.trim()
-    const errcode = uploadUrl.errcode ?? uploadUrl.ret ?? 0
-    if (errcode !== 0) {
-      throw new Error(
-        `Weixin getuploadurl failed: ${uploadUrl.errmsg || `errcode ${errcode}`}`
-      )
-    }
+    assertWeixinOk(uploadUrl, 'getuploadurl')
     if (!uploadParam && !uploadFullUrl) {
       throw new Error('Weixin getuploadurl returned no upload_param or upload_full_url')
     }
@@ -507,11 +562,18 @@ export class WeixinApi {
     items: Array<Record<string, unknown>>
     signal?: AbortSignal
   }): Promise<{ messageId: string }> {
+    if (!params.contextToken) {
+      throw new Error('Weixin sendmessage requires context_token')
+    }
+    if (params.items.length === 0) {
+      throw new Error('Weixin sendmessage requires at least one item')
+    }
+
     let clientId = ''
 
     for (const item of params.items) {
       clientId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-      await postJson({
+      const response = await postJson<WeixinApiResponse>({
         baseUrl: this.baseUrl,
         path: 'ilink/bot/sendmessage',
         body: {
@@ -531,6 +593,7 @@ export class WeixinApi {
         timeoutMs: 20000,
         signal: params.signal
       })
+      assertWeixinOk(response, 'sendmessage')
     }
 
     return { messageId: clientId }
@@ -628,12 +691,7 @@ export class WeixinApi {
     return this.sendItems({
       toUserId: params.toUserId,
       contextToken: params.contextToken,
-      items: [
-        {
-          type: 1,
-          text_item: { text: params.text }
-        }
-      ],
+      items: textItems(params.text),
       signal: params.signal
     })
   }
@@ -658,13 +716,7 @@ export class WeixinApi {
       signal: params.signal
     })
 
-    const items: Array<Record<string, unknown>> = []
-    if (params.text) {
-      items.push({
-        type: 1,
-        text_item: { text: params.text }
-      })
-    }
+    const items: Array<Record<string, unknown>> = [...textItems(params.text)]
     items.push({
       type: 2,
       image_item: {
@@ -702,13 +754,7 @@ export class WeixinApi {
       signal: params.signal
     })
 
-    const items: Array<Record<string, unknown>> = []
-    if (params.text) {
-      items.push({
-        type: 1,
-        text_item: { text: params.text }
-      })
-    }
+    const items: Array<Record<string, unknown>> = [...textItems(params.text)]
     items.push({
       type: 4,
       file_item: {

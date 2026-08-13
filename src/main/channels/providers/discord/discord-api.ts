@@ -1,6 +1,8 @@
 import * as https from 'https'
+import { requireTextChunks } from '../../split-text'
 
 const BASE_URL = 'https://discord.com'
+const TEXT_LIMIT = 2000
 
 interface HttpResponse {
   statusCode: number
@@ -56,31 +58,32 @@ export class DiscordApi {
   constructor(private botToken: string) {}
 
   private authHeaders(): Record<string, string> {
-    return { Authorization: `Bot ${this.botToken}` }
+    return {
+      Authorization: `Bot ${this.botToken}`,
+      'User-Agent': 'OpenCowork-Bot (https://github.com, 1.0)'
+    }
   }
 
   /** Validate the bot token */
   async validate(): Promise<void> {
     const res = await request('GET', '/api/v10/users/@me', this.authHeaders())
-    const data = JSON.parse(res.body)
-    if (data.code || data.message === '401: Unauthorized') {
+    const data = JSON.parse(res.body || '{}') as { id?: string; message?: string }
+    if (res.statusCode !== 200 || !data.id) {
       throw new Error(`Discord auth failed: ${data.message ?? JSON.stringify(data)}`)
     }
   }
 
   /** Send a message to a channel */
   async sendMessage(channelId: string, content: string): Promise<{ messageId: string }> {
-    const res = await request(
-      'POST',
-      `/api/v10/channels/${channelId}/messages`,
-      this.authHeaders(),
-      JSON.stringify({ content })
-    )
-    const data = JSON.parse(res.body)
-    if (data.code) {
-      throw new Error(`Discord sendMessage failed: ${data.message ?? data.code}`)
+    if (!channelId) {
+      throw new Error('Discord sendMessage requires channelId')
     }
-    return { messageId: data.id ?? '' }
+
+    let messageId = ''
+    for (const text of requireTextChunks(content, TEXT_LIMIT, 'Discord')) {
+      messageId = (await this.postMessage(channelId, { content: text })).messageId
+    }
+    return { messageId }
   }
 
   /** Reply to a specific message */
@@ -89,19 +92,40 @@ export class DiscordApi {
     messageId: string,
     content: string
   ): Promise<{ messageId: string }> {
+    if (!channelId) {
+      throw new Error('Discord replyMessage requires channelId')
+    }
+
+    const chunks = requireTextChunks(content, TEXT_LIMIT, 'Discord')
+    const first = chunks[0] ?? ''
+    let lastId = (
+      await this.postMessage(channelId, {
+        content: first,
+        message_reference: { message_id: messageId }
+      })
+    ).messageId
+    for (const text of chunks.slice(1)) {
+      lastId = (await this.postMessage(channelId, { content: text })).messageId
+    }
+    return { messageId: lastId }
+  }
+
+  private async postMessage(
+    channelId: string,
+    payload: Record<string, unknown>
+  ): Promise<{ messageId: string }> {
     const res = await request(
       'POST',
       `/api/v10/channels/${channelId}/messages`,
       this.authHeaders(),
-      JSON.stringify({
-        content,
-        message_reference: { message_id: messageId }
-      })
+      JSON.stringify(payload)
     )
-    const data = JSON.parse(res.body)
-    if (data.code) {
-      throw new Error(`Discord replyMessage failed: ${data.message ?? data.code}`)
+    const data = JSON.parse(res.body || '{}') as { id?: string; message?: string; code?: number }
+    if (res.statusCode < 200 || res.statusCode >= 300 || !data.id) {
+      throw new Error(
+        `Discord sendMessage failed: ${data.message ?? data.code ?? `HTTP ${res.statusCode}`}`
+      )
     }
-    return { messageId: data.id ?? '' }
+    return { messageId: data.id }
   }
 }

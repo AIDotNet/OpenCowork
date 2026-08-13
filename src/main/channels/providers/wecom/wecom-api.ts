@@ -1,6 +1,8 @@
 import * as https from 'https'
+import { requireUtf8ByteChunks } from '../../split-text'
 
 const BASE_URL = 'https://qyapi.weixin.qq.com'
+const TEXT_BYTE_LIMIT = 2048
 
 interface HttpResponse {
   statusCode: number
@@ -85,33 +87,57 @@ export class WeComApi {
   }
 
   /** Send a text message */
-  async sendMessage(toUser: string, content: string): Promise<{ messageId: string }> {
-    const token = await this.ensureToken()
-    const res = await request(
-      'POST',
-      `/cgi-bin/message/send?access_token=${token}`,
-      {},
-      JSON.stringify({
-        touser: toUser,
-        msgtype: 'text',
-        agentid: parseInt(this.agentId, 10),
-        text: { content }
-      })
-    )
-
-    const data = JSON.parse(res.body)
-    if (data.errcode !== 0) {
-      throw new Error(`WeCom sendMessage failed: ${data.errmsg ?? data.errcode}`)
+  async sendMessage(to: string, content: string, isGroup = false): Promise<{ messageId: string }> {
+    if (!to) {
+      throw new Error('WeCom sendMessage requires a recipient')
     }
-    return { messageId: data.msgid ?? '' }
+
+    const token = await this.ensureToken()
+    let messageId = ''
+    for (const chunk of requireUtf8ByteChunks(content, TEXT_BYTE_LIMIT, 'WeCom')) {
+      messageId = (await this.postText(token, to, chunk, isGroup)).messageId
+    }
+    return { messageId }
   }
 
   /** Reply (same as send for WeCom) */
   async replyMessage(
     toUser: string,
     _messageId: string,
-    content: string
+    content: string,
+    isGroup = false
   ): Promise<{ messageId: string }> {
-    return this.sendMessage(toUser, content)
+    return this.sendMessage(toUser, content, isGroup)
+  }
+
+  private async postText(
+    token: string,
+    to: string,
+    content: string,
+    isGroup: boolean
+  ): Promise<{ messageId: string }> {
+    const path = isGroup
+      ? `/cgi-bin/appchat/send?access_token=${token}`
+      : `/cgi-bin/message/send?access_token=${token}`
+    const body = isGroup
+      ? {
+          chatid: to,
+          msgtype: 'text',
+          text: { content },
+          safe: 0
+        }
+      : {
+          touser: to,
+          msgtype: 'text',
+          agentid: parseInt(this.agentId, 10),
+          text: { content }
+        }
+
+    const res = await request('POST', path, {}, JSON.stringify(body))
+    const data = JSON.parse(res.body)
+    if (data.errcode !== 0) {
+      throw new Error(`WeCom sendMessage failed: ${data.errmsg ?? data.errcode}`)
+    }
+    return { messageId: data.msgid ?? '' }
   }
 }

@@ -19,7 +19,8 @@ export function parseWeComWsMessage(raw: string): ChannelIncomingMessageData | n
         senderName: data.FromUserName ?? '',
         content: data.Content ?? '',
         messageId: String(data.MsgId ?? ''),
-        timestamp
+        timestamp,
+        chatType: data.ChatId ? 'group' : 'p2p'
       }
     }
 

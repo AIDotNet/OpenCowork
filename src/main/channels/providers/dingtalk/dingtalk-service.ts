@@ -278,6 +278,13 @@ export class DingTalkService extends BasePluginService {
       }
     }
     // Fall back to REST API
+    const meta = this.chatMetaCache.get(chatId)
+    if (meta?.conversationType === 'p2p') {
+      if (!meta.senderId) {
+        throw new Error('DingTalk P2P send missing sender id')
+      }
+      return this.api.sendOToMessage(meta.senderId, content)
+    }
     return this.api.sendMessage(chatId, content)
   }
 

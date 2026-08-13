@@ -325,8 +325,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
     return
   }
 
-  const shouldReplyToIncomingMessage =
-    pluginType === 'qq-bot' && task.chatType === 'group' && Boolean(task.messageId)
+  const shouldReplyToIncomingMessage = pluginType === 'qq-bot' && Boolean(task.messageId)
   const shouldUseStreamingReply = supportsStreaming && features.streamingReply
   const streamId = nanoid()
 
@@ -967,9 +966,7 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       provider: agentProviderConfig,
       tools: effectiveToolDefs,
       requestContextTexts: buildVolatilePromptTurnContext({
-        memoryContext: memorySnapshot
-          ? buildMemoryContext(memorySnapshot, sessionScope)
-          : null,
+        memoryContext: memorySnapshot ? buildMemoryContext(memorySnapshot, sessionScope) : null,
         skills: getRegisteredSkills(),
         unavailableToolNames: listUnpinnedToolNames(
           effectiveToolDefs.map((tool) => tool.name),

@@ -1,6 +1,7 @@
 import type {
   ChannelInstance,
   ChannelEvent,
+  ChannelIncomingMessageData,
   ChannelMessage,
   ChannelGroup,
   MessagingChannelService
@@ -11,6 +12,7 @@ import { WeComApi } from './wecom-api'
 export class WeComService extends BasePluginService {
   readonly pluginType = 'wecom-bot'
   private api!: WeComApi
+  private readonly groupChats = new Set<string>()
 
   protected async onStart(): Promise<void> {
     const { corpId, secret, agentId } = this._instance.config
@@ -21,12 +23,23 @@ export class WeComService extends BasePluginService {
     await this.api.ensureToken()
   }
 
-  async sendMessage(chatId: string, content: string): Promise<{ messageId: string }> {
-    return this.api.sendMessage(chatId, content)
+  protected onIncomingParsed(parsed: ChannelIncomingMessageData): void {
+    super.onIncomingParsed(parsed)
+    if (parsed.chatType === 'group') {
+      this.groupChats.add(parsed.chatId)
+    }
   }
 
-  async replyMessage(_messageId: string, content: string): Promise<{ messageId: string }> {
-    return this.api.sendMessage('', content)
+  async sendMessage(chatId: string, content: string): Promise<{ messageId: string }> {
+    return this.api.sendMessage(chatId, content, this.groupChats.has(chatId))
+  }
+
+  async replyMessage(messageId: string, content: string): Promise<{ messageId: string }> {
+    const chatId = this.replyContext.getChatId(messageId)
+    if (!chatId) {
+      throw new Error('WeCom reply context not found for messageId')
+    }
+    return this.api.sendMessage(chatId, content, this.groupChats.has(chatId))
   }
 
   async getGroupMessages(_chatId: string, _count?: number): Promise<ChannelMessage[]> {

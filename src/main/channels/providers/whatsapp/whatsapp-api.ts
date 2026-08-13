@@ -1,6 +1,8 @@
 import * as https from 'https'
+import { requireTextChunks } from '../../split-text'
 
 const BASE_URL = 'https://graph.facebook.com'
+const TEXT_LIMIT = 4096
 
 interface HttpResponse {
   statusCode: number
@@ -73,30 +75,64 @@ export class WhatsAppApi {
 
   /** Send a text message */
   async sendMessage(to: string, content: string): Promise<{ messageId: string }> {
-    const res = await request(
-      'POST',
-      `/v18.0/${this.phoneNumberId}/messages`,
-      this.authHeaders(),
-      JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        type: 'text',
-        text: { body: content }
-      })
-    )
-    const data = JSON.parse(res.body)
-    if (data.error) {
-      throw new Error(`WhatsApp sendMessage failed: ${data.error.message ?? data.error.code}`)
+    if (!to) {
+      throw new Error('WhatsApp sendMessage requires a recipient')
     }
-    return { messageId: data.messages?.[0]?.id ?? '' }
+
+    let messageId = ''
+    for (const body of requireTextChunks(content, TEXT_LIMIT, 'WhatsApp')) {
+      messageId = (await this.postText(to, body)).messageId
+    }
+    return { messageId }
   }
 
   /** Reply to a message (WhatsApp uses context for replies) */
   async replyMessage(
     to: string,
-    _messageId: string,
+    messageId: string,
     content: string
   ): Promise<{ messageId: string }> {
-    return this.sendMessage(to, content)
+    if (!to) {
+      throw new Error('WhatsApp replyMessage requires a recipient')
+    }
+
+    const chunks = requireTextChunks(content, TEXT_LIMIT, 'WhatsApp')
+    const first = chunks[0] ?? ''
+    let lastId = (await this.postText(to, first, messageId)).messageId
+    for (const body of chunks.slice(1)) {
+      lastId = (await this.postText(to, body)).messageId
+    }
+    return { messageId: lastId }
+  }
+
+  private async postText(
+    to: string,
+    body: string,
+    replyToMessageId?: string
+  ): Promise<{ messageId: string }> {
+    const payload: Record<string, unknown> = {
+      messaging_product: 'whatsapp',
+      to,
+      type: 'text',
+      text: { body }
+    }
+    if (replyToMessageId) {
+      payload.context = { message_id: replyToMessageId }
+    }
+
+    const res = await request(
+      'POST',
+      `/v18.0/${this.phoneNumberId}/messages`,
+      this.authHeaders(),
+      JSON.stringify(payload)
+    )
+    const data = JSON.parse(res.body || '{}') as {
+      error?: { message?: string; code?: number }
+      messages?: Array<{ id?: string }>
+    }
+    if (data.error) {
+      throw new Error(`WhatsApp sendMessage failed: ${data.error.message ?? data.error.code}`)
+    }
+    return { messageId: data.messages?.[0]?.id ?? '' }
   }
 }

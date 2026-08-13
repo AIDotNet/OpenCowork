@@ -114,6 +114,27 @@ export class DingTalkApi {
     return { messageId: '' }
   }
 
+  /** Send a 1:1 robot message. Group REST API cannot deliver P2P chats. */
+  async sendOToMessage(userId: string, content: string): Promise<{ messageId: string }> {
+    const headers = await this.authHeaders()
+    const body = JSON.stringify({
+      robotCode: this.appKey,
+      userIds: [userId],
+      msgKey: 'sampleText',
+      msgParam: JSON.stringify({ content })
+    })
+
+    const res = await request('POST', '/v1.0/robot/oToMessages/batchSend', headers, body)
+    const data = JSON.parse(res.body)
+    if (data.processQueryKey) {
+      return { messageId: data.processQueryKey }
+    }
+    if (data.code) {
+      throw new Error(`DingTalk sendOToMessage failed: ${data.message ?? data.code}`)
+    }
+    return { messageId: '' }
+  }
+
   /** Reply to a specific message by sending to the resolved conversation. */
   async replyMessage(
     messageId: string,

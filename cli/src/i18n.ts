@@ -1,4 +1,4 @@
-import i18n from 'i18next'
+﻿import i18n from 'i18next'
 import { loadOpenCoworkConfiguration } from './runtime/provider-catalog.js'
 
 /**
@@ -123,6 +123,9 @@ const englishResources = {
       more: 'more',
       above: 'above',
       current: 'current',
+      auto: 'Auto',
+      on: 'On',
+      off: 'Off',
       saving: 'saving',
       loading: 'Loading…',
       refreshing: 'Refreshing…',
@@ -141,9 +144,10 @@ const englishResources = {
       context: 'Show canonical context usage and compact trigger',
       cost: 'Show token usage and estimated model cost',
       doctor: 'Diagnose Native Worker and configuration',
-      effort: 'Choose reasoning effort supported by the active model',
+      effort: 'Set thinking intensity for the active model',
       exit: 'Exit OpenCowork',
       help: 'Show interactive shortcuts',
+      init: 'Analyze this workspace and propose an AGENTS.md file',
       mcp: 'Show MCP server status; enable or disable servers',
       model: 'Switch the active model',
       new: 'Start a new Native Worker session',
@@ -168,7 +172,7 @@ const englishResources = {
       modelPicker: 'Select model',
       searchModels: 'Search',
       modelStep: 'Configure model · Step 2 of 2',
-      effort: 'Reasoning effort',
+      effort: 'Thinking intensity',
       resume: 'Resume session',
       loadingSessions: 'Loading resumable sessions…',
       noSessions: 'No resumable sessions found.',
@@ -195,6 +199,27 @@ const englishResources = {
       manualOn: 'Manual approval mode · Shift+Tab to cycle',
       scrollLocked: '↑ {{count}} newer · PgDn / wheel down to follow, click a tool row to expand',
       transcriptTruncated: '… {{count}} earlier live lines hidden to fit the terminal'
+    },
+    effort: {
+      none: 'Ask the provider for no extra reasoning on the next turns.',
+      minimal: 'Use the smallest available reasoning allocation.',
+      low: 'Prefer faster, lower-cost responses for straightforward work.',
+      medium: 'Use moderate reasoning for routine multi-step work.',
+      high: 'Spend more reasoning on complex implementation and verification.',
+      xhigh: 'Use extended reasoning for difficult or ambiguous work.',
+      max: 'Use the highest reasoning level for the current session only.',
+      ultra: 'Use this provider’s ultra reasoning level.',
+      other: 'Use the model-provided {{level}} reasoning level.',
+      off: 'Disable thinking for this model. Later turns will not request reasoning.',
+      on: 'Enable thinking for this model.',
+      followDefault: 'Follow this model’s default ({{level}}).',
+      saving: 'Saving thinking intensity to OpenCowork…',
+      footer: '←→ or ↑↓ adjust · Enter apply · Esc cancel',
+      noticeOff: 'Thinking off',
+      noticeOn: 'Thinking on',
+      noticeAuto: 'Thinking auto → {{level}} model default',
+      noticeSession: 'Thinking {{level}} · current session',
+      noticeLevel: 'Thinking set to {{level}}'
     }
   }
 } as const
@@ -299,6 +324,9 @@ const chineseResources = {
       more: '更多',
       above: '上方',
       current: '当前',
+      auto: '自动',
+      on: '开',
+      off: '关',
       saving: '保存中',
       loading: '加载中…',
       refreshing: '刷新中…',
@@ -317,9 +345,10 @@ const chineseResources = {
       context: '查看规范上下文用量和压缩触发点',
       cost: '查看 Token 用量和模型成本估算',
       doctor: '诊断 Native Worker 和配置',
-      effort: '选择当前模型支持的推理强度',
+      effort: '设置当前模型的思考强度',
       exit: '退出 OpenCowork',
       help: '显示交互快捷键',
+      init: '分析当前工作区并提议生成 AGENTS.md 文件',
       mcp: '查看 MCP 服务器状态；启用或停用服务器',
       model: '切换当前模型',
       new: '启动新的 Native Worker 会话',
@@ -342,7 +371,7 @@ const chineseResources = {
       modelPicker: '选择模型',
       searchModels: '搜索',
       modelStep: '配置模型 · 第 2 步，共 2 步',
-      effort: '推理强度',
+      effort: '思考强度',
       resume: '恢复会话',
       loadingSessions: '正在加载可恢复会话…',
       noSessions: '没有找到可恢复的会话。',
@@ -462,7 +491,7 @@ const chineseResources = {
       footer: '输入搜索 · ↑↓ 移动 · ←→ 修改 · Enter 选择 · Esc 关闭'
     },
     effort: {
-      none: '接下来几轮关闭 Provider 推理强度。',
+      none: '接下来几轮不再向 Provider 请求额外推理。',
       minimal: '使用最小可用推理配额。',
       low: '普通任务优先使用更快、更低成本的响应。',
       medium: '常规多步骤任务使用适中的推理。',
@@ -471,9 +500,16 @@ const chineseResources = {
       max: '仅在当前会话使用最高推理级别。',
       ultra: '使用此 Provider 的 ultra 推理级别。',
       other: '使用模型提供的 {{level}} 推理级别。',
-      followDefault: '跟随此模型的默认级别（{{level}}）。',
-      saving: '正在保存模型推理强度到 OpenCowork…',
-      footer: '←→ 或 ↑↓ 调整 · Enter 应用 · Esc 取消'
+      off: '关闭此模型的思考。之后的回合不会请求推理。',
+      on: '为此模型开启思考。',
+      followDefault: '跟随此模型的默认强度（{{level}}）。',
+      saving: '正在保存思考强度到 OpenCowork…',
+      footer: '←→ 或 ↑↓ 调整 · Enter 应用 · Esc 取消',
+      noticeOff: '已关闭思考',
+      noticeOn: '已开启思考',
+      noticeAuto: '思考强度自动 → {{level}} 模型默认',
+      noticeSession: '思考强度 {{level}} · 仅当前会话',
+      noticeLevel: '思考强度已设为 {{level}}'
     },
     modelConfig: {
       choose: '选择模型配置。',

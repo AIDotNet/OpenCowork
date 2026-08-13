@@ -572,16 +572,22 @@ core local commands
 ```
 
 The current local handlers are `/agents`, `/clear`, `/codegraph`, `/compact`, `/config`, `/context`,
-`/cost`, `/doctor`, `/effort`, `/exit`, `/help`, `/model`, `/new`, `/permissions`, `/plan`,
+`/cost`, `/doctor`, `/effort`, `/exit`, `/help`, `/init`, `/model`, `/new`, `/permissions`, `/plan`,
 `/provider`, `/status`, `/tasks`, and `/tui`. Only complete handlers appear in the command menu.
 Unknown slash commands are rejected locally; planned Claude-like names are documented below instead
 of being advertised as working actions.
+
+`/init` submits a visible Worker turn that first inspects the workspace read-only and drafts the
+complete root `AGENTS.md`. It must present that draft through `AskUserQuestion` as a preview with
+explicit create/update and cancel choices before it uses a Worker-owned write/edit tool. The CLI
+never writes `AGENTS.md` directly, and the request is constrained to the workspace-root file so it
+does not replace the higher-priority `.agents/AGENTS.md` convention.
 
 `/model` is backed by the same split provider store as the desktop app. It groups enabled chat
 models by authenticated provider/channel, marks the current session selection, accepts live text
 search over provider name, provider type, built-in ID, model name, and model ID, and refreshes the
 catalog on every open. Selecting a model opens a capability-driven second step before anything is
-persisted. That step mirrors the desktop model switcher controls for thinking/reasoning effort,
+      persisted. That step mirrors the desktop model switcher controls for thinking intensity,
 Anthropic `budget_tokens` and cache TTL, priority service tier, built-in search, Responses WebSocket,
 and Responses image generation; it also exposes safe read-only protocol, context, output, and price
 metadata. Applying the second step updates both `providerId` and `modelId` in the current session,
@@ -604,15 +610,19 @@ priority, followed by the legacy shared enabled flag and then a model preset tha
 thinking body parameters or a non-`none` default reasoning effort. This keeps preset-on models on by
 default while preserving a user's explicit per-model Off choice across later sessions.
 
-`/effort` is capability-gated by the selected model's `reasoningEffortLevels`; the CLI never invents
-generic levels for a model that only exposes a Thinking toggle. With no argument it opens a compact
-keyboard slider, a declared level applies directly and enables Thinking, and `auto` removes the
-provider/model-specific override so the preset default is resolved again. Normal selected levels
-are persisted through the same shared settings path used by the desktop app and are forwarded by the
-Native Worker on subsequent turns; Claude-compatible `max` remains scoped to the current CLI session.
+`/effort` (alias `/think`) is the single thinking-intensity control for the selected model. It is
+available whenever the model supports thinking: toggle-only models expose `off|on`, and models with
+`reasoningEffortLevels` expose `off|auto|<level>`. The CLI never invents generic levels. With no
+argument it opens a compact keyboard slider; a declared value applies immediately. `off` persists a
+per-model Thinking Off override, `auto` clears the per-model thinking and effort overrides so the
+model preset is resolved again, and a named level enables thinking and persists that effort. `/config` and `/model` step 2
+use the same intensity axis instead of a separate Thinking toggle plus effort row. The status line
+shows one token (`think off`, `think on`, or `think medium`). Normal selected levels are persisted
+through the same shared settings path used by the desktop app and are forwarded by the Native Worker
+on subsequent turns; Claude-compatible `max` remains scoped to the current CLI session.
 
 `/config` is a searchable terminal editor for the shared settings that materially affect this CLI
-host: active model, thinking, automatic context compression, compression threshold, dedicated
+host: active model, thinking intensity, automatic context compression, compression threshold, dedicated
 compression model, provider timeout, native-tool concurrency, sub-agent concurrency, and CodeGraph
 surface. Updates go through Native Worker. New workers apply an atomic nested Zustand-store patch;
 older installed workers fall back to a whole-container-preserving `settings/get` + `settings/set`
@@ -644,9 +654,8 @@ active, so cycling out immediately restores the prompt without discarding the pe
 a live turn the normal status projection still includes the effective mode.
 
 Commands intentionally not advertised yet are `add-dir`, `background`, `branch`, `btw`, `diff`,
-`init`, `mcp`, and `memory`. They require real Worker session-host, workspace, or terminal
-host-adapter contracts. Their implementation must not be simulated by hidden agent prompts or direct
-CLI tool execution.
+and `memory`. They require real Worker session-host, workspace, or terminal host-adapter contracts.
+Their implementation must not be simulated by hidden agent prompts or direct CLI tool execution.
 
 `/rewind` is implemented against canonical Worker messages and Worker-owned file-change snapshots.
 Every user message is a checkpoint. Conversation restoration creates a new session row and copies

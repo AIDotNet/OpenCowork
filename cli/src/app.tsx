@@ -23,6 +23,13 @@ import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assista
 import { computeTranscriptWindow, estimateChromeLines } from './lib/message-height.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import {
+  formatThinkingNotice,
+  formatThinkingStatus,
+  parseThinkingIntensity,
+  thinkingIntensityPatch,
+  thinkingIntensityUsage
+} from './lib/thinking-intensity.js'
+import {
   containsMouseSequence,
   isLeftClickPress,
   parseMouseEvents,
@@ -77,6 +84,14 @@ interface CliAppProps {
 }
 
 const permissionModes: PermissionMode[] = ['manual', 'acceptEdits', 'plan', 'auto']
+
+const initWorkspacePrompt = `OpenCowork /init workflow: initialize this workspace's root AGENTS.md.
+
+First inspect the repository with read-only tools. Determine the project structure, commands used for validation, conventions, and any existing root AGENTS.md guidance. Do not write or edit any file while inspecting.
+
+Then draft the complete resulting root AGENTS.md. Preserve useful existing guidance rather than replacing it blindly. Keep the file concise, specific to this workspace, and focused on instructions that help future coding agents.
+
+Before making any file change, call AskUserQuestion with exactly two single-select options: "Create or update AGENTS.md" and "Cancel". Put the full proposed AGENTS.md content in the create/update option's preview. If the user cancels, make no changes. If the user confirms create/update, use the Worker-owned Write or Edit tool to create or update only the root AGENTS.md, then report the resulting action and any validation performed. Never write outside this workspace root.`
 
 function permissionModeNotice(mode: PermissionMode): string {
   switch (mode) {
@@ -1223,7 +1238,9 @@ export function CliApp({
       .then(() => {
         refreshConfigCatalog()
         refreshRuntimeMetrics()
-        if (key === 'thinkingEnabled') refreshSelectedModelConfiguration()
+        if (key === 'thinkingEnabled' || key === 'thinkingIntensity') {
+          refreshSelectedModelConfiguration()
+        }
         showNotice(t('cli.runtime.configurationSaved', 'Configuration saved to OpenCowork'))
       })
       .catch((error) =>
@@ -1374,19 +1391,14 @@ export function CliApp({
 
   const readEffortConfiguration = (): ModelConfiguration | null => {
     if (!modelSelection || !runtime.getModelConfiguration || !runtime.configureModel) {
-      appendSystem('Reasoning effort is unavailable until a model is configured.', 'warning')
+      appendSystem('Thinking intensity is unavailable until a model is configured.', 'warning')
       return null
     }
 
     try {
       const configuration = runtime.getModelConfiguration(modelSelection)
-      if (configuration.reasoningEffortLevels.length === 0) {
-        appendSystem(
-          configuration.supportsThinking
-            ? `${configuration.selection.modelName} supports a Thinking on/off control but does not expose adjustable effort levels. Use /config or /model to change Thinking.`
-            : `${configuration.selection.modelName} does not support reasoning effort.`,
-          'warning'
-        )
+      if (!configuration.supportsThinking) {
+        appendSystem(`${configuration.selection.modelName} does not support thinking.`, 'warning')
         return null
       }
       return configuration
@@ -1396,43 +1408,23 @@ export function CliApp({
     }
   }
 
-  const saveReasoningEffort = (
-    configuration: ModelConfiguration,
-    nextEffort: string | null
-  ): void => {
+  const saveThinkingIntensity = (configuration: ModelConfiguration, intensity: string): void => {
     if (!runtime.configureModel || effortSaving) return
     setEffortSaving(true)
-    const sessionOnly = nextEffort === 'max'
-    const patch: ModelConfigurationPatch =
-      nextEffort === null
-        ? { reasoningEffort: null }
-        : sessionOnly
-          ? configuration.supportsThinking && !configuration.thinkingEnabled
-            ? { thinkingEnabled: true }
-            : {}
-          : {
-              reasoningEffort: nextEffort,
-              ...(configuration.supportsThinking ? { thinkingEnabled: true } : {})
-            }
+    const patch = thinkingIntensityPatch(configuration, intensity)
 
     void runtime
       .configureModel(configuration.selection, patch)
       .then(() => {
-        if (sessionOnly) runtime.configure?.({ effort: nextEffort })
         const refreshed = refreshSelectedModelConfiguration(configuration.selection)
-        const resolvedEffort = refreshed?.reasoningEffort ?? nextEffort ?? 'medium'
-        runtime.configure?.({ effort: resolvedEffort })
+        if (refreshed) runtime.configure?.({ effort: refreshed.reasoningEffort })
         setEffortConfiguration(null)
         refreshConfigCatalog()
-        showNotice(
-          nextEffort === null
-            ? `Effort auto ? ${resolvedEffort} model default`
-            : `Effort set to ${resolvedEffort}${sessionOnly ? ' ? current session' : ''}${configuration.supportsThinking ? ' ? Thinking on' : ''}`
-        )
+        showNotice(formatThinkingNotice(configuration, intensity, refreshed))
       })
       .catch((error) =>
         appendSystem(
-          `Failed to update reasoning effort: ${error instanceof Error ? error.message : String(error)}`,
+          `Failed to update thinking intensity: ${error instanceof Error ? error.message : String(error)}`,
           'error'
         )
       )
@@ -1449,6 +1441,14 @@ export function CliApp({
     }
     if (name === '/help') {
       setShowHelp((current) => !current)
+      return true
+    }
+    if (name === '/init') {
+      if (args.length > 0) {
+        appendSystem('Usage: /init', 'warning')
+      } else {
+        void runPrompt(initWorkspacePrompt)
+      }
       return true
     }
     if (name === '/resume') {
@@ -1675,9 +1675,9 @@ export function CliApp({
         )
       return true
     }
-    if (name === '/effort') {
+    if (name === '/effort' || name === '/think') {
       if (args.length > 1) {
-        appendSystem('Usage: /effort [auto|level]', 'warning')
+        appendSystem('Usage: /effort [off|on|auto|level]', 'warning')
         return true
       }
       const configuration = readEffortConfiguration()
@@ -1687,32 +1687,28 @@ export function CliApp({
         setEffortConfiguration(configuration)
         return true
       }
-      if (requested !== 'auto' && !configuration.reasoningEffortLevels.includes(requested)) {
-        appendSystem(
-          `Usage: /effort auto|${configuration.reasoningEffortLevels.join('|')}`,
-          'warning'
-        )
+      const intensity = parseThinkingIntensity(configuration, requested)
+      if (!intensity) {
+        appendSystem(`Usage: ${thinkingIntensityUsage(configuration)}`, 'warning')
         return true
       }
-      saveReasoningEffort(configuration, requested === 'auto' ? null : requested)
+      saveThinkingIntensity(configuration, intensity)
       return true
     }
     if (name === '/status') {
       const modelStatus = modelSelection
         ? `${modelSelection.providerName} / ${modelSelection.modelName}`
         : 'No configured model'
-      const thinkingStatus = supportsThinking ? `thinking ${thinkingEnabled ? 'on' : 'off'}` : null
-      const effortStatus = availableEffortLevels.length > 0 ? `${effort} effort` : null
+      const thinkingStatus = formatThinkingStatus({
+        reasoningEffort: effort,
+        reasoningEffortLevels: availableEffortLevels,
+        supportsThinking,
+        thinkingEnabled
+      })
       appendSystem(
-        [
-          modelStatus,
-          thinkingStatus,
-          effortStatus,
-          `${permissionMode} permissions`,
-          `${tuiMode} renderer`
-        ]
+        [modelStatus, thinkingStatus, `${permissionMode} permissions`, `${tuiMode} renderer`]
           .filter(Boolean)
-          .join(' ? '),
+          .join(' · '),
         'success'
       )
       return true
@@ -1998,12 +1994,8 @@ export function CliApp({
     void save
       .then(() => {
         persistSelectedModel(configuration.selection)
-        setEffort(patch.reasoningEffort ?? configuration.reasoningEffort)
-        setSupportsThinking(configuration.supportsThinking)
-        setThinkingEnabled(
-          configuration.supportsThinking && (patch.thinkingEnabled ?? configuration.thinkingEnabled)
-        )
-        runtime.configure?.({ effort: patch.reasoningEffort ?? configuration.reasoningEffort })
+        const refreshed = refreshSelectedModelConfiguration(configuration.selection)
+        if (refreshed) runtime.configure?.({ effort: refreshed.reasoningEffort })
         setModelConfiguration(null)
         if (modelConfigurationReturnToConfig) setConfigOpen(true)
         setModelConfigurationReturnToConfig(false)
@@ -2204,7 +2196,7 @@ export function CliApp({
           ) : effortConfiguration ? (
             <EffortPanel
               configuration={effortConfiguration}
-              onApply={(nextEffort) => saveReasoningEffort(effortConfiguration, nextEffort)}
+              onApply={(intensity) => saveThinkingIntensity(effortConfiguration, intensity)}
               onCancel={() => setEffortConfiguration(null)}
               saving={effortSaving}
               width={contentWidth}
@@ -2321,14 +2313,16 @@ export function CliApp({
                 : activity
             }
             context={runtimeMetrics.context}
-            effort={effort}
             hideIdleHint={Boolean(turnStatus) || assistantThinking}
             model={modelSelection?.modelName ?? t('cli.statusLine.noModel', 'No model')}
             mode={permissionMode}
             notice={notice}
-            supportsEffort={availableEffortLevels.length > 0}
-            supportsThinking={supportsThinking}
-            thinkingEnabled={thinkingEnabled}
+            thinking={formatThinkingStatus({
+              reasoningEffort: effort,
+              reasoningEffortLevels: availableEffortLevels,
+              supportsThinking,
+              thinkingEnabled
+            })}
             turnStatus={turnStatus}
             usage={runtimeMetrics.usage}
             width={contentWidth}

@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AgentOption,
   AgentRuntime,
   ContextSnapshot,
@@ -62,22 +62,61 @@ export class FixtureAgentRuntime implements AgentRuntime {
     const assistantId = `fixture-assistant-${turn}`
     const prompt = submission.text.trim()
 
-    const script: UiEvent[] = [
-      { type: 'runtime.activity', activity: 'working' },
-      { type: 'tool.start', id: toolId, title: `Read fixture.txt` },
-      {
-        type: 'tool.done',
-        id: toolId,
-        status: 'success',
-        summary: 'Read 3 lines',
-        title: 'Read fixture.txt'
-      },
-      { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
-      { type: 'assistant.delta', id: assistantId, text: `You said: ${prompt}` },
-      { type: 'assistant.done', id: assistantId },
-      { type: 'runtime.usage', inputTokens: 42, outputTokens: 7, contextTokens: 42 },
-      { type: 'turn.done' }
-    ]
+    const initRequest = prompt.startsWith('OpenCowork /init workflow:')
+    const script: UiEvent[] = initRequest
+      ? [
+          { type: 'runtime.activity', activity: 'working' },
+          { type: 'tool.start', id: toolId, title: 'Inspect fixture workspace' },
+          {
+            type: 'tool.done',
+            id: toolId,
+            status: 'success',
+            summary: 'Read package.json and src/index.tsx',
+            title: 'Inspect fixture workspace'
+          },
+          {
+            type: 'askUser.request',
+            request: {
+              id: `fixture-init-${turn}`,
+              toolUseId: `fixture-init-tool-${turn}`,
+              questions: [
+                {
+                  header: 'AGENTS.md',
+                  question: 'Review the proposed workspace instructions before writing AGENTS.md.',
+                  multiSelect: false,
+                  options: [
+                    {
+                      label: 'Create or update AGENTS.md',
+                      description: 'Write the reviewed instructions to the workspace root.',
+                      preview: '# AGENTS.md\n\n## Development\n- Run npm test before submitting changes.\n'
+                    },
+                    {
+                      label: 'Cancel',
+                      description: 'Keep the workspace unchanged.'
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          { type: 'turn.done' }
+        ]
+      : [
+          { type: 'runtime.activity', activity: 'working' },
+          { type: 'tool.start', id: toolId, title: `Read fixture.txt` },
+          {
+            type: 'tool.done',
+            id: toolId,
+            status: 'success',
+            summary: 'Read 3 lines',
+            title: 'Read fixture.txt'
+          },
+          { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
+          { type: 'assistant.delta', id: assistantId, text: `You said: ${prompt}` },
+          { type: 'assistant.done', id: assistantId },
+          { type: 'runtime.usage', inputTokens: 42, outputTokens: 7, contextTokens: 42 },
+          { type: 'turn.done' }
+        ]
     for (const event of script) {
       if (signal.aborted) return
       yield event
@@ -125,6 +164,10 @@ export class FixtureAgentRuntime implements AgentRuntime {
 
   estimateRequestTokens(submission: PromptSubmission): number {
     return Math.max(1, Math.ceil(submission.text.length / 4))
+  }
+
+  async respondToAskUser(): Promise<void> {
+    // The fixture models the preview/selection handoff; file writes remain Worker-owned in production.
   }
 
   async dispose(): Promise<void> {

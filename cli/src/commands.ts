@@ -1,4 +1,4 @@
-import { t } from './i18n.js'
+﻿import { t } from './i18n.js'
 
 export interface SlashCommand {
   name: string
@@ -74,7 +74,7 @@ const slashCommandDefinitions: SlashCommandDefinition[] = [
   {
     name: '/effort',
     descriptionKey: 'cli.commandsMenu.effort',
-    defaultDescription: 'Choose reasoning effort supported by the active model',
+    defaultDescription: 'Set thinking intensity for the active model',
     local: true
   },
   {
@@ -87,6 +87,12 @@ const slashCommandDefinitions: SlashCommandDefinition[] = [
     name: '/help',
     descriptionKey: 'cli.commandsMenu.help',
     defaultDescription: 'Show interactive shortcuts',
+    local: true
+  },
+  {
+    name: '/init',
+    descriptionKey: 'cli.commandsMenu.init',
+    defaultDescription: 'Analyze this workspace and propose an AGENTS.md file',
     local: true
   },
   {

@@ -2,6 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
+import {
+  applyThinkingIntensity,
+  formatEffortLevelLabel,
+  resolveThinkingIntensity,
+  thinkingIntensityOptions,
+  thinkingIntensityPatch
+} from '../lib/thinking-intensity.js'
 import { theme } from '../theme.js'
 import type { ModelConfiguration, ModelConfigurationPatch } from '../types.js'
 import { Spinner } from './spinner.js'
@@ -19,8 +26,7 @@ type ModelConfigEntry = {
   key:
     | 'model'
     | 'protocol'
-    | 'thinkingEnabled'
-    | 'reasoningEffort'
+    | 'thinkingIntensity'
     | 'thinkingBudget'
     | 'fastModeEnabled'
     | 'builtinSearchEnabled'
@@ -56,10 +62,15 @@ function valueFor(entry: ModelConfigEntry, draft: ModelConfigDraft): string {
       return `${draft.selection.providerName} / ${draft.selection.modelName}`
     case 'protocol':
       return draft.providerType
-    case 'thinkingEnabled':
-      return draft.thinkingEnabled ? 'On' : 'Off'
-    case 'reasoningEffort':
-      return draft.reasoningEffort.toUpperCase()
+    case 'thinkingIntensity': {
+      const intensity = resolveThinkingIntensity(draft)
+      if (intensity === 'off') return t('cli.common.off', 'Off')
+      if (intensity === 'on') return t('cli.common.on', 'On')
+      if (intensity === 'auto') {
+        return `${t('cli.common.auto', 'Auto')} (${formatEffortLevelLabel(draft.defaultReasoningEffort)})`
+      }
+      return formatEffortLevelLabel(intensity)
+    }
     case 'thinkingBudget':
       return `${Math.round(draft.thinkingBudget ?? 0).toLocaleString()} tokens`
     case 'fastModeEnabled':
@@ -83,7 +94,7 @@ function valueFor(entry: ModelConfigEntry, draft: ModelConfigDraft): string {
 
 function isEnabled(entry: ModelConfigEntry, draft: ModelConfigDraft): boolean {
   switch (entry.key) {
-    case 'thinkingEnabled':
+    case 'thinkingIntensity':
       return draft.thinkingEnabled
     case 'fastModeEnabled':
       return draft.fastModeEnabled
@@ -132,23 +143,16 @@ export function ModelConfigPanel({
       }
     ]
     if (configuration.supportsThinking) {
+      const intensityOptions = thinkingIntensityOptions(configuration)
       next.push({
         category: 'Thinking',
-        description: 'Include provider-native reasoning output in the next turn.',
-        key: 'thinkingEnabled',
-        kind: 'boolean',
+        choices: intensityOptions.map((option) => option.value),
+        description:
+          'Thinking intensity for this model. Off disables reasoning; Auto follows the model default.',
+        key: 'thinkingIntensity',
+        kind: 'enum',
         label: 'Thinking'
       })
-      if (configuration.reasoningEffortLevels.length > 0) {
-        next.push({
-          category: 'Thinking',
-          choices: configuration.reasoningEffortLevels,
-          description: 'Reasoning effort for this model. Changing it enables thinking.',
-          key: 'reasoningEffort',
-          kind: 'enum',
-          label: 'Reasoning effort'
-        })
-      }
       if (configuration.thinkingBudget !== undefined) {
         next.push({
           category: 'Thinking',
@@ -258,19 +262,31 @@ export function ModelConfigPanel({
       const current = draft.thinkingBudget ?? configuration.thinkingBudgetMin ?? 1_024
       const min = configuration.thinkingBudgetMin ?? 1_024
       const max = configuration.thinkingBudgetMax ?? 64_000
-      updateDraft(entry.key, Math.min(max, Math.max(min, current + direction * 1_024)))
-      updateDraft('thinkingEnabled', true)
+      setDraft((currentDraft) => ({
+        ...currentDraft,
+        thinkingBudget: Math.min(max, Math.max(min, current + direction * 1_024)),
+        thinkingEnabled: true,
+        thinkingEnabledCustomized: true
+      }))
+      return
+    }
+    if (entry.key === 'thinkingIntensity') {
+      const choices = thinkingIntensityOptions(draft)
+      const current = resolveThinkingIntensity(draft)
+      const currentIndex = choices.findIndex((choice) => choice.value === current)
+      const nextIndex =
+        currentIndex < 0 ? 0 : (currentIndex + direction + choices.length) % choices.length
+      const nextValue = choices[nextIndex]?.value
+      if (nextValue) setDraft((currentDraft) => applyThinkingIntensity(currentDraft, nextValue))
       return
     }
     const choices = entry.choices ?? []
     const current =
-      entry.key === 'reasoningEffort'
-        ? draft.reasoningEffort
-        : entry.key === 'websocketMode'
-          ? draft.websocketMode
-          : entry.key === 'cacheTtl'
-            ? draft.cacheTtl
-            : String(valueFor(entry, draft))
+      entry.key === 'websocketMode'
+        ? draft.websocketMode
+        : entry.key === 'cacheTtl'
+          ? draft.cacheTtl
+          : String(valueFor(entry, draft))
     const normalizedCurrent = current.toLocaleLowerCase()
     const currentIndex = choices.findIndex(
       (choice) => choice.toLocaleLowerCase() === normalizedCurrent
@@ -280,7 +296,6 @@ export function ModelConfigPanel({
     const nextValue = choices[nextIndex]
     if (nextValue) {
       updateDraft(entry.key, nextValue === 'auto' ? 'auto' : nextValue)
-      if (entry.key === 'reasoningEffort') updateDraft('thinkingEnabled', true)
     }
   }
 
@@ -330,7 +345,7 @@ export function ModelConfigPanel({
         {visible.map((entry, index) => {
           const absoluteIndex = windowStart + index
           const isSelected = absoluteIndex === safeSelectedIndex
-          const isDisabled = entry.key === 'reasoningEffort' && !draft.thinkingEnabled
+          const isDisabled = entry.key === 'thinkingBudget' && !draft.thinkingEnabled
           return (
             <Box key={entry.key}>
               <Text color={isSelected ? theme.primary : theme.dim}>{isSelected ? '❯' : ' '} </Text>
@@ -353,7 +368,12 @@ export function ModelConfigPanel({
       <Box flexDirection="column" marginTop={1}>
         <Text color={theme.muted}>
           {fitText(
-            selected?.description ?? t('cli.modelConfig.choose', 'Choose a model configuration.'),
+            selected?.key === 'thinkingIntensity'
+              ? (thinkingIntensityOptions(draft).find(
+                  (option) => option.value === resolveThinkingIntensity(draft)
+                )?.description ?? selected.description)
+              : (selected?.description ??
+                  t('cli.modelConfig.choose', 'Choose a model configuration.')),
             contentWidth
           )}
         </Text>
@@ -380,11 +400,8 @@ function toPatch(draft: ModelConfigDraft): ModelConfigurationPatch {
       : {}),
     ...(draft.supportsThinking
       ? {
-          ...(draft.reasoningEffortLevels.length > 0
-            ? { reasoningEffort: draft.reasoningEffort }
-            : {}),
-          ...(draft.thinkingBudget === undefined ? {} : { thinkingBudget: draft.thinkingBudget }),
-          thinkingEnabled: draft.thinkingEnabled
+          ...thinkingIntensityPatch(draft, resolveThinkingIntensity(draft)),
+          ...(draft.thinkingBudget === undefined ? {} : { thinkingBudget: draft.thinkingBudget })
         }
       : {}),
     ...(draft.supportsResponsesWebsocket ? { websocketMode: draft.websocketMode } : {})

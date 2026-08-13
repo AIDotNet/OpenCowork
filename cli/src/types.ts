@@ -268,6 +268,7 @@ export interface ModelConfiguration {
   cacheTtl: '5m' | '1h'
   contextLength?: number
   defaultReasoningEffort: string
+  defaultThinkingEnabled: boolean
   fastModeEnabled: boolean
   imageGenerationEnabled: boolean
   inputPrice?: number
@@ -289,6 +290,7 @@ export interface ModelConfiguration {
   thinkingBudgetMax?: number
   thinkingBudgetMin?: number
   thinkingEnabled: boolean
+  thinkingEnabledCustomized: boolean
   websocketMode: 'auto' | 'disabled'
 }
 
@@ -299,7 +301,7 @@ export interface ModelConfigurationPatch {
   imageGenerationEnabled?: boolean
   reasoningEffort?: string | null
   thinkingBudget?: number
-  thinkingEnabled?: boolean
+  thinkingEnabled?: boolean | null
   websocketMode?: 'auto' | 'disabled'
 }
 

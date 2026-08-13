@@ -196,6 +196,33 @@ test('fullscreen prompt flow golden at 80 columns', async () => {
   compareGolden(`fullscreen-80x${ROWS}`, snapshot)
 })
 
+test('/init previews AGENTS.md and requires an explicit selection', async () => {
+  const session = new CliSession({ cols: 100, rows: ROWS, tui: 'classic' })
+  try {
+    await session.waitFor((screen) => screen.includes('❯'), 'prompt to appear')
+    session.write('/init')
+    session.write('\r')
+    await session.waitFor(
+      (screen) =>
+        screen.includes('Review the proposed workspace instructions') &&
+        screen.includes('Create or update AGENTS.md') &&
+        screen.includes('# AGENTS.md'),
+      '/init preview to appear'
+    )
+    // The AskUser UI uses one Enter to record the selected option and a second Enter to
+    // submit it. This proves `/init` cannot write merely because the preview opened.
+    session.write('\r')
+    await session.waitFor((screen) => screen.includes('Ready to submit'), '/init selection to be recorded')
+    session.write('\r')
+    await session.waitFor(
+      (screen) => screen.includes('Answers submitted to the Native Worker.'),
+      '/init selection to reach the runtime'
+    )
+  } finally {
+    session.dispose()
+  }
+})
+
 test('fullscreen resize redraw does not hard-clear the alternate screen', async () => {
   const session = new CliSession({ cols: 80, rows: ROWS, tui: 'fullscreen' })
   try {

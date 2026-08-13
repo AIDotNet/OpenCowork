@@ -3,44 +3,24 @@ import { Box, Text, useInput } from 'ink'
 import stringWidth from 'string-width'
 import { t } from '../i18n.js'
 import { fitText } from '../lib/text.js'
+import {
+  resolveThinkingIntensity,
+  thinkingIntensityOptions,
+  type ThinkingIntensityOption
+} from '../lib/thinking-intensity.js'
 import { theme } from '../theme.js'
 import type { ModelConfiguration } from '../types.js'
 import { Spinner } from './spinner.js'
 
 interface EffortPanelProps {
   configuration: ModelConfiguration
-  onApply(effort: string | null): void
+  onApply(intensity: string): void
   onCancel(): void
   saving: boolean
   width: number
 }
 
-interface EffortOption {
-  description: string
-  label: string
-  value: string | null
-}
-
-function effortDescription(level: string): string {
-  if (level === 'none')
-    return t('cli.effort.none', 'Disable provider reasoning effort for the next turns.')
-  if (level === 'minimal')
-    return t('cli.effort.minimal', 'Use the smallest available reasoning allocation.')
-  if (level === 'low')
-    return t('cli.effort.low', 'Prefer faster, lower-cost responses for straightforward work.')
-  if (level === 'medium')
-    return t('cli.effort.medium', 'Use moderate reasoning for routine multi-step work.')
-  if (level === 'high')
-    return t('cli.effort.high', 'Spend more reasoning on complex implementation and verification.')
-  if (level === 'xhigh')
-    return t('cli.effort.xhigh', 'Use extended reasoning for difficult or ambiguous work.')
-  if (level === 'max')
-    return t('cli.effort.max', 'Use the highest reasoning level for the current session only.')
-  if (level === 'ultra') return t('cli.effort.ultra', 'Use this provider’s ultra reasoning level.')
-  return t('cli.effort.other', 'Use the model-provided {{level}} reasoning level.', { level })
-}
-
-function sliderWidth(options: EffortOption[], selectedIndex: number): number {
+function sliderWidth(options: ThinkingIntensityOption[], selectedIndex: number): number {
   return options.reduce((total, option, index) => {
     const label = index === selectedIndex ? `● ${option.label}` : option.label
     return total + stringWidth(label) + (index === 0 ? 0 : 3)
@@ -48,7 +28,7 @@ function sliderWidth(options: EffortOption[], selectedIndex: number): number {
 }
 
 function visibleWindow(
-  options: EffortOption[],
+  options: ThinkingIntensityOption[],
   selectedIndex: number,
   width: number
 ): { end: number; start: number } {
@@ -78,32 +58,11 @@ export function EffortPanel({
   saving,
   width
 }: EffortPanelProps): React.JSX.Element {
-  const options = useMemo<EffortOption[]>(
-    () => [
-      {
-        description: t('cli.effort.followDefault', 'Follow this model’s default ({{level}}).', {
-          level: configuration.defaultReasoningEffort
-        }),
-        label: t('cli.common.auto', 'Auto'),
-        value: null
-      },
-      ...configuration.reasoningEffortLevels.map((level) => ({
-        description: effortDescription(level),
-        label: level === 'xhigh' ? 'XHigh' : level[0]!.toLocaleUpperCase() + level.slice(1),
-        value: level
-      }))
-    ],
-    [configuration.defaultReasoningEffort, configuration.reasoningEffortLevels]
+  const options = useMemo(() => thinkingIntensityOptions(configuration), [configuration])
+  const initialIndex = Math.max(
+    0,
+    options.findIndex((option) => option.value === resolveThinkingIntensity(configuration))
   )
-  const currentDiffersFromDefault =
-    configuration.reasoningEffort !== configuration.defaultReasoningEffort
-  const initialIndex =
-    configuration.reasoningEffortCustomized || currentDiffersFromDefault
-      ? Math.max(
-          1,
-          options.findIndex((option) => option.value === configuration.reasoningEffort)
-        )
-      : 0
   const [selectedIndex, setSelectedIndex] = useState(initialIndex)
   const selected = options[selectedIndex] ?? options[0]!
 
@@ -131,7 +90,7 @@ export function EffortPanel({
   return (
     <Box flexDirection="column" marginTop={1} paddingLeft={2} width={width}>
       <Box>
-        <Text bold>{t('cli.panels.effort', 'Reasoning effort')}</Text>
+        <Text bold>{t('cli.panels.effort', 'Thinking intensity')}</Text>
         {saving ? (
           <Box marginLeft={2}>
             <Spinner />
@@ -152,7 +111,7 @@ export function EffortPanel({
           const absoluteIndex = window.start + index
           const isSelected = absoluteIndex === selectedIndex
           return (
-            <React.Fragment key={option.value ?? 'auto'}>
+            <React.Fragment key={option.value}>
               {index > 0 ? <Text color={theme.dim}> ─ </Text> : null}
               <Text bold={isSelected} color={isSelected ? theme.primary : theme.muted}>
                 {isSelected ? '● ' : ''}
@@ -169,7 +128,7 @@ export function EffortPanel({
         <Text color={theme.dim}>
           {fitText(
             saving
-              ? t('cli.effort.saving', 'Saving model effort to OpenCowork…')
+              ? t('cli.effort.saving', 'Saving thinking intensity to OpenCowork…')
               : t('cli.effort.footer', '←→ or ↑↓ adjust · Enter apply · Esc cancel'),
             contentWidth
           )}

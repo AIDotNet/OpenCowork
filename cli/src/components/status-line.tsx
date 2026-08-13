@@ -5,20 +5,22 @@ import { t } from '../i18n.js'
 import { formatTokenCount, formatUsdCost } from '../lib/metrics.js'
 import { fitText } from '../lib/text.js'
 import { permissionModeLabels, theme } from '../theme.js'
-import type { ContextSnapshot, PermissionMode, TurnStatusSnapshot, UsageSnapshot } from '../types.js'
+import type {
+  ContextSnapshot,
+  PermissionMode,
+  TurnStatusSnapshot,
+  UsageSnapshot
+} from '../types.js'
 import { Spinner } from './spinner.js'
 
 interface StatusLineProps {
   activity?: string
   context: ContextSnapshot | null
-  effort: string
   hideIdleHint?: boolean
   model: string
   mode: PermissionMode
   notice?: string
-  supportsEffort: boolean
-  supportsThinking: boolean
-  thinkingEnabled: boolean
+  thinking: string | null
   turnStatus?: TurnStatusSnapshot | null
   usage: UsageSnapshot | null
   width: number
@@ -87,7 +89,10 @@ function formatLatency(milliseconds: number): string {
   return `${(milliseconds / 1_000).toFixed(milliseconds < 10_000 ? 2 : 1)}s`
 }
 
-function agentPerformance(status: TurnStatusSnapshot | null | undefined, now: number): AgentPerformance | null {
+function agentPerformance(
+  status: TurnStatusSnapshot | null | undefined,
+  now: number
+): AgentPerformance | null {
   if (!status?.firstResponseAt) return null
   const generatedTokens = status.completedOutputTokens + status.activeResponseCharacters / 4
   const secondsSinceFirstToken = Math.max(0.001, (now - status.firstResponseAt) / 1_000)
@@ -141,7 +146,9 @@ function selectMetricLine(
   const widePerformance = performance
     ? `Agent ${performance.tps} TPS · TTFT ${performance.ttft}`
     : null
-  const compactPerformance = performance ? `${performance.tps} TPS · ${performance.ttft} TTFT` : null
+  const compactPerformance = performance
+    ? `${performance.tps} TPS · ${performance.ttft} TTFT`
+    : null
   const tinyPerformance = performance ? `${performance.tps}TPS · ${performance.ttft}` : null
   const candidates = [
     joinMetricLine(
@@ -173,7 +180,11 @@ function selectMetricLine(
       [...compactTokens, ...(tinyPerformance ? [tinyPerformance] : [])],
       ' · '
     ),
-    joinMetricLine(`C${contextSummary}`, [...tinyTokens, ...(tinyPerformance ? [tinyPerformance] : [])], ' '),
+    joinMetricLine(
+      `C${contextSummary}`,
+      [...tinyTokens, ...(tinyPerformance ? [tinyPerformance] : [])],
+      ' '
+    ),
     joinMetricLine(`C${contextSummary}`, tinyTokens, ' ')
   ]
 
@@ -186,14 +197,11 @@ function selectMetricLine(
 export function StatusLine({
   activity,
   context,
-  effort,
   hideIdleHint = false,
   model,
   mode,
   notice,
-  supportsEffort,
-  supportsThinking,
-  thinkingEnabled,
+  thinking,
   turnStatus,
   usage,
   width
@@ -217,12 +225,7 @@ export function StatusLine({
       : width >= 58
         ? t('cli.statusLine.hints', '? for shortcuts · ← for agents')
         : t('cli.statusLine.shortHints', '? shortcuts'))
-  const thinkingStatus = supportsThinking
-    ? `${t('cli.statusLine.think', 'think')} ${thinkingEnabled ? t('cli.statusLine.on', 'on') : t('cli.statusLine.off', 'off')}`
-    : null
-  const statusParts = [permissionModeLabels[mode], thinkingStatus, supportsEffort ? effort : null]
-    .filter(Boolean)
-    .join(' · ')
+  const statusParts = [permissionModeLabels[mode], thinking].filter(Boolean).join(' · ')
   const right = fitText(`${model} · ${statusParts}`, Math.max(12, Math.floor(contentWidth * 0.62)))
   const leftWidth = Math.max(6, contentWidth - stringWidth(right) - 3)
   const metrics = selectMetricLine(context, turnStatus, usage, contentWidth, now)

@@ -50,6 +50,11 @@ import {
   normalizePromptReferences
 } from '../lib/file-references.js'
 import { stripTerminalPreviewControls } from '../lib/text.js'
+import {
+  resolveThinkingIntensity,
+  thinkingIntensityOptions,
+  thinkingIntensityPatch
+} from '../lib/thinking-intensity.js'
 import { buildEditDiff } from '../lib/tool-diff.js'
 import { HostAdapterRegistry } from './host-adapters.js'
 import { CliMcpHost, parseMcpServerConfigs } from './mcp-host.js'
@@ -1168,14 +1173,21 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     const modelPatch: JsonRecord = {}
     const settingsPatch: JsonRecord = {}
 
-    if (typeof patch.thinkingEnabled === 'boolean') {
-      settingsPatch.thinkingEnabled = patch.thinkingEnabled
+    if (patch.thinkingEnabled === null || typeof patch.thinkingEnabled === 'boolean') {
       const thinkingEnabledByModel = isRecord(configuration.settings.thinkingEnabledByModel)
         ? configuration.settings.thinkingEnabledByModel
         : {}
-      settingsPatch.thinkingEnabledByModel = {
-        ...thinkingEnabledByModel,
-        [`${selection.providerId}:${selection.modelId}`]: patch.thinkingEnabled
+      const thinkingKey = `${selection.providerId}:${selection.modelId}`
+      if (patch.thinkingEnabled === null) {
+        const nextThinkingEnabledByModel = { ...thinkingEnabledByModel }
+        delete nextThinkingEnabledByModel[thinkingKey]
+        settingsPatch.thinkingEnabledByModel = nextThinkingEnabledByModel
+      } else {
+        settingsPatch.thinkingEnabled = patch.thinkingEnabled
+        settingsPatch.thinkingEnabledByModel = {
+          ...thinkingEnabledByModel,
+          [thinkingKey]: patch.thinkingEnabled
+        }
       }
     }
     if (typeof patch.fastModeEnabled === 'boolean') {
@@ -1199,19 +1211,21 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
             : `Reasoning effort “${patch.reasoningEffort}” is not supported by ${selection.modelName}.`
         )
       }
-      const reasoningEffortByModel = isRecord(configuration.settings.reasoningEffortByModel)
-        ? configuration.settings.reasoningEffortByModel
-        : {}
-      const effortKey = `${selection.providerId}:${selection.modelId}`
-      if (patch.reasoningEffort === null) {
-        const nextReasoningEffortByModel = { ...reasoningEffortByModel }
-        delete nextReasoningEffortByModel[effortKey]
-        settingsPatch.reasoningEffortByModel = nextReasoningEffortByModel
-      } else {
-        settingsPatch.reasoningEffort = patch.reasoningEffort
-        settingsPatch.reasoningEffortByModel = {
-          ...reasoningEffortByModel,
-          [effortKey]: patch.reasoningEffort
+      if (patch.reasoningEffort !== 'max') {
+        const reasoningEffortByModel = isRecord(configuration.settings.reasoningEffortByModel)
+          ? configuration.settings.reasoningEffortByModel
+          : {}
+        const effortKey = `${selection.providerId}:${selection.modelId}`
+        if (patch.reasoningEffort === null) {
+          const nextReasoningEffortByModel = { ...reasoningEffortByModel }
+          delete nextReasoningEffortByModel[effortKey]
+          settingsPatch.reasoningEffortByModel = nextReasoningEffortByModel
+        } else {
+          settingsPatch.reasoningEffort = patch.reasoningEffort
+          settingsPatch.reasoningEffortByModel = {
+            ...reasoningEffortByModel,
+            [effortKey]: patch.reasoningEffort
+          }
         }
       }
     }
@@ -1307,6 +1321,10 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       savedReasoningEffort &&
       (reasoningEffortLevels.length === 0 || reasoningEffortLevels.includes(savedReasoningEffort))
     )
+    const thinkingEnabledByModel = isRecord(configuration.settings.thinkingEnabledByModel)
+      ? configuration.settings.thinkingEnabledByModel
+      : {}
+    const thinkingEnabledCustomized = typeof thinkingEnabledByModel[effortKey] === 'boolean'
     const defaultReasoningEffort = resolveReasoningEffort(
       { ...configuration.settings, reasoningEffortByModel: {} },
       selection.providerId,
@@ -1352,6 +1370,12 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       cacheTtl: cacheTtlValue === '1h' ? '1h' : '5m',
       ...(contextLength && contextLength > 0 ? { contextLength } : {}),
       defaultReasoningEffort,
+      defaultThinkingEnabled: resolveThinkingEnabled(
+        { ...configuration.settings, thinkingEnabledByModel: {} },
+        selection.providerId,
+        selection.modelId,
+        model
+      ),
       fastModeEnabled: configuration.settings.fastModeEnabled === true,
       imageGenerationEnabled:
         model.supportsImageGeneration === true && responsesImageGeneration?.enabled !== false,
@@ -1392,6 +1416,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         selection.modelId,
         model
       ),
+      thinkingEnabledCustomized,
       websocketMode:
         supportsResponsesWebsocket && modelWebsocketMode === 'auto' ? 'auto' : 'disabled'
     }
@@ -1443,15 +1468,17 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         })
       : null
     const activeThinkingSupported = activeModelResolution?.model.supportsThinking === true
-    const activeThinkingEnabled =
-      modelCatalog.active && activeModelResolution
-        ? resolveThinkingEnabled(
-            settings,
-            modelCatalog.active.providerId,
-            modelCatalog.active.modelId,
-            activeModelResolution.model
-          )
-        : settings.thinkingEnabled === true
+    let activeModelConfiguration: ModelConfiguration | null = null
+    if (modelCatalog.active && activeThinkingSupported) {
+      try {
+        activeModelConfiguration = this.getModelConfiguration(modelCatalog.active)
+      } catch {
+        activeModelConfiguration = null
+      }
+    }
+    const thinkingOptions = activeModelConfiguration
+      ? thinkingIntensityOptions(activeModelConfiguration)
+      : []
     const providerSetupCatalog = loadProviderSetupCatalog()
     const entries: ConfigEntry[] = [
       {
@@ -1480,13 +1507,18 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       },
       {
         category: 'Model',
-        description:
-          'Include the model reasoning/thinking mode when the selected model supports it.',
+        choices: thinkingOptions.map((option) => ({
+          label: option.label,
+          value: option.value
+        })),
+        description: activeThinkingSupported
+          ? 'Thinking intensity for the selected model. Off disables reasoning; Auto follows the model default.'
+          : 'The selected model does not support thinking.',
         disabled: !activeThinkingSupported,
-        key: 'thinkingEnabled',
-        kind: 'boolean',
+        key: 'thinkingIntensity',
+        kind: 'enum',
         label: 'Thinking',
-        value: activeThinkingEnabled
+        value: activeModelConfiguration ? resolveThinkingIntensity(activeModelConfiguration) : 'off'
       },
       {
         action: 'compressionModel',
@@ -1704,6 +1736,20 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   }
 
   async updateConfig(key: string, value: ConfigSettingValue): Promise<void> {
+    if (key === 'thinkingIntensity') {
+      const selection = this.getModelCatalog().active
+      if (!selection) throw new Error('Thinking intensity requires an active model.')
+      const configuration = this.getModelConfiguration(selection)
+      if (!configuration.supportsThinking) {
+        throw new Error(`${selection.modelName} does not support thinking.`)
+      }
+      const intensity = String(value).toLocaleLowerCase()
+      if (!thinkingIntensityOptions(configuration).some((option) => option.value === intensity)) {
+        throw new Error(`Unsupported thinking intensity “${intensity}”.`)
+      }
+      await this.configureModel(selection, thinkingIntensityPatch(configuration, intensity))
+      return
+    }
     const normalized: ConfigSettingValue = (() => {
       if (key === 'contextCompressionThreshold') {
         return clampNumber(Number(value), 0.3, 0.9)

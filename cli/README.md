@@ -116,7 +116,7 @@ npm run dev -- --worker /absolute/path/OpenCowork.Native.Worker
 provider、模型、permission policy 和普通设置从 `~/.open-cowork/` 读取，与 Electron 应用
 共用。`/model` 每次打开都会重新读取渠道：只显示已启用、已完成认证并启用了 chat model
 的 provider，按 provider 分组，支持搜索 provider 名、模型名和 model ID。选择模型后进入
-第二步配置，按模型能力显示 Thinking、reasoning effort、Anthropic thinking budget、Fast
+第二步配置，按模型能力显示思考强度（Off / Auto / 级别，或仅 Off / On）、Anthropic thinking budget、Fast
 mode、内置搜索、Responses WebSocket、图片生成和 cache TTL，并显示协议、context/output
 limit 与 token price。确认第二步后才会把模型选择和配置写回桌面端同一份 provider/settings
 store。
@@ -160,7 +160,7 @@ pasteboard，Windows 使用 STA Clipboard，Linux 使用 `wl-paste` 或 `xclip`�
 保存可见 prompt 和引用元数据，不复制隐藏文件全文。目前搜索范围仅限当前 workspace。历史
 消息引用、选区引用、拖放文件路径和 shell 输出引用仍属于后续阶段。
 
-`/config` 提供可搜索的共享配置界面，可修改 CLI 实际消费的桌面端设置，包括 thinking、
+`/config` 提供可搜索的共享配置界面，可修改 CLI 实际消费的桌面端设置，包括思考强度、
 自动上下文压缩、压缩阈值、专用压缩模型、请求超时、工具/子 Agent 并发以及 CodeGraph。
 设置通过 Native Worker 写回同一份 Zustand 持久化数据。只有打开 provider 向导并录入新 Key
 时，凭据才会短暂存在于掩码输入组件状态；它不会出现在 transcript、命令参数、日志或模型目录中。

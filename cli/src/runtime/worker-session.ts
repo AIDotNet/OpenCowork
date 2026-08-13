@@ -782,7 +782,7 @@ export function resolveReasoningEffort(
   return 'medium'
 }
 
-function modelDefaultsToThinking(model: JsonRecord): boolean {
+export function modelDefaultsToThinking(model: JsonRecord): boolean {
   if (model.supportsThinking !== true) return false
   const thinking = isRecord(model.thinkingConfig) ? model.thinkingConfig : null
   if (!thinking) return false

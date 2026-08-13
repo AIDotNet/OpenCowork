@@ -21,6 +21,10 @@ const vendorDir = join(repoRoot, 'cli', 'src', 'vendor')
 /** @type {Array<{ source: string; target: string; rewrites?: Array<[string, string]> }>} */
 const SHARED_FILES = [
   {
+    source: 'src/shared/runtime-contracts/generated/contracts.ts',
+    target: 'runtime-contracts.ts'
+  },
+  {
     source: 'src/shared/agent-runtime-v2.ts',
     target: 'agent-runtime-v2.ts'
   },

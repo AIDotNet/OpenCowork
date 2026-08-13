@@ -22,11 +22,19 @@ We will migrate incrementally to a Worker-authoritative runtime with Main as the
 
 ### Authority
 
-- Native Worker owns provider loops, hosted agent sessions, canonical in-flight conversation, run/tool/approval/cancellation semantics, and Worker job/outbox/checkpoint data.
-- Electron Main owns Worker lifecycle and transport, window subscriptions, credentials and OS security boundaries, the rebuildable runtime projection/journal, and desktop transcript persistence.
-- React Renderer owns views, interaction, UI-only ephemeral state, runtime read models, and DOM/React capabilities.
+| State or responsibility                                     | Authority                         | Boundary rule                                                             |
+| ----------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------- |
+| Provider loop, run status, canonical in-flight conversation | Native Worker                     | Main transports and projects events but does not make loop decisions.     |
+| Tool invocation state, approval policy, cancellation state  | Native Worker                     | Main routes capabilities; Renderer presents state and submits decisions.  |
+| Worker process, sockets, heartbeat, worker instance epoch   | Main                              | `src/main/lib/native-worker.ts` remains the process/transport supervisor. |
+| Window connection, session visibility, subscription cursor  | Main                              | Each `webContents` owns an independent subscription and cursor.           |
+| Desktop session/message durable writes                      | Main repository                   | Renderer and Worker do not independently write desktop transcript tables. |
+| Active runtime projection                                   | Worker source; Main cache/journal | Main may rebuild the projection but may not invent agent semantics.       |
+| Draft, selection, scroll, panel, hover, animation           | Renderer                          | UI-only state does not enter the runtime domain protocol.                 |
+| Dialogs, clipboard, notifications, credentials, OS security | Main                              | Exposed as typed host capabilities.                                       |
+| DOM/React interactions                                      | Renderer                          | Exposed only as typed UI capability endpoints.                            |
 
-The full matrix and operational rules are documented in [Agent Runtime Boundaries](../architecture/agent-runtime-boundaries.md).
+Operational rules live in [Agent Runtime Boundaries](../architecture/agent-runtime-boundaries.md).
 
 ### Durable event acknowledgement
 
@@ -38,7 +46,16 @@ Main is the single writer for desktop session and message tables. Worker continu
 
 ### Protocol evolution
 
-Worker transport, agent stream, runtime model, and tool manifest versions remain separate domains. New runtime commands, queries, events, snapshots, patches, and UI capabilities will be generated from a restricted shared model. New runtime call sites use typed APIs and runtime decode guards rather than string channels plus response casts.
+Compatibility is split across four independently evolving constants. Only an incompatible change advances the matching version:
+
+| Constant                        | Current value | Source                                  | Domain                                                              |
+| ------------------------------- | ------------: | --------------------------------------- | ------------------------------------------------------------------- |
+| `WORKER_PROTOCOL_VERSION`       |             2 | `src/shared/worker-contracts/model.ts`  | Low-level framing, dispatch, and `worker/hello` handshake           |
+| `AGENT_STREAM_PROTOCOL_VERSION` |             1 | `src/shared/worker-contracts/model.ts`  | Worker `agent/stream` envelope                                      |
+| `RUNTIME_MODEL_SCHEMA_VERSION`  |             1 | `src/shared/runtime-contracts/model.ts` | Generated runtime commands, queries, events, snapshots, and patches |
+| `TOOL_MANIFEST_SCHEMA_VERSION`  |             2 | `src/shared/agent-runtime-v2.ts`        | Tool/capability catalog schema                                      |
+
+New runtime commands, queries, events, snapshots, patches, and UI capabilities are generated from a restricted shared model. New runtime call sites use typed APIs and runtime decode guards rather than string channels plus response casts.
 
 ### Tool and capability execution
 

@@ -118,8 +118,14 @@ jobs:
       - name: Check generated contracts
         run: npm run contracts:check
 
+      - name: Verify runtime protocol
+        run: npm run verify:runtime-protocol
+
       - name: Verify architecture boundaries
         run: npm run verify:architecture
+
+      - name: Verify runtime projection
+        run: npm run verify:runtime-projection
 
       - name: Verify runtime behavior baseline
         run: npm run verify:runtime-baseline

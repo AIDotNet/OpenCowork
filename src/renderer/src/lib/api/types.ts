@@ -186,7 +186,7 @@ export interface RequestDebugInfo {
   providerId?: string
   providerBuiltinId?: string
   model?: string
-  executionPath?: 'sidecar'
+  executionPath?: 'sidecar' | 'hosted'
   transport?: 'http' | 'websocket'
   fallbackReason?: string
   reusedConnection?: boolean

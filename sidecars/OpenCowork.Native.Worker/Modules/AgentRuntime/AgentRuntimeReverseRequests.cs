@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using OpenCowork.Contracts.Generated;
 
 internal static class AgentRuntimeReverseRequests
 {
@@ -32,8 +33,8 @@ internal static class AgentRuntimeReverseRequests
         {
             await context.EmitEventAsync(
                 "agent/reverse-request",
-                new AgentRuntimeReverseRequestEnvelope(id, method, parameters),
-                WorkerJsonContext.Default.AgentRuntimeReverseRequestEnvelope);
+                new ReverseRequestEnvelope(id, method, parameters),
+                AgentRuntimeContractsJsonContext.Default.ReverseRequestEnvelope);
 
             return await pending.Task.ConfigureAwait(false);
         }
@@ -43,8 +44,8 @@ internal static class AgentRuntimeReverseRequests
             {
                 await context.EmitEventIgnoringCancellationAsync(
                     "agent/reverse-cancel",
-                    new AgentRuntimeReverseCancelEnvelope(id, method),
-                    WorkerJsonContext.Default.AgentRuntimeReverseCancelEnvelope);
+                    new ReverseCancelEnvelope(id, method),
+                    AgentRuntimeContractsJsonContext.Default.ReverseCancelEnvelope);
             }
             catch (Exception ex)
             {
@@ -65,8 +66,8 @@ internal static class AgentRuntimeReverseRequests
         if (string.IsNullOrEmpty(id) || !Pending.TryRemove(id, out var pending))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeReverseResponseResult(false),
-                WorkerJsonContext.Default.AgentRuntimeReverseResponseResult);
+                new ReverseResponseResult(false),
+                AgentRuntimeContractsJsonContext.Default.ReverseResponseResult);
         }
 
         var error = JsonHelpers.GetString(parameters, "error");
@@ -85,8 +86,8 @@ internal static class AgentRuntimeReverseRequests
         }
 
         return WorkerResponse.Json(
-            new AgentRuntimeReverseResponseResult(true),
-            WorkerJsonContext.Default.AgentRuntimeReverseResponseResult);
+            new ReverseResponseResult(true),
+            AgentRuntimeContractsJsonContext.Default.ReverseResponseResult);
     }
 
     private static string? ReadId(JsonElement parameters)

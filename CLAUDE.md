@@ -20,18 +20,20 @@ There is no root test suite. For UI/IPC/workflow changes, smoke test with `npm r
 
 ## Architecture
 
-Four-layer Electron + Node.js app. Keep process boundaries explicit — system access stays in main, UI state stays in renderer, shared types go through `src/shared`.
+Four-layer Electron + .NET Native Worker app. Keep process boundaries explicit — system access stays in main, UI state stays in renderer, agent loop authority belongs in the Worker, shared types go through `src/shared`.
 
-1. **Electron main (`src/main/`)** — system layer. App bootstrap (`index.ts`), window lifecycle, IPC handlers (`ipc/`), SQLite via `better-sqlite3` (`db/`), cron (`cron/`, `node-cron`), channels/plugins for messaging platforms (`channels/`), MCP clients (`mcp/`), SSH (`ssh/`, `ssh2` + `node-pty`), auto-updates (`updater.ts`), crash logging.
+1. **Electron main (`src/main/`)** — system layer. App bootstrap (`index.ts`), window lifecycle, IPC handlers (`ipc/`), SQLite via `better-sqlite3` (`db/`), cron (`cron/`, `node-cron`), channels/plugins for messaging platforms (`channels/`), MCP clients (`mcp/`), SSH (`ssh/`, `ssh2` + `node-pty`), auto-updates (`updater.ts`), crash logging. Main is the host gateway: it supervises the Native Worker, journals/replays in-flight run frames (`runtime-registry.ts`), and is the sole writer of the Worker durable event cursor (`consumerId: 'desktop'`).
 2. **Preload (`src/preload/`)** — secure bridge exposing a narrow API surface to the renderer. All main↔renderer traffic goes through here; do not add `nodeIntegration` shortcuts.
-3. **Renderer (`src/renderer/src/`)** — React 19 UI. Zustand stores (`stores/`), i18n (`locales/`, `react-i18next`, `en`/`zh`), Tailwind v4, Monaco, xterm, recharts. The renderer owns message presentation, approvals, and session UX. `session-runtime-router.ts` buffers message state for background (non-visible) sessions and flushes it when those sessions come to the foreground.
-4. **Main-process agent runtime (`src/main/ipc/js-agent-runtime.ts`, `src/main/cron/cron-agent-background.ts`)** — the unified Node.js agent loop. It owns provider transport, retry/circuit behavior, tool execution routing, approval hand-off, and event streaming back to the renderer over the existing IPC protocol.
+3. **Renderer (`src/renderer/src/`)** — React 19 UI. Zustand stores (`stores/`), i18n (`locales/`, `react-i18next`, `en`/`zh`), Tailwind v4, Monaco, xterm, recharts. The renderer owns message presentation, approvals, and session UX. `session-runtime-router.ts` buffers message state for background (non-visible) sessions and flushes it when those sessions come to the foreground. Interactive runs are still constructed in the renderer today (`SidecarAgentRunRequest` via `agent:run`) and forwarded to the Worker; that orchestration is migrating off the renderer — see the target state below.
+4. **.NET Native Worker (`sidecars/OpenCowork.Native.Worker/`)** — the agent loop. It owns provider transport, tool execution, hosted sessions (`agent/session-open|send|close`), approvals, cancellation, and the durable job/event outbox. `src/main/ipc/native-agent-runtime.ts` is only the handshake/subscribe/request/notify/lifecycle shim, not a JavaScript provider runtime.
 
-Agent execution now runs in the main-process JS runtime. The renderer remains the UI and tool/approval surface; it no longer hosts a separate provider runtime.
+There is no `src/main/ipc/js-agent-runtime.ts`. Cron/background runs are assembled in Main (`src/main/cron/cron-agent-background.ts`) and also call Worker `agent/run`.
+
+Target layering, authority matrix, and protocol rules: [docs/architecture/agent-runtime-boundaries.md](docs/architecture/agent-runtime-boundaries.md). Decision record: [docs/adr/0001-agent-runtime-authority.md](docs/adr/0001-agent-runtime-authority.md).
 
 ### IPC wiring
 
-The renderer calls main via `ipcClient.invoke(channel, ...args)` (wraps `ipcRenderer.invoke`). Main-process handlers live in `src/main/ipc/*-handlers.ts` — each file registers `ipcMain.handle(channel, ...)` calls. To add a new IPC channel: add the handler in the appropriate `*-handlers.ts`, expose it through `src/preload/index.ts` if it needs a typed `window.api` entry, and declare the type in `src/preload/index.d.ts`. The preload `window.api` object is for operations that need a typed contract (currently team-runtime); most IPC goes through the generic `window.electron.ipcRenderer.invoke(channel)` path.
+The renderer calls main via `ipcClient.invoke(channel, ...args)` (wraps `ipcRenderer.invoke`). Main-process handlers live in `src/main/ipc/*-handlers.ts` — each file registers `ipcMain.handle(channel, ...)` calls. To add a new IPC channel: add the handler in the appropriate `*-handlers.ts`, expose it through `src/preload/index.ts` if it needs a typed `window.api` entry, and declare the type in `src/preload/index.d.ts`. The preload `window.api` object is for operations that need a typed contract (currently team-runtime plus generated `window.api.runtime`); most IPC still goes through the generic `window.electron.ipcRenderer.invoke(channel)` path. New runtime code must use the generated runtime API, not the generic bridge.
 
 ### Session modes
 
@@ -39,7 +41,7 @@ The app supports multiple session modes: `chat`, `clarify`, `cowork`, `code`, `a
 
 ### Tool system
 
-Renderer-side tool definitions and handlers live in `src/renderer/src/lib/tools/`. Each tool file exports a handler conforming to `ToolHandler` (see `tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and an IPC client. The main-process agent loop in `cron-agent-background.ts` also executes tools directly for cron/background runs.
+Renderer-side tool definitions and handlers live in `src/renderer/src/lib/tools/`. Each tool file exports a handler conforming to `ToolHandler` (see `tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and an IPC client. The Native Worker already executes most tools; remaining renderer handlers are legacy or UI-only. Cron/background runs execute through the Worker as well.
 
 Tools are registered in phases via `registerAllTools()` in `src/renderer/src/lib/tools/index.ts`: core tools first, then skills (async), then sub-agents, then teams. Some tools (WebSearch, Browser, Wiki) are registered/unregistered dynamically based on user settings. `ToolContext` carries cross-tool state: `sharedState` (mutable bag for flags like `deliveryUsed`), `readFileHistory` (tracks file reads per run), `inlineToolHandlers` (per-run tool shadowing), and `channelPermissions` (approval checks).
 
@@ -53,7 +55,9 @@ Bundled skills live in `resources/skills/` as folders containing a `SKILL.md` me
 
 ### Agent runtime
 
-The main-process agent runtime (`js-agent-runtime.ts`) is provider-agnostic: it accepts a generic `provider` object in `JsAgentRunRequest` rather than importing any specific LLM SDK. Provider-specific logic is resolved by the caller. The runtime checks capabilities dynamically via `supportsCapability()` for feature gating (e.g., `provider.streaming`, `provider.tools`).
+Interactive runs: the renderer currently builds a `SidecarAgentRunRequest` and invokes `agent:run`; Main forwards it to Worker `agent/run` and streams `agent/stream` envelopes back. Cron runs: Main builds the request and calls `agent/run` itself. The Worker is the loop authority in both cases. `native-agent-runtime.ts` handles `initialize` / event subscribe / reverse requests / worker recycle — it does not iterate the provider or execute tools.
+
+Do not introduce a new JavaScript agent loop in Main or Renderer. New runtime commands, queries, and events belong in `src/shared/runtime-contracts/model.ts` and must go through the generated protocol.
 
 ### Data and runtime assets
 

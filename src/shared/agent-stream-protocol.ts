@@ -129,7 +129,7 @@ export interface RequestDebugInfoWire {
   websocketIncrementalReason?: string
   previousResponseId?: string
   promptCacheKeyHash?: string
-  executionPath?: 'sidecar'
+  executionPath?: 'sidecar' | 'hosted'
   systemHash?: string
   toolsHash?: string
   messagePrefixHash?: string
@@ -207,7 +207,7 @@ export const AGGREGATABLE_EVENT_TYPES: ReadonlySet<string> = new Set([
 
 export type AgentStreamEvent =
   // Lifecycle
-  | { type: 'loop_start' }
+  | { type: 'loop_start'; assistantMessageId?: string }
   | { type: 'iteration_start'; iteration: number }
   | { type: 'iteration_end'; stopReason: string; toolResults?: ToolResultWire[] }
   | { type: 'loop_end'; reason: LoopEndReasonWire; messages?: MessageWire[] }

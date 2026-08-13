@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using OpenCowork.Contracts.Generated;
 
 /// <summary>
 /// Worker-side session host for agent/session-open|send|close. A hosted session keeps the
@@ -59,8 +60,13 @@ internal static class AgentRuntimeSessionHost
         WorkerLog.Info(
             $"agent session opened sessionId={sessionId} messages={session.Messages.Count}");
         return WorkerResponse.Json(
-            new AgentRuntimeSessionOpenResult(true, sessionId, session.Messages.Count),
-            WorkerJsonContext.Default.AgentRuntimeSessionOpenResult);
+            new OpenAgentSessionResult(true, sessionId, session.Messages.Count),
+            AgentRuntimeContractsJsonContext.Default.OpenAgentSessionResult);
+    }
+
+    public static bool IsOpen(string? sessionId)
+    {
+        return !string.IsNullOrEmpty(sessionId) && Sessions.ContainsKey(sessionId);
     }
 
     public static async Task<WorkerResponse> SendJobAsync(
@@ -110,8 +116,8 @@ internal static class AgentRuntimeSessionHost
             WorkerLog.Info($"agent session closed sessionId={sessionId}");
         }
         return WorkerResponse.Json(
-            new AgentRuntimeSessionCloseResult(true, sessionId, closed),
-            WorkerJsonContext.Default.AgentRuntimeSessionCloseResult);
+            new CloseAgentSessionResult(true, sessionId, closed),
+            AgentRuntimeContractsJsonContext.Default.CloseAgentSessionResult);
     }
 
     /// <summary>
@@ -221,7 +227,7 @@ internal static class AgentRuntimeSessionHost
         foreach (var sessionId in stale)
         {
             Sessions.TryRemove(sessionId, out _);
-            WorkerLog.Info($"agent session evicted sessionId={sessionId}");
+            WorkerLog.Info($"agent session evicted sessionId={sessionId} errorCode=session_evicted");
         }
     }
 

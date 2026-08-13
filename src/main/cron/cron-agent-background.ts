@@ -1,5 +1,9 @@
 ﻿import { nanoid } from 'nanoid'
-import { readPermissionPolicySnapshot, readSettings } from '../ipc/settings-handlers'
+import {
+  decodePersistedStoreState,
+  readPermissionPolicySnapshot,
+  readPersistedSettingsState
+} from '../ipc/settings-handlers'
 import type {
   ToolCallState,
   InteractiveAgentEvent,
@@ -26,8 +30,21 @@ import {
   type CronRunStatus
 } from '../db/cron-dao'
 import { getNativeAgentRuntimeManager } from '../ipc/native-agent-runtime'
-import { getDefaultApiUserAgent, resolveApiUserAgent } from '../lib/api-user-agent'
+import { AgentSessionService } from '../ipc/agent-runtime/agent-session-service'
+import { assembleSessionContext } from '../ipc/agent-runtime/run-context-assembler'
+import { readSessionRunSettings } from '../ipc/agent-runtime/session-run-settings'
+import { getDefaultApiUserAgent } from '../lib/api-user-agent'
 import { readPersistedProviderStore } from '../lib/ai-provider-store'
+import {
+  buildProviderConfigById,
+  getApiRequestTimeoutSeconds,
+  getFastProviderConfig,
+  normalizeProviderType,
+  resolveProviderDefaultModelId,
+  type PersistedProvidersState,
+  type ProviderRunConfig as ProviderConfig,
+  type ProviderType
+} from '../lib/provider-run-config'
 import { runHooks } from '../hooks/hooks-service'
 import {
   collectHookContextTexts,
@@ -87,15 +104,6 @@ const SUPPORTED_BACKGROUND_TOOLS = new Set([
   'PluginSendMessage',
   'PluginReplyMessage'
 ])
-
-type ProviderType =
-  | 'anthropic'
-  | 'openai-chat'
-  | 'openai-responses'
-  | 'openai-images'
-  | 'openai-video'
-  | 'gemini-interactions'
-  | 'vertex-ai'
 
 type ToolInputSchema =
   | {
@@ -187,129 +195,6 @@ interface ToolDefinition {
   inputSchema: ToolInputSchema
 }
 
-type ReasoningEffortLevel =
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max'
-  | 'ultra'
-type ResponsesWebsocketMode = 'auto' | 'disabled'
-
-interface ThinkingConfig {
-  bodyParams: Record<string, unknown>
-  disabledBodyParams?: Record<string, unknown>
-  forceTemperature?: number
-  reasoningEffortLevels?: ReasoningEffortLevel[]
-  defaultReasoningEffort?: ReasoningEffortLevel
-}
-
-interface AIModelConfig {
-  id: string
-  enabled?: boolean
-  type?: ProviderType
-  category?: string
-  maxOutputTokens?: number
-  thinkingConfig?: ThinkingConfig
-  requestOverrides?: RequestOverrides
-  responseSummary?: 'auto' | 'concise' | 'detailed'
-  enablePromptCache?: boolean
-  enableSystemPromptCache?: boolean
-  cacheTtl?: '5m' | '1h'
-  serviceTier?: string
-  websocketUrl?: string
-  websocketMode?: ResponsesWebsocketMode
-  supportsBuiltinSearch?: boolean
-  enableBuiltinSearch?: boolean
-  supportsWebsocket?: boolean
-  supportsImageGeneration?: boolean
-  responsesImageGeneration?: ProviderConfig['responsesImageGeneration']
-}
-
-interface AIProviderConfigRecord {
-  id: string
-  name: string
-  type: ProviderType
-  apiKey: string
-  baseUrl: string
-  enabled: boolean
-  builtinId?: string
-  models: AIModelConfig[]
-  requiresApiKey?: boolean
-  useSystemProxy?: boolean
-  allowInsecureTls?: boolean
-  sendTemperature?: boolean
-  sendMaxOutputTokens?: boolean
-  userAgent?: string
-  requestOverrides?: RequestOverrides
-  instructionsPrompt?: string
-  defaultModel?: string
-  authMode?: string
-  websocketUrl?: string
-  websocketMode?: ResponsesWebsocketMode
-  cacheTtl?: '5m' | '1h'
-  oauth?: {
-    accountId?: string
-  }
-}
-
-interface RequestOverrides {
-  headers?: Record<string, string>
-  body?: Record<string, unknown>
-  omitBodyKeys?: string[]
-}
-
-interface ProviderConfig {
-  type: ProviderType
-  apiKey: string
-  baseUrl?: string
-  model: string
-  maxTokens?: number
-  temperature?: number
-  systemPrompt?: string
-  thinkingEnabled?: boolean
-  thinkingConfig?: ThinkingConfig
-  reasoningEffort?: ReasoningEffortLevel
-  category?: string
-  providerId?: string
-  providerBuiltinId?: string
-  requiresApiKey?: boolean
-  useSystemProxy?: boolean
-  allowInsecureTls?: boolean
-  requestTimeoutSeconds?: number
-  streamIdleTimeoutSeconds?: number
-  responseSummary?: 'auto' | 'concise' | 'detailed'
-  enablePromptCache?: boolean
-  enableSystemPromptCache?: boolean
-  cacheTtl?: '5m' | '1h'
-  userAgent?: string
-  requestOverrides?: RequestOverrides
-  instructionsPrompt?: string
-  serviceTier?: string
-  sessionId?: string
-  responsesSessionScope?: string
-  computerUseEnabled?: boolean
-  builtinSearchEnabled?: boolean
-  responsesImageGeneration?: {
-    enabled?: boolean
-    action?: string
-    background?: string
-    inputFidelity?: string
-    inputImageMask?: { fileId?: string; imageUrl?: string }
-    moderation?: string
-    outputFormat?: string
-    outputCompression?: number
-    quality?: string
-    size?: string
-    partialImages?: number
-  }
-  accountId?: string
-  websocketUrl?: string
-  websocketMode?: ResponsesWebsocketMode
-}
-
 export interface ToolContext {
   sessionId?: string
   workingFolder?: string
@@ -395,308 +280,24 @@ interface CronRunFinishedPayload {
 const activeRuns = new Map<string, AbortController>()
 const executionState = new Map<string, ExecutionState>()
 
-function normalizeProviderType(type: ProviderType): ProviderType {
-  if (type === 'vertex-ai') return 'openai-chat'
-  return type
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function decodePersistedStoreState<T>(raw: unknown): T | null {
-  if (raw == null) return null
-  let parsed = raw
-  if (typeof parsed === 'string') {
-    try {
-      parsed = JSON.parse(parsed)
-    } catch {
-      return null
+function getPersistedProvidersState(): PersistedProvidersState {
+  return (
+    decodePersistedStoreState<PersistedProvidersState>(readPersistedProviderStore()) ?? {
+      providers: []
     }
-  }
-  if (!parsed || typeof parsed !== 'object') return null
-  if ('state' in (parsed as Record<string, unknown>)) {
-    return ((parsed as Record<string, unknown>).state as T) ?? null
-  }
-  return parsed as T
-}
-
-type PersistedProvidersState = {
-  providers: AIProviderConfigRecord[]
-  activeProviderId?: string | null
-  activeModelId?: string
-  activeFastProviderId?: string | null
-  activeFastModelId?: string
-}
-
-async function getPersistedProvidersState(): Promise<PersistedProvidersState> {
-  return (
-    decodePersistedStoreState<{
-      providers: AIProviderConfigRecord[]
-      activeProviderId?: string | null
-      activeModelId?: string
-      activeFastProviderId?: string | null
-      activeFastModelId?: string
-    }>(readPersistedProviderStore()) ?? { providers: [] }
   )
-}
-
-function getPersistedSettingsState(): Record<string, unknown> {
-  const root = readSettings()
-  return decodePersistedStoreState<Record<string, unknown>>(root['opencowork-settings']) ?? {}
-}
-
-function normalizeProviderBaseUrl(baseUrl: string, requestType: ProviderType): string {
-  const normalizedType = normalizeProviderType(requestType)
-  const trimmed = baseUrl.trim().replace(/\/+$/, '')
-  if (normalizedType === 'anthropic') {
-    return trimmed.replace(/\/v1(?:\/messages)?$/i, '')
-  }
-  if (requestType === 'gemini-interactions' || requestType === 'vertex-ai') {
-    return trimmed.replace(/\/openai$/i, '')
-  }
-  return trimmed
-}
-
-/**
- * Body keys covering the max output tokens parameter across protocols:
- * openai-chat (max_tokens / max_completion_tokens), openai-responses (max_output_tokens),
- * anthropic (max_tokens), gemini (maxOutputTokens inside generationConfig).
- */
-const MAX_OUTPUT_TOKENS_BODY_KEYS = [
-  'max_tokens',
-  'max_completion_tokens',
-  'max_output_tokens',
-  'maxOutputTokens'
-]
-
-function buildRequestOverrides(
-  providerOverrides: RequestOverrides | undefined,
-  modelOverrides: RequestOverrides | undefined,
-  modelId?: string,
-  paramCarry?: Pick<AIProviderConfigRecord, 'sendTemperature' | 'sendMaxOutputTokens'>
-): RequestOverrides | undefined {
-  const headers = {
-    ...(providerOverrides?.headers ?? {}),
-    ...(modelOverrides?.headers ?? {})
-  }
-  const body = {
-    ...(providerOverrides?.body ?? {}),
-    ...(modelOverrides?.body ?? {})
-  }
-  const omitBodyKeys = Array.from(
-    new Set([...(providerOverrides?.omitBodyKeys ?? []), ...(modelOverrides?.omitBodyKeys ?? [])])
-  )
-  if (/^gpt-5/i.test(modelId ?? '')) {
-    omitBodyKeys.push('temperature')
-  }
-  if (paramCarry?.sendTemperature === false) {
-    omitBodyKeys.push('temperature')
-  }
-  if (paramCarry?.sendMaxOutputTokens === false) {
-    omitBodyKeys.push(...MAX_OUTPUT_TOKENS_BODY_KEYS)
-  }
-  return Object.keys(headers).length > 0 || Object.keys(body).length > 0 || omitBodyKeys.length > 0
-    ? {
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
-        ...(Object.keys(body).length > 0 ? { body } : {}),
-        ...(omitBodyKeys.length > 0 ? { omitBodyKeys: Array.from(new Set(omitBodyKeys)) } : {})
-      }
-    : undefined
-}
-
-function resolveProviderDefaultModelId(provider: AIProviderConfigRecord): string {
-  if (
-    provider.defaultModel &&
-    provider.models.some((model) => model.id === provider.defaultModel)
-  ) {
-    return provider.defaultModel
-  }
-  return provider.models.find((model) => model.enabled)?.id ?? provider.models[0]?.id ?? ''
-}
-
-function getEffectiveMaxTokens(
-  settings: Record<string, unknown>,
-  model?: AIModelConfig | null
-): number {
-  const userMaxTokens = Number(settings.maxTokens ?? 32000)
-  if (!model?.maxOutputTokens) return userMaxTokens
-  return Math.min(userMaxTokens, model.maxOutputTokens)
-}
-
-/**
- * Mirrors clampApiRequestTimeoutSeconds in the renderer settings store. Duplicated rather than
- * imported because the cron runtime reads persisted settings directly in the main process.
- */
-function getApiRequestTimeoutSeconds(settings: Record<string, unknown>): number {
-  const value = Number(settings.apiRequestTimeoutSeconds)
-  if (!Number.isFinite(value)) return 100
-  return Math.min(86_400, Math.max(0, Math.floor(value)))
-}
-
-function isReasoningEffortLevel(value: unknown): value is ReasoningEffortLevel {
-  return (
-    value === 'none' ||
-    value === 'minimal' ||
-    value === 'low' ||
-    value === 'medium' ||
-    value === 'high' ||
-    value === 'xhigh' ||
-    value === 'max' ||
-    value === 'ultra'
-  )
-}
-
-function getReasoningEffortKey(providerId?: string | null, modelId?: string | null): string | null {
-  if (!providerId || !modelId) return null
-  return `${providerId}:${modelId}`
-}
-
-function resolveReasoningEffortForModel(args: {
-  reasoningEffort: ReasoningEffortLevel
-  reasoningEffortByModel?: Record<string, ReasoningEffortLevel>
-  providerId?: string | null
-  modelId?: string | null
-  thinkingConfig?: ThinkingConfig
-}): ReasoningEffortLevel {
-  const key = getReasoningEffortKey(args.providerId, args.modelId)
-  const levels = args.thinkingConfig?.reasoningEffortLevels
-  const savedEffort = key ? args.reasoningEffortByModel?.[key] : undefined
-
-  if (savedEffort && (!levels || levels.includes(savedEffort))) {
-    return savedEffort
-  }
-
-  return args.thinkingConfig?.defaultReasoningEffort ?? args.reasoningEffort
-}
-
-function readReasoningEffortByModel(
-  value: unknown
-): Record<string, ReasoningEffortLevel> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-
-  const entries = Object.entries(value)
-    .filter(([, raw]) => isReasoningEffortLevel(raw))
-    .map(([key, raw]) => [key, raw] as const)
-
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined
-}
-
-function buildProviderConfigById(
-  state: PersistedProvidersState,
-  settings: Record<string, unknown>,
-  providerId: string,
-  modelId: string
-): ProviderConfig | null {
-  const provider = state.providers.find((item) => item.id === providerId)
-  if (!provider) return null
-  const model = provider.models.find((item) => item.id === modelId)
-  const requestType = normalizeProviderType(model?.type ?? provider.type)
-  const requestOverrides = buildRequestOverrides(
-    provider.requestOverrides,
-    model?.requestOverrides,
-    modelId,
-    provider
-  )
-  // Server-tool/transport capabilities are per-model opt-ins (default false): a relay can
-  // speak the protocol without supporting the feature, so unsupported models must send an
-  // explicit "off" rather than inherit provider-level or runtime defaults.
-  const supportsWebsocket = requestType === 'openai-responses' && model?.supportsWebsocket === true
-  const websocketUrl = supportsWebsocket
-    ? (model?.websocketUrl ?? provider.websocketUrl)
-    : undefined
-  const websocketMode = supportsWebsocket
-    ? (model?.websocketMode ?? provider.websocketMode)
-    : requestType === 'openai-responses'
-      ? 'disabled'
-      : undefined
-  const thinkingConfig = model?.thinkingConfig
-  const baseReasoningEffort = isReasoningEffortLevel(settings.reasoningEffort)
-    ? settings.reasoningEffort
-    : 'medium'
-  const reasoningEffort = resolveReasoningEffortForModel({
-    reasoningEffort: baseReasoningEffort,
-    reasoningEffortByModel: readReasoningEffortByModel(settings.reasoningEffortByModel),
-    providerId: provider.id,
-    modelId,
-    thinkingConfig
-  })
-  return {
-    type: requestType,
-    apiKey: provider.apiKey,
-    baseUrl: provider.baseUrl ? normalizeProviderBaseUrl(provider.baseUrl, requestType) : undefined,
-    model: modelId,
-    thinkingEnabled: settings.thinkingEnabled === true && !!thinkingConfig,
-    ...(thinkingConfig ? { thinkingConfig } : {}),
-    reasoningEffort,
-    category: model?.category,
-    providerId: provider.id,
-    providerBuiltinId: provider.builtinId,
-    requiresApiKey: provider.requiresApiKey,
-    ...(provider.useSystemProxy !== undefined ? { useSystemProxy: provider.useSystemProxy } : {}),
-    ...(provider.allowInsecureTls !== undefined
-      ? { allowInsecureTls: provider.allowInsecureTls }
-      : {}),
-    requestTimeoutSeconds: getApiRequestTimeoutSeconds(settings),
-    userAgent: resolveApiUserAgent(provider.userAgent),
-    ...(requestOverrides ? { requestOverrides } : {}),
-    ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
-    ...(provider.oauth?.accountId ? { accountId: provider.oauth.accountId } : {}),
-    ...(model?.responseSummary ? { responseSummary: model.responseSummary } : {}),
-    ...(model?.enablePromptCache !== undefined
-      ? { enablePromptCache: model.enablePromptCache }
-      : {}),
-    ...(model?.enableSystemPromptCache !== undefined
-      ? { enableSystemPromptCache: model.enableSystemPromptCache }
-      : {}),
-    cacheTtl: model?.cacheTtl ?? provider.cacheTtl,
-    ...(model?.serviceTier ? { serviceTier: model.serviceTier } : {}),
-    ...((requestType === 'anthropic' || requestType === 'openai-responses') &&
-    model?.supportsBuiltinSearch === true &&
-    model?.enableBuiltinSearch === true
-      ? { builtinSearchEnabled: true }
-      : {}),
-    // The runtime treats a missing image_generation config as enabled, so Responses
-    // requests always carry an explicit flag derived from the model capability.
-    ...(requestType === 'openai-responses'
-      ? {
-          responsesImageGeneration: {
-            ...(model?.responsesImageGeneration ?? {}),
-            enabled:
-              model?.supportsImageGeneration === true &&
-              model?.responsesImageGeneration?.enabled !== false
-          }
-        }
-      : {}),
-    ...(websocketUrl ? { websocketUrl } : {}),
-    ...(websocketMode ? { websocketMode } : {}),
-    maxTokens: getEffectiveMaxTokens(settings, model),
-    temperature: Number(settings.temperature ?? 0.7)
-  }
-}
-
-function getFastProviderConfig(
-  state: PersistedProvidersState,
-  settings: Record<string, unknown>
-): ProviderConfig | null {
-  const providerId = state.activeFastProviderId ?? state.activeProviderId
-  if (!providerId) return null
-  const provider = state.providers.find((item) => item.id === providerId)
-  if (!provider) return null
-  const modelId =
-    state.activeFastModelId && provider.models.some((model) => model.id === state.activeFastModelId)
-      ? state.activeFastModelId
-      : resolveProviderDefaultModelId(provider)
-  if (!modelId) return null
-  return buildProviderConfigById(state, settings, providerId, modelId)
 }
 
 async function resolveCronProviderConfig(
   providerId?: string | null,
   modelOverride?: string | null
 ): Promise<ProviderConfig | null> {
-  const settings = getPersistedSettingsState()
-  const state = await getPersistedProvidersState()
+  const settings = readPersistedSettingsState()
+  const state = getPersistedProvidersState()
 
   // 1. Try the explicit provider (with model override or its default model)
   if (providerId) {
@@ -805,11 +406,6 @@ async function resolveCronAgentDefinition(agentId?: string | null): Promise<Agen
 
 function buildCronAgentSystemPrompt(systemPrompt: string): string {
   return `${systemPrompt.trim()}\n\n${CRON_FINAL_REPORT_PROTOCOL}`
-}
-
-type NativeAgentRunResult = {
-  started?: boolean
-  runId?: string
 }
 
 type NativeAgentToolUseBlock = {
@@ -1037,11 +633,12 @@ async function* runNativeAgentLoop(args: {
     wake()
   }
 
-  const acknowledge = (runId: string, throughSeq: number): void => {
-    void manager
-      .request('events/ack', { consumerId: 'desktop', jobId: runId, throughSeq }, 10_000)
-      .catch(() => {})
-  }
+  const hostedSessionId = `cron:${args.runId}`
+  const triggerMessage = args.messages[0]
+  const triggerMessageId =
+    typeof triggerMessage?.id === 'string' && triggerMessage.id
+      ? triggerMessage.id
+      : `cron-turn-${args.runId}`
 
   const unsubscribe = manager.addRawEventListener((frame) => {
     if (frame.runId !== nativeRunId) return
@@ -1066,7 +663,6 @@ async function* runNativeAgentLoop(args: {
       return
     }
     if (envelope.seq <= lastSequence) {
-      acknowledge(envelope.runId, envelope.seq)
       return
     }
     if (envelope.seq !== lastSequence + 1) {
@@ -1079,11 +675,6 @@ async function* runNativeAgentLoop(args: {
     lastSequence = envelope.seq
     for (const event of envelope.events) {
       dispatch(event)
-    }
-    if (envelope.seq > 0) {
-      // Cron consumes the durable stream in Main and has no Renderer ACK path.
-      // Advance the desktop cursor only after the whole envelope is projected.
-      acknowledge(envelope.runId, envelope.seq)
     }
   })
 
@@ -1103,28 +694,6 @@ async function* runNativeAgentLoop(args: {
       : null
     if (args.toolCtx.sshConnectionId && !connection) {
       throw new Error(`SSH connection not found for cron agent: ${args.toolCtx.sshConnectionId}`)
-    }
-
-    const permissionPolicy = readPermissionPolicySnapshot()
-    const runRequest = {
-      runId: args.runId,
-      sessionId: args.toolCtx.sessionId ?? args.runId,
-      messages: args.messages,
-      provider: args.config.provider,
-      tools: args.config.tools,
-      workingFolder: args.toolCtx.workingFolder,
-      sshConnectionId: args.toolCtx.sshConnectionId,
-      ...(connection ? { connection } : {}),
-      ...(permissionPolicy ? { permissionPolicy } : {}),
-      maxIterations: args.config.maxIterations,
-      forceApproval: args.config.forceApproval === true,
-      maxParallelTools: args.config.maxParallelTools,
-      callerAgent: 'CronAgent',
-      pluginId: args.toolCtx.pluginId,
-      pluginChatId: args.toolCtx.pluginChatId,
-      pluginChatType: args.toolCtx.pluginChatType,
-      pluginSenderId: args.toolCtx.pluginSenderId,
-      pluginSenderName: args.toolCtx.pluginSenderName
     }
 
     const sessionStartHook = await runHooks({
@@ -1147,20 +716,93 @@ async function* runNativeAgentLoop(args: {
       throw new Error(sessionStartHook.reason || 'SessionStart hook blocked cron agent run')
     }
     const hookContextTexts = collectHookContextTexts(sessionStartHook)
+    const cronSettings = readSessionRunSettings()
+    const triggerContent =
+      typeof triggerMessage?.content === 'string'
+        ? triggerMessage.content
+        : JSON.stringify(triggerMessage?.content ?? '')
+    const extraTemplate: Record<string, unknown> = {
+      callerAgent: args.toolCtx.callerAgent ?? 'CronAgent',
+      forceApproval: args.config.forceApproval === true
+    }
+    if (args.toolCtx.pluginId) extraTemplate.pluginId = args.toolCtx.pluginId
+    if (args.toolCtx.pluginChatId) extraTemplate.pluginChatId = args.toolCtx.pluginChatId
+    if (args.toolCtx.pluginChatType) extraTemplate.pluginChatType = args.toolCtx.pluginChatType
+    if (args.toolCtx.pluginSenderId) extraTemplate.pluginSenderId = args.toolCtx.pluginSenderId
+    if (args.toolCtx.pluginSenderName)
+      extraTemplate.pluginSenderName = args.toolCtx.pluginSenderName
+    if (connection) extraTemplate.connection = connection
 
-    const result = (await manager.request(
-      'agent/run',
-      hookContextTexts.length > 0
-        ? { ...runRequest, requestContextTexts: hookContextTexts }
-        : runRequest,
-      30_000
-    )) as NativeAgentRunResult
-    if (!result.started || !result.runId) {
-      throw new Error('Native cron agent run did not start')
+    const service = new AgentSessionService({
+      isRunning: () => manager.isRunning,
+      request: (method, params, timeoutMs) => manager.request(method, params, timeoutMs),
+      nextRunId: () => args.runId,
+      assemble: (intent) =>
+        assembleSessionContext(
+          {
+            ...intent,
+            callerType: 'cron',
+            requestContextTexts: hookContextTexts,
+            extraTemplate
+          },
+          {
+            getSession: async () => ({
+              id: hostedSessionId,
+              mode: 'cron',
+              workingFolder: args.toolCtx.workingFolder ?? null,
+              sshConnectionId: args.toolCtx.sshConnectionId ?? null,
+              projectId: null,
+              providerId: args.config.provider.providerId ?? null,
+              modelId: args.config.provider.model
+            }),
+            getMessages: async () => [
+              {
+                id: triggerMessageId,
+                role: 'user',
+                content: triggerContent,
+                createdAt: triggerMessage?.createdAt ?? Date.now()
+              }
+            ],
+            resolveProvider: () => ({ ...args.config.provider }),
+            readPermissionPolicy: () => readPermissionPolicySnapshot() ?? null,
+            listTools: () =>
+              args.config.tools.map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema as Record<string, unknown>
+              })),
+            readRunSettings: () => ({
+              ...cronSettings,
+              maxIterations: args.config.maxIterations,
+              webSearchEnabled: false,
+              webSearch: null,
+              settingsRevision: 'cron'
+            }),
+            resolveSystemPrompt: () => args.config.provider.systemPrompt ?? null
+          }
+        )
+    })
+
+    const result = await service.startRun({
+      sessionId: hostedSessionId,
+      triggerMessageId,
+      mode: 'cron',
+      providerId: args.config.provider.providerId ?? '',
+      modelId: args.config.provider.model,
+      attachmentIds: [],
+      commandMetadata: null
+    })
+    if (!result.accepted || !result.runId) {
+      throw new Error(
+        result.errorCode
+          ? `Native cron agent run did not start (${result.errorCode})`
+          : 'Native cron agent run did not start'
+      )
     }
     nativeRunId = result.runId
-    console.log('[CronAgent] native agent run started', {
+    console.log('[CronAgent] native hosted session turn started', {
       runId: nativeRunId,
+      sessionId: hostedSessionId,
       providerType: args.config.provider.type,
       model: args.config.provider.model
     })
@@ -1184,6 +826,9 @@ async function* runNativeAgentLoop(args: {
   } finally {
     args.config.signal.removeEventListener('abort', abortHandler)
     unsubscribe()
+    void manager
+      .request('agent/session-close', { sessionId: hostedSessionId }, 10_000)
+      .catch(() => {})
   }
 }
 

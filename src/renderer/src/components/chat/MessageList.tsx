@@ -6,7 +6,7 @@ import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { MessageSquare, CircleHelp, Briefcase, Code2, ShieldCheck, ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
-import { useChatStore } from '@renderer/stores/chat-store'
+import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -22,7 +22,7 @@ import {
 } from './transcript-utils'
 import { buildOrchestrationRuns } from '@renderer/lib/orchestration/build-runs'
 import { type EditableUserMessageDraft } from '@renderer/lib/image-attachments'
-import type { RequestRetryState } from '@renderer/lib/agent/types'
+import type { RequestRetryState, ToolCallState } from '@renderer/lib/agent/types'
 import { isStreamingPerfEnabled, recordStreamingReactCommit } from '@renderer/lib/streaming-perf'
 import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
@@ -32,6 +32,8 @@ import {
 } from '@renderer/lib/agent/context-compression'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { DB_MESSAGES_LIST_LOCATOR_MSGPACK_CHANNEL } from '../../../../shared/messagepack/binary-ipc'
+import { applyRuntimeOverlayToMessages } from '@renderer/lib/chat/apply-runtime-overlay'
+import { useSessionRuntimeProjection } from '@renderer/lib/chat/use-session-runtime-projection'
 
 const modeHints = {
   chat: {
@@ -245,6 +247,7 @@ interface MessageRowProps {
   anchorMessageId?: string | null
   highlightMessageId?: string | null
   requestRetryState?: RequestRetryState | null
+  liveToolCallMap?: Map<string, ToolCallState> | null
   renderMode?: 'default' | 'transcript' | 'static'
   showChangeSummary?: boolean
   fullWidth?: boolean
@@ -313,6 +316,7 @@ interface MessageListSessionSelection {
   hasOlder: boolean
   hasNewer: boolean
   projectId?: string
+  mode: SessionMode
 }
 
 interface SessionScopedTeamSelection {
@@ -333,7 +337,8 @@ const EMPTY_MESSAGE_LIST_SESSION_SELECTION: MessageListSessionSelection = {
   hasOlder: false,
   hasNewer: false,
   projectId: undefined,
-  workingFolder: undefined
+  workingFolder: undefined,
+  mode: 'chat'
 }
 
 const EMPTY_SESSION_TEAM_SELECTION: SessionScopedTeamSelection = {
@@ -486,7 +491,8 @@ function selectMessageListSession(
     loadedRangeEnd: session.loadedRangeEnd ?? 0,
     hasOlder: session.hasOlder ?? session.loadedRangeStart > 0,
     hasNewer: session.hasNewer ?? session.loadedRangeEnd < (session.messageCount ?? 0),
-    projectId: session.projectId
+    projectId: session.projectId,
+    mode: session.mode
   }
 }
 
@@ -573,6 +579,7 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
     prev.anchorMessageId === next.anchorMessageId &&
     prev.highlightMessageId === next.highlightMessageId &&
     prev.renderMode === next.renderMode &&
+    prev.liveToolCallMap === next.liveToolCallMap &&
     prev.showChangeSummary === next.showChangeSummary &&
     areRequestRetryStatesEqual(prev.requestRetryState, next.requestRetryState) &&
     prev.onRetry === next.onRetry &&
@@ -1389,6 +1396,7 @@ const MessageRow = React.memo(function MessageRow({
   anchorMessageId,
   highlightMessageId,
   requestRetryState,
+  liveToolCallMap,
   renderMode,
   showChangeSummary = true,
   fullWidth = false,
@@ -1431,6 +1439,7 @@ const MessageRow = React.memo(function MessageRow({
         orchestrationRun={orchestrationRun}
         hiddenToolUseIds={hiddenToolUseIds}
         requestRetryState={requestRetryState}
+        liveToolCallMap={liveToolCallMap}
       />
       {showChangeSummary && message.role === 'assistant' && !isStreaming && sessionId ? (
         <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-300">
@@ -1603,7 +1612,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     useShallow((s) => selectMessageListSession(s, targetSessionId))
   )
   const {
-    messages,
+    messages: storeMessages,
     messagesLoaded: activeSessionLoaded,
     messageCount: activeSessionMessageCount,
     messageLocatorVersion,
@@ -1611,23 +1620,51 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     loadedRangeStart,
     hasOlder,
     hasNewer,
-    projectId: activeProjectId
+    projectId: activeProjectId,
+    mode: sessionMode
   } = sessionSelection
   const activeProjectName = useChatStore((s) => {
     if (!activeProjectId) return null
     return s.projects.find((project) => project.id === activeProjectId)?.name ?? null
   })
-  const streamingMessageId = useChatStore((s) =>
+  const storeStreamingMessageId = useChatStore((s) =>
     targetSessionId ? (s.streamingMessages[targetSessionId] ?? null) : null
   )
   const activeSessionId = targetSessionId
+  const overlayEnabled =
+    sessionMode === 'chat' ||
+    sessionMode === 'cowork' ||
+    sessionMode === 'code' ||
+    sessionMode === 'clarify' ||
+    sessionMode === 'acp'
+  const runtimeProjection = useSessionRuntimeProjection(activeSessionId, overlayEnabled)
+  const overlayView = React.useMemo(
+    () =>
+      overlayEnabled
+        ? applyRuntimeOverlayToMessages(
+            storeMessages,
+            runtimeProjection,
+            storeStreamingMessageId,
+            activeSessionId
+          )
+        : {
+            messages: storeMessages,
+            streamingMessageId: storeStreamingMessageId,
+            targetMessageId: storeStreamingMessageId,
+            liveToolCallMap: null,
+            isActive: false
+          },
+    [overlayEnabled, storeMessages, runtimeProjection, storeStreamingMessageId, activeSessionId]
+  )
+  const messages = overlayView.messages
+  const streamingMessageId = overlayView.streamingMessageId
+  const overlayLiveToolCallMap = overlayView.liveToolCallMap
+  const overlayTargetMessageId = overlayView.targetMessageId
   const isMainChatSession =
     !sessionId && Boolean(activeSessionId) && activeSessionId === currentActiveSessionId
   const isDetachedSessionView = Boolean(sessionId && activeSessionId)
   const mode = useUIStore((s) => s.mode)
-  const hasStreamingMessage = useChatStore((s) =>
-    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
-  )
+  const hasStreamingMessage = Boolean(storeStreamingMessageId) || overlayView.isActive
   const {
     activeSubAgents,
     completedSubAgents,
@@ -2023,7 +2060,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   )
   const isAwaitingInitialMessages =
     Boolean(activeSessionId) &&
-    messages.length === 0 &&
+    storeMessages.length === 0 &&
     (messageWindowPhase === 'loading' ||
       !activeSessionLoaded ||
       activeSessionMessageCount > 0 ||
@@ -3020,6 +3057,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                     const rowRenderMode =
                       !isStreaming && rowIndex < liveCutoffIndex ? 'static' : undefined
                     const isPreviewMessage = message.contentState === 'preview'
+                    const rowLiveToolCallMap =
+                      overlayLiveToolCallMap &&
+                      (isStreaming || messageId === overlayTargetMessageId)
+                        ? overlayLiveToolCallMap
+                        : undefined
 
                     return (
                       <>
@@ -3050,6 +3092,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                           requestRetryState={
                             isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
                           }
+                          liveToolCallMap={rowLiveToolCallMap}
                           fullWidth={fullWidth}
                           onRetry={onRetry}
                           onContinue={onContinue}

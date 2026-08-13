@@ -216,6 +216,10 @@ function getActiveMcpManager(): McpManager {
   return activeMcpManager
 }
 
+export function tryGetActiveMcpManager(): McpManager | null {
+  return activeMcpManager
+}
+
 export async function executeMcpToolFromMain(
   { serverId, toolName, args }: McpCallToolArgs,
   options: { hookMode?: McpToolHookMode } = {}

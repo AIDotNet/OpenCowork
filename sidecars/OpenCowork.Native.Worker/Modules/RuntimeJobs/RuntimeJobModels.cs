@@ -19,7 +19,19 @@ internal sealed record RuntimeJobRecord(
 internal sealed record RuntimeJobSubmission(
     bool Accepted,
     bool Duplicate,
-    RuntimeJobRecord Job);
+    RuntimeJobRecord Job,
+    string? AssistantMessageId = null);
+
+internal sealed class RuntimeJobRejectedException : InvalidOperationException
+{
+    public string ErrorCode { get; }
+
+    public RuntimeJobRejectedException(string errorCode, string message)
+        : base(message)
+    {
+        ErrorCode = errorCode;
+    }
+}
 
 internal sealed record RuntimeJobCommand(
     long CommandId,

@@ -415,6 +415,11 @@ function enqueueSessionMessageWrite(
   return next
 }
 
+/** Wait until queued SQLite message writes for this session have finished. */
+export function flushSessionMessageWrites(sessionId: string): Promise<void> {
+  return _sessionMessageWriteQueues.get(sessionId) ?? Promise.resolve()
+}
+
 function dbCreateSession(s: Session): void {
   const pending = invokeMessagePack(DB_SESSIONS_CREATE_MSGPACK_CHANNEL, {
     id: s.id,

@@ -1,46 +1,10 @@
 using System.Text.Json;
 
-internal sealed record AgentRuntimeInitializeResult(
-    bool Ok,
-    string Runtime,
-    string Version,
-    int ProtocolVersion,
-    int[] SupportedManifestSchemaVersions,
-    string CoreManifestHash,
-    string WorkerInstanceId,
-    AgentRuntimeFeatureSet Features,
-    AgentRuntimeCompatibility Compatibility);
-
-internal sealed record AgentRuntimeFeatureSet(
-    bool CapabilitySnapshot,
-    bool StrictToolValidation,
-    bool DurableEvents,
-    bool DurableInbox,
-    bool CheckpointRecovery,
-    bool ToolReconciliation,
-    bool LaneScheduler);
-
-internal sealed record AgentRuntimeCompatibility(
-    bool AcceptsV1RunRequest,
-    bool CanRecoverV2Run,
-    string MinimumRendererVersion,
-    string MinimumMainVersion);
-
 internal sealed record AgentRuntimeCapabilityResult(bool Supported);
 
-internal sealed record AgentRuntimeRunResult(bool Started, string RunId);
-
-internal sealed record AgentRuntimeSessionOpenResult(bool Ok, string SessionId, int MessageCount);
-
-internal sealed record AgentRuntimeSessionCloseResult(bool Ok, string SessionId, bool Closed);
-
-internal sealed record AgentRuntimeCancelResult(bool Cancelled, string? RunId);
+internal sealed record AgentRuntimeRunResult(bool Started, string RunId, string? AssistantMessageId = null);
 
 internal sealed record AgentRuntimeSubAgentCancelResult(bool Cancelled, int Count);
-
-internal sealed record AgentRuntimeStopResult(bool Stopped, string? RunId);
-
-internal sealed record AgentRuntimeAppendMessagesResult(bool Appended, string? RunId, int Count);
 
 internal sealed record AgentRuntimeContextCompressionResponse(
     JsonElement[] Messages,
@@ -53,12 +17,6 @@ internal sealed record AgentRuntimeContextCompressionResult(
     int? MessagesSummarized = null,
     bool? SummarizerFailed = null,
     string? Error = null);
-
-internal sealed record AgentRuntimeReverseResponseResult(bool Ok);
-
-internal sealed record AgentRuntimeReverseRequestEnvelope(string Id, string Method, JsonElement Params);
-
-internal sealed record AgentRuntimeReverseCancelEnvelope(string Id, string Method);
 
 internal sealed record AgentRuntimeApprovalRequest(
     string RunId,
@@ -131,7 +89,8 @@ internal sealed record AgentRuntimeStreamEvent(
     int? Attempt = null,
     int? MaxAttempts = null,
     int? DelayMs = null,
-    int? StatusCode = null);
+    int? StatusCode = null,
+    string? AssistantMessageId = null);
 
 internal sealed record AgentRuntimeToolUseBlock(
     string Id,

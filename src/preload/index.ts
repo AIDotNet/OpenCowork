@@ -14,6 +14,7 @@ import {
   encodeMessagePackPayload,
   toMessagePackChannel
 } from '../shared/messagepack/binary-ipc'
+import { createOpenCoworkRuntimeAPI } from '../shared/runtime-contracts/generated/ipc'
 
 async function invokeMessagePackBinary<T>(channel: string, payload: unknown): Promise<T> {
   const response = await ipcRenderer.invoke(
@@ -22,6 +23,20 @@ async function invokeMessagePackBinary<T>(channel: string, payload: unknown): Pr
   )
   return decodeMessagePackPayload<T>(response as ArrayBuffer | ArrayBufferView)
 }
+
+const runtime = createOpenCoworkRuntimeAPI({
+  invoke: (channel, payload) => invokeMessagePackBinary(channel, payload),
+  subscribe: (channel, listener) => {
+    const binaryChannel = toMessagePackChannel(channel)
+    const handler = (_event: unknown, bytes: ArrayBuffer | ArrayBufferView): void => {
+      listener(decodeMessagePackPayload(bytes))
+    }
+    ipcRenderer.on(binaryChannel, handler)
+    return () => {
+      ipcRenderer.removeListener(binaryChannel, handler)
+    }
+  }
+})
 
 // Custom APIs for renderer
 const api = {
@@ -43,7 +58,8 @@ const api = {
   teamRuntimeUpdateManifest: (args: UpdateTeamRuntimeManifestArgs) =>
     invokeMessagePackBinary('team-runtime:manifest:update', args),
   teamRuntimeConsumeMessages: (args: ConsumeTeamRuntimeMessagesArgs) =>
-    invokeMessagePackBinary('team-runtime:messages:consume', args)
+    invokeMessagePackBinary('team-runtime:messages:consume', args),
+  runtime
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to

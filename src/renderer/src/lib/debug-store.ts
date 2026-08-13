@@ -6,7 +6,7 @@ export interface RequestTraceInfo {
   providerId?: string
   providerBuiltinId?: string
   model?: string
-  executionPath?: 'sidecar'
+  executionPath?: 'sidecar' | 'hosted'
 }
 
 const MAX_DEBUG_STORE_ENTRIES = 80

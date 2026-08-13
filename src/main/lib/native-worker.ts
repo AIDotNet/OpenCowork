@@ -266,9 +266,20 @@ type NativeJobSubmission = {
   duplicate?: boolean
   jobId?: string
   runId?: string
+  assistantMessageId?: string
   state?: string
   error?: string
   errorCode?: string
+}
+
+export class NativeWorkerJobRejectedError extends Error {
+  readonly errorCode: string
+
+  constructor(errorCode: string, message: string) {
+    super(message)
+    this.name = 'NativeWorkerJobRejectedError'
+    this.errorCode = errorCode
+  }
 }
 
 type NativeJobStatus = {
@@ -531,24 +542,30 @@ class NativeWorkerManager {
     signal?: AbortSignal
   ): Promise<T> {
     const source = isRecord(params) ? params : {}
-    const requestedRunId =
-      method === 'agent/run' && typeof source.runId === 'string' && source.runId.trim()
-        ? source.runId.trim()
-        : method === 'agent/run'
-          ? randomUUID()
-          : null
-    const jobId = requestedRunId ?? randomUUID()
+    const runAddressed = method === 'agent/run' || method === 'agent/session-send'
+    const sourceRunId =
+      typeof source.runId === 'string' && source.runId.trim() ? source.runId.trim() : null
+    // Legacy agent/run still accepts a Main-generated runId. Hosted session-send omits
+    // runId so the Worker can allocate the durable job identity.
+    const requestedRunId = method === 'agent/run' ? (sourceRunId ?? randomUUID()) : sourceRunId
     const jobParams = requestedRunId ? { ...source, runId: requestedRunId } : params
+    const submitArgs: Record<string, unknown> = {
+      method,
+      params: jobParams
+    }
+    if (requestedRunId) {
+      submitArgs.jobId = requestedRunId
+      submitArgs.idempotencyKey = requestedRunId
+    } else if (!runAddressed) {
+      const generatedJobId = randomUUID()
+      submitArgs.jobId = generatedJobId
+      submitArgs.idempotencyKey = generatedJobId
+    }
     let submission: NativeJobSubmission
     try {
       submission = await this.request<NativeJobSubmission>(
         'jobs/submit',
-        {
-          method,
-          params: jobParams,
-          jobId,
-          idempotencyKey: jobId
-        },
+        submitArgs,
         30_000,
         signal
       )
@@ -556,15 +573,20 @@ class NativeWorkerManager {
       // The SQLite commit can win a race with local AbortSignal delivery. We know
       // the deterministic Job id even when the submit response was cancelled, so
       // make a best-effort cancellation instead of leaving an orphaned Job.
-      if (signal?.aborted) {
-        await this.request('jobs/cancel', { jobId }, 10_000).catch(() => {})
+      const submittedJobId = typeof submitArgs.jobId === 'string' ? submitArgs.jobId : undefined
+      if (signal?.aborted && submittedJobId) {
+        await this.request('jobs/cancel', { jobId: submittedJobId }, 10_000).catch(() => {})
       }
       throw error
     }
     if (submission.accepted !== true || typeof submission.jobId !== 'string') {
-      throw new Error(
-        submission.error ||
-          `${submission.errorCode ?? 'queue_unavailable'}: Worker did not commit the Job`
+      const errorCode =
+        typeof submission.errorCode === 'string' && submission.errorCode.length > 0
+          ? submission.errorCode
+          : 'queue_unavailable'
+      throw new NativeWorkerJobRejectedError(
+        errorCode,
+        submission.error || `${errorCode}: Worker did not commit the Job`
       )
     }
 
@@ -574,9 +596,14 @@ class NativeWorkerManager {
     }
 
     if (route.resultMode === 'accepted') {
+      const runId = submission.runId || requestedRunId || submission.jobId
       return {
         started: true,
-        runId: submission.runId || requestedRunId || submission.jobId,
+        runId,
+        assistantMessageId:
+          typeof submission.assistantMessageId === 'string' && submission.assistantMessageId.trim()
+            ? submission.assistantMessageId.trim()
+            : undefined,
         jobId: submission.jobId,
         state: submission.state || 'queued',
         duplicate: submission.duplicate === true

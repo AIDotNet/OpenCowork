@@ -16,7 +16,9 @@ function buildProcessEnv(): Record<string, string> {
 }
 
 function isNpmCommand(command: string): boolean {
-  const name = basename(command).toLowerCase().replace(/\.(cmd|exe)$/, '')
+  const name = basename(command)
+    .toLowerCase()
+    .replace(/\.(cmd|exe)$/, '')
   return name === 'npm' || name === 'npx'
 }
 
@@ -68,6 +70,10 @@ export class McpClientWrapper {
   private _usedFallback = false
 
   constructor(private config: McpServerConfig) {}
+
+  get serverConfig(): McpServerConfig {
+    return this.config
+  }
 
   get status(): McpServerStatus {
     return this._status

@@ -1,8 +1,6 @@
-import { ipcMain, BrowserWindow, dialog, app, type IpcMainInvokeEvent } from 'electron'
-import { existsSync, rmSync, statSync } from 'fs'
+import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
+import { rmSync } from 'fs'
 import { tmpdir } from 'os'
-import { randomUUID } from 'crypto'
-import * as path from 'path'
 import { join } from 'path'
 import { safePostMessageToWindow, safeSendMessagePackToAllWindows } from '../window-ipc'
 import {
@@ -14,182 +12,38 @@ import type { AgentStreamEvent, ToolCallStateWire } from '../../shared/agent-str
 import { AGENT_STREAM_PROTOCOL_VERSION } from '../../shared/agent-stream-protocol'
 import type { InteractiveAgentEvent, ToolCallState } from '../../shared/agent-loop-types'
 import {
-  initializeSettingsCache,
-  readCodeGraphEnabled,
-  readPermissionPolicySnapshot
-} from './settings-handlers'
-import {
-  SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL,
   SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL,
-  SIDECAR_RENDERER_TOOL_REQUEST_MSGPACK_CHANNEL,
   SIDECAR_RENDERER_TOOL_RESPONSE_MSGPACK_CHANNEL,
   decodeMessagePackPayload,
   encodeMessagePackPayload,
   toMessagePackChannel
 } from '../../shared/messagepack/binary-ipc'
-import {
-  DESKTOP_INPUT_CLICK,
-  DESKTOP_INPUT_SCROLL,
-  DESKTOP_INPUT_TYPE,
-  DESKTOP_SCREENSHOT_CAPTURE,
-  captureDesktopScreenshot,
-  desktopInputClick,
-  desktopInputScroll,
-  desktopInputType
-} from './desktop-control'
 import { getNativeAgentRuntimeManager } from './native-agent-runtime'
-import { getRuntimeRegistry, type RuntimeApprovalSnapshot } from './runtime-registry'
-import { getNativeWorker, stopNativeWorker } from '../lib/native-worker'
-import { getNativeSshConnectionPayload } from './ssh-connection-payload'
+import { getRuntimeRegistry } from './runtime-registry'
+import { getRuntimeProjectionHost } from './agent-runtime/runtime-projection'
+import { getWorkerEventConsumer } from './agent-runtime/worker-event-consumer-host'
+import { registerRuntimeIpcHandlers } from './agent-runtime/runtime-ipc-handlers'
 import {
-  executeChannelSpecificPluginTool,
-  executePluginAction,
-  isPluginToolEnabled
-} from './channel-handlers'
-import { showSystemNotification } from './notify-handlers'
+  createHostReverseRequestHandler,
+  handleCodeGraphRequest
+} from './agent-runtime/host-reverse-requests'
+import {
+  registerRuntimeCommandGateway,
+  type TrackedRun
+} from './agent-runtime/runtime-command-gateway'
+import { RunTargetRouter } from './agent-runtime/run-target-router'
+import { UiCapabilityRouter } from './agent-runtime/ui-capability-router'
+import { asOptionalRecord } from './agent-runtime/request-utils'
+import { getNativeWorker, stopNativeWorker } from '../lib/native-worker'
 import { getGoalRuntimeService } from '../goals/goal-runtime'
 import { emitGoalContinueRequested } from '../goals/goal-sync'
-import {
-  cancelJob,
-  getActiveRunJobIds,
-  getScheduledJobIds,
-  scheduleJob,
-  type CronJobRecord
-} from '../cron/cron-scheduler'
-import { getCronExecutionState } from '../cron/cron-agent-background'
-import {
-  executeMcpToolFromMain,
-  MCP_REVERSE_METHODS,
-  MCP_TOOL_HOOK_MODE,
-  readMcpResourceFromMain
-} from './mcp-handlers'
-import { executeJsExtensionToolInMain } from './extension-js-runtime'
-import { cancelHookRuns, runHooks } from '../hooks/hooks-service'
-import { getSession } from '../db/sessions-dao'
-import {
-  collectHookContextTexts,
-  HOOK_COMPACT_TRIGGER,
-  HOOK_EVENTS,
-  HOOK_PERMISSION_BEHAVIOR,
-  HOOK_REVERSE_METHODS,
-  HOOK_RUN_SOURCE,
-  HOOK_SESSION_START_SOURCE,
-  type HookRunSource
-} from '../../shared/hooks/types'
+import { cancelHookRuns } from '../hooks/hooks-service'
+import { HOOK_REVERSE_METHODS } from '../../shared/hooks/types'
 
-const SIDECAR_RENDERER_REQUEST_TIMEOUT_MS = 10 * 60_000
+export { handleCodeGraphRequest }
+
 const DEBUG_BODY_TEMP_DIR = join(tmpdir(), 'opencowork-request-debug-bodies')
-
-const CHANNEL_SPECIFIC_PLUGIN_INVOKE_CHANNELS = new Set([
-  'plugin:weixin:send-image',
-  'plugin:weixin:send-file',
-  'plugin:feishu:send-image',
-  'plugin:feishu:send-file',
-  'plugin:feishu:send-mention',
-  'plugin:feishu:list-members',
-  'plugin:feishu:send-urgent',
-  'plugin:feishu:bitable:list-apps',
-  'plugin:feishu:bitable:list-tables',
-  'plugin:feishu:bitable:list-fields',
-  'plugin:feishu:bitable:get-records',
-  'plugin:feishu:bitable:create-records',
-  'plugin:feishu:bitable:update-records',
-  'plugin:feishu:bitable:delete-records'
-])
-
-type PendingRendererApprovalResponse = { approved: boolean; reason?: string }
-
-async function validateAgentRunCapabilityContext(params: unknown): Promise<void> {
-  if (!params || typeof params !== 'object' || Array.isArray(params)) return
-  const request = params as Record<string, unknown>
-  if (request.runtimeProtocolVersion !== 2) return
-  if (
-    !request.capabilitySnapshot ||
-    typeof request.capabilitySnapshot !== 'object' ||
-    Array.isArray(request.capabilitySnapshot)
-  ) {
-    throw new Error('manifest_mismatch: Runtime v2 requires a capabilitySnapshot')
-  }
-
-  const snapshot = request.capabilitySnapshot as Record<string, unknown>
-  const sessionId = typeof request.sessionId === 'string' ? request.sessionId.trim() : ''
-  const snapshotSessionId = typeof snapshot.sessionId === 'string' ? snapshot.sessionId.trim() : ''
-  if (sessionId !== snapshotSessionId) {
-    throw new Error('capability_context_mismatch: Snapshot sessionId does not match the run')
-  }
-
-  const requestProjectId = typeof request.projectId === 'string' ? request.projectId.trim() : ''
-  const snapshotProjectId = typeof snapshot.projectId === 'string' ? snapshot.projectId.trim() : ''
-  const canvasContext =
-    request.canvasContext &&
-    typeof request.canvasContext === 'object' &&
-    !Array.isArray(request.canvasContext)
-      ? (request.canvasContext as Record<string, unknown>)
-      : null
-  const canvasProjectId =
-    typeof canvasContext?.projectId === 'string' ? canvasContext.projectId.trim() : ''
-
-  if (sessionId.startsWith('graph-agent:')) {
-    if (!canvasProjectId || sessionId !== `graph-agent:${canvasProjectId}`) {
-      throw new Error(
-        `capability_context_mismatch: Canvas session ${sessionId} is not bound to a canvas project`
-      )
-    }
-    if (requestProjectId !== canvasProjectId || snapshotProjectId !== canvasProjectId) {
-      throw new Error(
-        `capability_context_mismatch: Canvas session ${sessionId} is not bound to the requested project`
-      )
-    }
-    return
-  }
-
-  // System probes without a session remain supported, but every session-bound run is verified
-  // against SQLite rather than the foreground Renderer project.
-  if (!sessionId) return
-  const session = await getSession(sessionId)
-  if (!session) {
-    throw new Error(`capability_context_mismatch: Unknown session ${sessionId}`)
-  }
-  const expectedProjectId = session.project_id?.trim() ?? ''
-  if (
-    requestProjectId !== expectedProjectId ||
-    snapshotProjectId !== expectedProjectId ||
-    (canvasProjectId && canvasProjectId !== expectedProjectId)
-  ) {
-    throw new Error(
-      `capability_context_mismatch: Session ${sessionId} is not bound to the requested project`
-    )
-  }
-}
-
-type PendingRendererApprovalRequest = {
-  resolve: (value: PendingRendererApprovalResponse) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-  // Snapshot metadata so a reloaded / late-mounting window can have the pending
-  // approval re-posted to it (see runtime-registry / agent:attach-run).
-  sessionId: string | null
-  runId: string | null
-  params: unknown
-}
-
-type PendingRendererToolRequest = {
-  resolve: (value: unknown) => void
-  reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
-}
-
-type McpCallToolInvokeArgs = {
-  serverId?: string
-  toolName?: string
-  args?: Record<string, unknown>
-}
-
-type McpReadResourceInvokeArgs = {
-  serverId?: string
-  uri?: string
-  resourceName?: string
-}
+const CODEGRAPH_METHOD_PREFIX = 'codegraph/'
 
 type SidecarBridgeManager = {
   setRawEventHandler: (
@@ -238,16 +92,6 @@ export function getSidecarManager(): SidecarBridgeManager {
   return getNativeAgentRuntimeManager()
 }
 
-function normalizeRendererRequestRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
-}
-
-function readNonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed ? trimmed : undefined
-}
-
 function readBooleanEnv(name: string, defaultValue = false): boolean {
   const raw = process.env[name]
   if (raw === undefined) return defaultValue
@@ -275,259 +119,6 @@ function isMessagePackTraceEnabled(): boolean {
 function logMessagePackTrace(message: string, details: Record<string, unknown>): void {
   if (!isMessagePackTraceEnabled()) return
   console.log(`[Sidecar][MessagePack] ${message}`, details)
-}
-
-const CODEGRAPH_METHOD_PREFIX = 'codegraph/'
-
-// Success-shaped by convention: a codegraph/* call must NEVER throw back into the
-// agent loop. A disabled feature (or a transient worker failure) resolves as
-// guidance so a stale tool reference can't poison the session.
-function codeGraphNotReadyResult(message: string): {
-  success: true
-  isError: false
-  errorKind: 'not_indexed'
-  message: string
-} {
-  return { success: true, isError: false, errorKind: 'not_indexed', message }
-}
-
-export async function handleCodeGraphRequest(
-  method: string,
-  params: unknown,
-  timeoutMs?: number
-): Promise<unknown> {
-  // The settings cache hydrates asynchronously after app-ready (readSettings
-  // returns an empty snapshot until then). Awaiting hydration here prevents the
-  // first codegraph/* request on a cold launch from reading codegraphEnabled as
-  // undefined and wrongly reporting "disabled" — the race that made a freshly
-  // launched app show no indexed projects until it was restarted.
-  await initializeSettingsCache()
-  if (!readCodeGraphEnabled()) {
-    return codeGraphNotReadyResult(
-      'CodeGraph is disabled. Enable it in Settings to index this project for code navigation.'
-    )
-  }
-  try {
-    // CodeGraph is source-merged into the main worker (single binary, one
-    // e_sqlite3): codegraph/* dispatches on the same supervised worker.
-    return await getNativeWorker().request(method, params, timeoutMs)
-  } catch (error) {
-    return codeGraphNotReadyResult(
-      `CodeGraph is unavailable: ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
-}
-
-function enrichAgentRunParams(params: unknown): unknown {
-  const record = normalizeRendererRequestRecord(params)
-  const sshConnectionId = readNonEmptyString(record.sshConnectionId)
-  if (!sshConnectionId || record.connection) return params
-
-  const connection = getNativeSshConnectionPayload(sshConnectionId)
-  if (!connection) {
-    console.warn(`[Sidecar] SSH connection not found for native agent run: ${sshConnectionId}`)
-    return params
-  }
-
-  return {
-    ...record,
-    connection
-  }
-}
-
-async function prepareGoalAwareAgentRunParams(
-  params: unknown,
-  manager: SidecarBridgeManager
-): Promise<unknown> {
-  const enrichedParams = enrichAgentRunParams(params)
-  const record = normalizeRendererRequestRecord(enrichedParams)
-  const runId = readNonEmptyString(record.runId)
-  const sessionId = readNonEmptyString(record.sessionId)
-  const messages = Array.isArray(record.messages) ? record.messages : null
-
-  if (!runId || !sessionId || !messages) {
-    return enrichedParams
-  }
-
-  const preparedMessages = await getGoalRuntimeService().prepareRun({
-    runId,
-    sessionId,
-    planMode: record.planMode === true,
-    source: readAgentRunSource(record.goalRunSource),
-    messages: messages as Parameters<
-      ReturnType<typeof getGoalRuntimeService>['prepareRun']
-    >[0]['messages'],
-    enqueueMessages: (queuedMessages) => {
-      void manager
-        .request(
-          'agent/append-messages',
-          {
-            runId,
-            messages: queuedMessages
-          },
-          10_000
-        )
-        .catch((error) => {
-          console.warn(
-            '[Sidecar] Failed to append goal runtime messages:',
-            error instanceof Error ? error.message : String(error)
-          )
-        })
-    }
-  })
-
-  return {
-    ...record,
-    messages: preparedMessages
-  }
-}
-
-function readAgentRunSource(value: unknown): 'user_turn' | 'continue' {
-  return value === 'continue' ? 'continue' : 'user_turn'
-}
-
-function asOptionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : []
-}
-
-function getProviderRecord(params: Record<string, unknown>): Record<string, unknown> {
-  return normalizeRendererRequestRecord(params.provider)
-}
-
-async function runSessionStartHook(params: unknown): Promise<unknown> {
-  const record = normalizeRendererRequestRecord(params)
-  const provider = getProviderRecord(record)
-  const tools = Array.isArray(record.tools) ? record.tools : []
-  const toolNames = tools
-    .map((tool) => normalizeRendererRequestRecord(tool).name)
-    .filter((name): name is string => typeof name === 'string' && name.length > 0)
-  const sessionId = readNonEmptyString(record.sessionId)
-  const runId = readNonEmptyString(record.runId)
-  const workingFolder = readNonEmptyString(record.workingFolder)
-  const sshConnectionId = readNonEmptyString(record.sshConnectionId)
-  const goalRunSource = readNonEmptyString(record.goalRunSource)
-  const hookResult = await runHooks({
-    eventName: HOOK_EVENTS.sessionStart,
-    matcherValue:
-      goalRunSource === HOOK_RUN_SOURCE.continue
-        ? HOOK_SESSION_START_SOURCE.resume
-        : HOOK_SESSION_START_SOURCE.startup,
-    sessionId,
-    runId,
-    projectRoot: workingFolder,
-    sshConnectionId,
-    input: {
-      source:
-        goalRunSource === HOOK_RUN_SOURCE.continue
-          ? HOOK_SESSION_START_SOURCE.resume
-          : HOOK_SESSION_START_SOURCE.startup,
-      runSource: resolveSessionStartRunSource(record),
-      sessionMode: readNonEmptyString(record.sessionMode),
-      toolNames,
-      providerType: readNonEmptyString(provider.type) ?? '',
-      modelId: readNonEmptyString(provider.model)
-    }
-  })
-  if (hookResult.blocked) {
-    throw new Error(hookResult.reason || 'SessionStart hook blocked agent run')
-  }
-  const hookContextTexts = collectHookContextTexts(hookResult)
-  if (hookContextTexts.length === 0) return params
-  return {
-    ...record,
-    requestContextTexts: [...readStringArray(record.requestContextTexts), ...hookContextTexts]
-  }
-}
-
-function resolveSessionStartRunSource(record: Record<string, unknown>): HookRunSource {
-  if (readNonEmptyString(record.goalRunSource) === HOOK_RUN_SOURCE.continue) {
-    return HOOK_RUN_SOURCE.continue
-  }
-  if (record.translation) return HOOK_RUN_SOURCE.translation
-  if (readNonEmptyString(record.pluginId)) return HOOK_RUN_SOURCE.pluginAutoReply
-  if (readNonEmptyString(record.cronJobId)) return HOOK_RUN_SOURCE.cron
-  return HOOK_RUN_SOURCE.chat
-}
-
-async function runPermissionRequestHook(params: unknown): Promise<{
-  handled: boolean
-  approved: boolean
-  reason?: string
-}> {
-  const record = normalizeRendererRequestRecord(params)
-  const toolCall = normalizeRendererRequestRecord(record.toolCall)
-  const toolName = readNonEmptyString(toolCall.name)
-  if (!toolName) return { handled: false, approved: false }
-  const hookResult = await runHooks({
-    eventName: HOOK_EVENTS.permissionRequest,
-    matcherValue: toolName,
-    sessionId: readNonEmptyString(record.sessionId),
-    runId: readNonEmptyString(record.runId),
-    input: {
-      toolName,
-      toolInput: toolCall.input ?? {},
-      reason: readNonEmptyString(record.reason),
-      sourceRequiresUserApproval: true
-    }
-  })
-  if (hookResult.blocked) {
-    return {
-      handled: true,
-      approved: false,
-      reason: hookResult.reason || 'Denied by hook'
-    }
-  }
-  const decision = hookResult.permissionDecision
-  if (decision?.behavior === HOOK_PERMISSION_BEHAVIOR.deny) {
-    return { handled: true, approved: false, reason: decision.message || 'Denied by hook' }
-  }
-  if (decision?.behavior === HOOK_PERMISSION_BEHAVIOR.allow) {
-    return { handled: true, approved: true, reason: decision.message }
-  }
-  return { handled: false, approved: false }
-}
-
-async function runManualCompactHooks(
-  phase: typeof HOOK_EVENTS.preCompact | typeof HOOK_EVENTS.postCompact,
-  params: unknown,
-  result?: unknown
-): Promise<void> {
-  const record = normalizeRendererRequestRecord(params)
-  const resultRecord = normalizeRendererRequestRecord(result)
-  const compressionResult = normalizeRendererRequestRecord(resultRecord.result)
-  const hookResult = await runHooks({
-    eventName: phase,
-    matcherValue: 'manual',
-    sessionId: readNonEmptyString(record.sessionId),
-    projectRoot: readNonEmptyString(record.workingFolder),
-    sshConnectionId: readNonEmptyString(record.sshConnectionId),
-    input: {
-      trigger: HOOK_COMPACT_TRIGGER.manual,
-      originalCount:
-        typeof compressionResult.originalCount === 'number'
-          ? compressionResult.originalCount
-          : undefined,
-      newCount:
-        typeof compressionResult.newCount === 'number' ? compressionResult.newCount : undefined
-    }
-  })
-  if (hookResult.blocked) {
-    if (phase === HOOK_EVENTS.postCompact) {
-      console.warn(
-        `[Hooks] PostCompact hook requested block after compression: ${hookResult.reason || 'Blocked by hook'}`
-      )
-      return
-    }
-    throw new Error(hookResult.reason || `${phase} hook blocked context compression`)
-  }
 }
 
 function normalizeInteractiveToolCall(toolCall: ToolCallStateWire): ToolCallState {
@@ -643,174 +234,6 @@ async function observeGoalRuntimeFrame(bytes: Uint8Array | Buffer): Promise<void
   }
 }
 
-function isUsableRendererWindow(window: BrowserWindow | null | undefined): window is BrowserWindow {
-  return (
-    !!window &&
-    !window.isDestroyed() &&
-    !window.webContents.isDestroyed() &&
-    !window.webContents.isCrashed()
-  )
-}
-
-function pickFallbackRendererWindow(): BrowserWindow | null {
-  const focusedWindow = BrowserWindow.getFocusedWindow()
-  const candidateWindows = focusedWindow
-    ? [focusedWindow, ...BrowserWindow.getAllWindows().filter((win) => win !== focusedWindow)]
-    : BrowserWindow.getAllWindows()
-
-  return candidateWindows.find((win) => isUsableRendererWindow(win)) ?? null
-}
-
-function resolveRendererTargetWindow(
-  params: unknown,
-  runWindowIds: Map<string, number>,
-  sessionWindowIds: Map<string, number>,
-  options?: { allowFallback?: boolean }
-): BrowserWindow | null {
-  const record = normalizeRendererRequestRecord(params)
-  const agentRunId = readNonEmptyString(record.agentRunId)
-  const runId = readNonEmptyString(record.runId)
-  const sessionId = readNonEmptyString(record.sessionId)
-  const mappedWindowIds = [
-    agentRunId ? runWindowIds.get(agentRunId) : undefined,
-    runId ? runWindowIds.get(runId) : undefined,
-    sessionId ? sessionWindowIds.get(sessionId) : undefined
-  ]
-
-  for (const windowId of mappedWindowIds) {
-    if (typeof windowId !== 'number') continue
-    const mappedWindow = BrowserWindow.fromId(windowId)
-    if (isUsableRendererWindow(mappedWindow)) {
-      return mappedWindow
-    }
-  }
-
-  if (agentRunId) runWindowIds.delete(agentRunId)
-  if (runId) runWindowIds.delete(runId)
-  if (sessionId) sessionWindowIds.delete(sessionId)
-  if (options?.allowFallback === false && sessionId) return null
-  return pickFallbackRendererWindow()
-}
-
-function rememberRendererOrigin(
-  event: IpcMainInvokeEvent,
-  params: unknown,
-  runWindowIds: Map<string, number>,
-  sessionWindowIds: Map<string, number>,
-  resolvedRunId?: string
-): void {
-  const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-  if (!isUsableRendererWindow(sourceWindow)) return
-
-  const record = normalizeRendererRequestRecord(params)
-  const requestedRunId = readNonEmptyString(record.runId)
-  const sessionId = readNonEmptyString(record.sessionId)
-
-  if (requestedRunId) {
-    runWindowIds.set(requestedRunId, sourceWindow.id)
-  }
-  if (resolvedRunId) {
-    runWindowIds.set(resolvedRunId, sourceWindow.id)
-  }
-  if (sessionId) {
-    sessionWindowIds.set(sessionId, sourceWindow.id)
-  }
-}
-
-const activeSecurityScopedResources = new Map<string, () => void>()
-
-function normalizeComparableFsPath(filePath: string): string {
-  const resolved = path.resolve(filePath)
-  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
-}
-
-function isPathInsideOrEqual(parentPath: string, candidatePath: string): boolean {
-  const parent = normalizeComparableFsPath(parentPath)
-  const candidate = normalizeComparableFsPath(candidatePath)
-  if (candidate === parent) return true
-
-  const relativePath = path.relative(parent, candidate)
-  return Boolean(relativePath) && !relativePath.startsWith('..') && !path.isAbsolute(relativePath)
-}
-
-function getSystemAccessDefaultPath(requestPath: string): string | undefined {
-  try {
-    if (existsSync(requestPath)) {
-      const stat = statSync(requestPath)
-      return stat.isDirectory() ? requestPath : path.dirname(requestPath)
-    }
-  } catch {
-    // Fall back to the parent path below.
-  }
-
-  const parentPath = path.dirname(requestPath)
-  return parentPath && parentPath !== requestPath ? parentPath : undefined
-}
-
-function rememberSecurityScopedBookmark(selectedPath: string, bookmark?: string): void {
-  if (process.platform !== 'darwin' || !bookmark) return
-
-  const key = normalizeComparableFsPath(selectedPath)
-  if (activeSecurityScopedResources.has(key)) return
-
-  try {
-    const stopAccessing = app.startAccessingSecurityScopedResource(bookmark)
-    activeSecurityScopedResources.set(key, () => {
-      stopAccessing()
-    })
-  } catch (error) {
-    console.warn(
-      `[Sidecar] Failed to start security-scoped file access: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    )
-  }
-}
-
-async function requestSystemFileAccess(
-  params: unknown,
-  runWindowIds: Map<string, number>,
-  sessionWindowIds: Map<string, number>
-): Promise<{ granted: boolean; canceled?: boolean; path?: string; reason?: string }> {
-  const record = normalizeRendererRequestRecord(params)
-  const requestedPath = readNonEmptyString(record.path)
-  if (!requestedPath) {
-    return { granted: false, reason: 'Missing path for system access request' }
-  }
-
-  const targetWindow = resolveRendererTargetWindow(record, runWindowIds, sessionWindowIds)
-  if (!targetWindow) {
-    return { granted: false, reason: 'No renderer available for system access request' }
-  }
-
-  const defaultPath = getSystemAccessDefaultPath(requestedPath)
-  const operation = readNonEmptyString(record.operation) ?? 'access'
-  const result = await dialog.showOpenDialog(targetWindow, {
-    title: 'Allow OpenCoWork to access this folder',
-    message: `OpenCoWork needs system permission to ${operation}:\n${requestedPath}`,
-    buttonLabel: 'Allow Access',
-    properties: ['openDirectory'],
-    defaultPath,
-    securityScopedBookmarks: process.platform === 'darwin'
-  })
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return { granted: false, canceled: true, reason: 'User canceled system access request' }
-  }
-
-  const selectedPath = result.filePaths[0]
-  if (!isPathInsideOrEqual(selectedPath, requestedPath)) {
-    return {
-      granted: false,
-      path: selectedPath,
-      reason: `Selected folder does not include requested path: ${requestedPath}`
-    }
-  }
-
-  rememberSecurityScopedBookmark(selectedPath, result.bookmarks?.[0])
-  return { granted: true, path: selectedPath }
-}
-
 /**
  * Register IPC handlers for the sidecar bridge.
  * Renderer sends requests to sidecar via main process.
@@ -818,37 +241,34 @@ async function requestSystemFileAccess(
 export function registerSidecarHandlers(): void {
   cleanupDebugBodyTempFiles()
   const manager = getSidecarManager()
-  const pendingApprovalRequests = new Map<string, PendingRendererApprovalRequest>()
-  const pendingRendererToolRequests = new Map<string, PendingRendererToolRequest>()
-  const runWindowIds = new Map<string, number>()
-  const sessionWindowIds = new Map<string, number>()
-  // Additional windows that have called agent:attach-run for a runId. Live
-  // frames are also fanned out to these so a detached window that reattaches to
-  // an in-flight run keeps receiving deltas without stealing them from the
-  // window that started the run (whose routing via runWindowIds/sessionWindowIds
-  // is unchanged).
-  const attachedWindowsByRun = new Map<string, Set<number>>()
+  const windows = new RunTargetRouter()
+  const activeRunSessions = new Map<string, TrackedRun>()
   const goalRuntimeObservationChains = new Map<string, Promise<void>>()
-  // Runs currently streaming from the worker, tracked so a mid-flight worker
-  // crash can be turned into a terminal error the renderer can recover from.
-  const activeRunSessions = new Map<
-    string,
-    {
-      sessionId: string
-      lastSeq: number
-      dispatchedAt: number
-      acceptedAt: number | null
-      lastEventAt: number | null
-      jobState: 'queued' | 'running'
-    }
-  >()
 
-  type ActiveRunSession = NonNullable<ReturnType<typeof activeRunSessions.get>>
+  const sendReverseRequest = (
+    targetWindow: BrowserWindow,
+    msgpackChannel: string,
+    payload: unknown
+  ): boolean => {
+    const bytes = encodeMessagePackPayload(payload)
+    const sent = safePostMessageToWindow(targetWindow, msgpackChannel, bytes)
+    logMessagePackTrace('reverse request sent', {
+      channel: msgpackChannel,
+      sent,
+      bytes: bytes.byteLength
+    })
+    return sent
+  }
+
+  const uiCapabilities = new UiCapabilityRouter<BrowserWindow>({
+    resolveWindow: (params) => windows.resolve(params),
+    sendReverseRequest
+  })
 
   const buildSidecarDiagnostics = (
     runId?: string,
     sessionId?: string,
-    trackedRunOverride?: ActiveRunSession
+    trackedRunOverride?: TrackedRun
   ): Record<string, unknown> => {
     const worker = getNativeWorker().getDiagnosticsSnapshot()
     const trackedRun = trackedRunOverride ?? (runId ? activeRunSessions.get(runId) : undefined)
@@ -868,32 +288,14 @@ export function registerSidecarHandlers(): void {
         jobState: trackedRun?.jobState ?? null,
         lastSeq: trackedRun?.lastSeq ?? null,
         journalFrames,
-        mappedRunWindowId: runId ? (runWindowIds.get(runId) ?? null) : null,
-        mappedSessionWindowId: sessionId ? (sessionWindowIds.get(sessionId) ?? null) : null
-      }
+        mappedRunWindowId: runId ? windows.getRunWindowId(runId) : null,
+        mappedSessionWindowId: sessionId ? windows.getSessionWindowId(sessionId) : null
+      },
+      durableConsumer: getWorkerEventConsumer().getDiagnostics()
     }
   }
 
-  // Expose outstanding approvals to the runtime registry so agent:runtime-state
-  // can report them and agent:attach-run can re-post them to a re-mounted window.
-  getRuntimeRegistry().setApprovalSnapshotSupplier(() => {
-    const snapshots: RuntimeApprovalSnapshot[] = []
-    for (const [requestId, pending] of pendingApprovalRequests) {
-      snapshots.push({
-        requestId,
-        sessionId: pending.sessionId,
-        runId: pending.runId,
-        params: pending.params
-      })
-    }
-    return snapshots
-  })
-
-  const cleanupAgentRunIfTerminal = (runId: string, terminal: boolean): void => {
-    if (!terminal) return
-    runWindowIds.delete(runId)
-    attachedWindowsByRun.delete(runId)
-  }
+  getRuntimeRegistry().setApprovalSnapshotSupplier(() => uiCapabilities.getApprovalSnapshots())
 
   const sendAgentStreamBytes = (
     targetWindow: BrowserWindow,
@@ -906,21 +308,6 @@ export function registerSidecarHandlers(): void {
       sent,
       bytes: bytes.byteLength,
       ...details
-    })
-    return sent
-  }
-
-  const sendReverseRequest = (
-    targetWindow: BrowserWindow,
-    msgpackChannel: string,
-    payload: unknown
-  ): boolean => {
-    const bytes = encodeMessagePackPayload(payload)
-    const sent = safePostMessageToWindow(targetWindow, msgpackChannel, bytes)
-    logMessagePackTrace('reverse request sent', {
-      channel: msgpackChannel,
-      sent,
-      bytes: bytes.byteLength
     })
     return sent
   }
@@ -938,9 +325,6 @@ export function registerSidecarHandlers(): void {
       return
     }
 
-    // Fully decoding every frame just to have observeEvent no-op on untracked
-    // runs blocks the main thread on large payloads; gate on the runId that
-    // the cheap route scan already extracted.
     if (!getGoalRuntimeService().hasRun(frame.runId)) {
       return
     }
@@ -965,11 +349,6 @@ export function registerSidecarHandlers(): void {
     })
   }
 
-  // Forwarding one IPC message per provider delta floods the renderer with
-  // 60-200 postMessage calls/sec. Frames are buffered per run for a short
-  // window and concatenated on flush — MessagePack envelopes are
-  // self-delimiting, so the renderer splits them back out with decodeMulti.
-  // Arrival order within a run is preserved; terminal events flush inline.
   const STREAM_BATCH_FLUSH_MS = 33
   const STREAM_BATCH_MAX_BYTES = 256 * 1024
   interface PendingStreamBatch {
@@ -982,96 +361,22 @@ export function registerSidecarHandlers(): void {
   }
   const pendingStreamBatches = new Map<string, PendingStreamBatch>()
 
-  // Desktop owns the durable outbox cursor. Relying only on Renderer ACKs lets a
-  // missed postMessage (no mapped window, slow UI, lost invoke) pin the worker's
-  // 32-batch in-flight window and starve every later agent/stream envelope —
-  // which surfaces as "accepted but no stream event within 45s" while the worker
-  // stays ready and even finalizes the Job.
-  const acknowledgeDurableStream = (runId: string, throughSeq: number): void => {
-    if (!runId || !Number.isFinite(throughSeq) || throughSeq <= 0) return
-    void getNativeWorker()
-      .request('events/ack', { consumerId: 'desktop', jobId: runId, throughSeq }, 10_000)
-      .catch((error) => {
-        console.warn('[Sidecar] durable event ack failed', {
-          runId,
-          throughSeq,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      })
-  }
-
   const recoverDurableEventPump = async (
     runId?: string
   ): Promise<{ published: number; jobState: string | null }> => {
-    if (!manager.isRunning) {
-      return { published: 0, jobState: null }
-    }
-
-    // Clearing the in-flight window + replaying unacked envelopes unsticks the
-    // outbox when Renderer ACKs were lost or Event IPC briefly stalled.
-    const subscribed = (await getNativeWorker().request(
-      'events/subscribe',
-      { consumerId: 'desktop', limit: 4096 },
-      30_000
-    )) as { published?: number }
-
-    let published = typeof subscribed.published === 'number' ? subscribed.published : 0
-    let jobState: string | null = null
-
-    if (runId) {
-      try {
-        const replayed = (await getNativeWorker().request(
-          'events/replay',
-          { consumerId: 'desktop', jobId: runId, sinceSeq: 0, limit: 4096 },
-          30_000
-        )) as { published?: number }
-        if (typeof replayed.published === 'number') {
-          published = Math.max(published, replayed.published)
-        }
-        // Replay with a job filter sticks the pump on that job; clear it.
-        await getNativeWorker().request(
-          'events/subscribe',
-          { consumerId: 'desktop', limit: 4096 },
-          30_000
-        )
-      } catch (error) {
-        console.warn('[Sidecar] durable event replay failed', {
-          runId,
-          error: error instanceof Error ? error.message : String(error)
-        })
-      }
-
-      try {
-        const status = (await getNativeWorker().request(
-          'jobs/status',
-          { jobId: runId },
-          10_000
-        )) as { state?: string; found?: boolean }
-        if (status.found === false) {
-          jobState = 'missing'
-        } else if (typeof status.state === 'string') {
-          jobState = status.state
-          const tracked = activeRunSessions.get(runId)
-          if (tracked && (status.state === 'queued' || status.state === 'running')) {
-            activeRunSessions.set(runId, {
-              ...tracked,
-              jobState: status.state === 'running' ? 'running' : 'queued'
-            })
-          }
-        }
-      } catch (error) {
-        console.warn('[Sidecar] jobs/status during stream recovery failed', {
-          runId,
-          error: error instanceof Error ? error.message : String(error)
+    const recovery = await getWorkerEventConsumer().recoverPump(runId)
+    if (runId && recovery.jobState) {
+      const tracked = activeRunSessions.get(runId)
+      if (tracked && (recovery.jobState === 'queued' || recovery.jobState === 'running')) {
+        activeRunSessions.set(runId, {
+          ...tracked,
+          jobState: recovery.jobState === 'running' ? 'running' : 'queued'
         })
       }
     }
-
-    return { published, jobState }
+    return recovery
   }
 
-  // Runs that were accepted but never received a stream frame usually mean the
-  // durable outbox is wedged — heal before the renderer first-progress timeout.
   const STALLED_STREAM_RECOVERY_MS = 8_000
   const stalledStreamRecoveryAt = new Map<string, number>()
   const stalledStreamWatchdog = setInterval(() => {
@@ -1107,20 +412,12 @@ export function registerSidecarHandlers(): void {
     pendingStreamBatches.delete(runId)
     if (batch.timer !== null) clearTimeout(batch.timer)
 
-    let targetWindow = resolveRendererTargetWindow(
+    let targetWindow = windows.resolve(
       { runId: batch.runId, sessionId: batch.sessionId },
-      runWindowIds,
-      sessionWindowIds,
       { allowFallback: false }
     )
     if (!targetWindow) {
-      // Prefer a live window over silently dropping envelopes: undelivered frames
-      // that never ACK wedge the worker outbox for all subsequent runs.
-      targetWindow = resolveRendererTargetWindow(
-        { runId: batch.runId, sessionId: batch.sessionId },
-        runWindowIds,
-        sessionWindowIds
-      )
+      targetWindow = windows.resolve({ runId: batch.runId, sessionId: batch.sessionId })
       if (targetWindow) {
         console.warn('[Sidecar] agent stream using fallback renderer window', {
           runId: batch.runId,
@@ -1140,37 +437,22 @@ export function registerSidecarHandlers(): void {
         frames: batch.frames.length
       })
 
-      // Fan out to additional attached windows (reattach subscribers). Skip the
-      // primary target — it already got the frame above. Prune dead window ids.
-      const attached = attachedWindowsByRun.get(batch.runId)
-      if (attached) {
-        for (const windowId of Array.from(attached)) {
-          if (windowId === targetWindow.id) continue
-          const extraWindow = BrowserWindow.fromId(windowId)
-          if (!isUsableRendererWindow(extraWindow)) {
-            attached.delete(windowId)
-            continue
-          }
-          sendAgentStreamBytes(extraWindow, bytes, {
-            source: 'attach-fanout',
-            runId: batch.runId,
-            sessionId: batch.sessionId
-          })
-        }
-        if (attached.size === 0) attachedWindowsByRun.delete(batch.runId)
-      }
+      windows.forEachObserver(batch.runId, (extraWindow) => {
+        if (extraWindow.id === targetWindow.id) return
+        sendAgentStreamBytes(extraWindow, bytes, {
+          source: 'attach-fanout',
+          runId: batch.runId,
+          sessionId: batch.sessionId
+        })
+      })
     } else {
-      console.warn('[Sidecar] agent stream has no renderer window; acking durable cursor', {
+      console.warn('[Sidecar] agent stream has no renderer window; durable cursor already acked', {
         runId: batch.runId,
         sessionId: batch.sessionId,
         frames: batch.frames.length,
         lastSeq: batch.lastSeq
       })
     }
-
-    // Advance the worker cursor after Main has journaled (recordFrame) and
-    // attempted delivery. Renderer ACKs remain idempotent MAX(through_seq).
-    acknowledgeDurableStream(batch.runId, batch.lastSeq)
   }
 
   const flushAllStreamBatches = (): void => {
@@ -1181,10 +463,7 @@ export function registerSidecarHandlers(): void {
 
   manager.setRawEventHandler((frame) => {
     queueGoalRuntimeObservation(frame)
-
-    // Journal every per-run frame so a reloaded / late-mounting window can pull
-    // a snapshot and replay the tail (agent:runtime-state / agent:attach-run).
-    getRuntimeRegistry().recordFrame(frame)
+    getWorkerEventConsumer().consumeFrame(frame)
 
     if (frame.runId && frame.sessionId) {
       if (frame.hasTerminalEvent === true) {
@@ -1205,9 +484,7 @@ export function registerSidecarHandlers(): void {
 
     if (!frame.runId || !frame.sessionId) {
       const targetWindow =
-        resolveRendererTargetWindow(frame, runWindowIds, sessionWindowIds, {
-          allowFallback: false
-        }) ?? resolveRendererTargetWindow(frame, runWindowIds, sessionWindowIds)
+        windows.resolve(frame, { allowFallback: false }) ?? windows.resolve(frame)
       if (targetWindow) {
         sendAgentStreamBytes(targetWindow, frame.bytes, {
           source: 'native-raw',
@@ -1215,9 +492,6 @@ export function registerSidecarHandlers(): void {
           sessionId: frame.sessionId,
           seq: frame.seq
         })
-      }
-      if (frame.runId && typeof frame.seq === 'number') {
-        acknowledgeDurableStream(frame.runId, frame.seq)
       }
       return
     }
@@ -1248,7 +522,7 @@ export function registerSidecarHandlers(): void {
       batch.timer = setTimeout(() => flushStreamBatch(runId), STREAM_BATCH_FLUSH_MS)
     }
 
-    if (terminal) cleanupAgentRunIfTerminal(runId, true)
+    if (terminal) windows.forgetRun(runId)
   })
 
   manager.setReverseCancelHandler((id, method) => {
@@ -1257,37 +531,32 @@ export function registerSidecarHandlers(): void {
     }
   })
 
-  // Tell every renderer when the worker goes away or comes back so client-side
-  // state tied to a worker process (e.g. the agent-bridge initialize handshake)
-  // does not go stale across supervised restarts.
   manager.onDisconnect(() => {
     safeSendMessagePackToAllWindows('sidecar:lifecycle', { state: 'disconnected' })
   })
   manager.onReconnect(() => {
+    const workerInstanceId =
+      getNativeAgentRuntimeManager().runtimeCapabilities?.workerInstanceId ?? 'uninitialized'
+    getRuntimeProjectionHost().reset(workerInstanceId, 'worker-reconnect')
     safeSendMessagePackToAllWindows('sidecar:lifecycle', { state: 'reconnected' })
   })
 
-  // Fine-grained supervisor state (starting/ready/restarting/fatal) so the
-  // renderer can gate first-progress timeouts and show precise recovery UI
-  // instead of a generic "runtime unavailable" card.
   getNativeWorker().onStateChange((snapshot) => {
     safeSendMessagePackToAllWindows('sidecar:worker-state', snapshot)
   })
 
   const failInterruptedRun = (
     runId: string,
-    info: ActiveRunSession,
+    info: TrackedRun,
     errorType = 'worker_interrupted',
     message = 'Native worker stopped while this Job was running.'
   ): void => {
     activeRunSessions.delete(runId)
-    const targetWindow = resolveRendererTargetWindow(
+    const targetWindow = windows.resolve(
       { runId, sessionId: info.sessionId },
-      runWindowIds,
-      sessionWindowIds,
       { allowFallback: false }
     )
-    runWindowIds.delete(runId)
+    windows.forgetRun(runId)
     if (!targetWindow) return
 
     const bytes = encodeAgentStreamEnvelope({
@@ -1312,9 +581,6 @@ export function registerSidecarHandlers(): void {
     })
   }
 
-  // Running Jobs are not restarted after a crash (model cost and side effects may
-  // already have happened). Queued Jobs remain in SQLite and are deliberately kept
-  // attached so the replacement worker can consume them.
   manager.onDisconnect(() => {
     if (activeRunSessions.size === 0) return
     flushAllStreamBatches()
@@ -1352,268 +618,13 @@ export function registerSidecarHandlers(): void {
     )
   })
 
-  manager.setRequestHandler(async (_id, method, params) => {
-    // Reverse requests (approvals, renderer tool execution) must not overtake
-    // stream events that were emitted before them.
-    flushAllStreamBatches()
-    switch (method) {
-      case 'approval/request': {
-        const hookDecision: { handled: boolean; approved: boolean; reason?: string } =
-          await runPermissionRequestHook(params).catch((error) => {
-            console.warn(
-              `[Hooks] PermissionRequest failed: ${error instanceof Error ? error.message : String(error)}`
-            )
-            return { handled: false, approved: false }
-          })
-        if (hookDecision.handled) {
-          return {
-            approved: hookDecision.approved,
-            ...(hookDecision.reason ? { reason: hookDecision.reason } : {})
-          }
-        }
-
-        const requestId = `sidecar-approval-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-        const targetWindow = resolveRendererTargetWindow(params, runWindowIds, sessionWindowIds)
-
-        if (!targetWindow) {
-          return { approved: false, reason: 'No renderer available for approval request' }
-        }
-
-        const approvalRecord = normalizeRendererRequestRecord(params)
-        const approvalSessionId = readNonEmptyString(approvalRecord.sessionId)
-        const approvalRunId =
-          readNonEmptyString(approvalRecord.runId) ?? readNonEmptyString(approvalRecord.agentRunId)
-
-        return await new Promise<{ approved: boolean; reason?: string }>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            pendingApprovalRequests.delete(requestId)
-            reject(new Error('Renderer approval request timed out'))
-          }, SIDECAR_RENDERER_REQUEST_TIMEOUT_MS)
-
-          pendingApprovalRequests.set(requestId, {
-            resolve,
-            reject,
-            timer,
-            sessionId: approvalSessionId ?? null,
-            runId: approvalRunId ?? null,
-            params
-          })
-
-          const sent = sendReverseRequest(targetWindow, SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL, {
-            requestId,
-            method,
-            params
-          })
-
-          if (!sent) {
-            clearTimeout(timer)
-            pendingApprovalRequests.delete(requestId)
-            resolve({ approved: false, reason: 'Failed to deliver approval request to renderer' })
-          }
-        })
-      }
-      case HOOK_REVERSE_METHODS.run:
-        return await runHooks({
-          ...(normalizeRendererRequestRecord(params) as unknown as Parameters<typeof runHooks>[0]),
-          cancellationKey: String(_id)
-        })
-      case 'cron/schedule-job': {
-        const cronParams = params as { job?: CronJobRecord } | null
-        if (!cronParams?.job?.id) {
-          throw new Error('cron/schedule-job requires job')
-        }
-        const scheduled = scheduleJob(cronParams.job)
-        return { success: true, scheduled }
-      }
-      case 'cron/cancel-job': {
-        const cronParams = params as { jobId?: string } | null
-        if (!cronParams?.jobId) {
-          throw new Error('cron/cancel-job requires jobId')
-        }
-        const canceled = cancelJob(cronParams.jobId)
-        return { success: true, canceled }
-      }
-      case 'cron/runtime-state': {
-        const scheduledIds = getScheduledJobIds()
-        const runningIds = getActiveRunJobIds()
-        const executionStates = Object.fromEntries(
-          runningIds.map((jobId) => [jobId, getCronExecutionState(jobId)])
-        )
-        return { success: true, scheduledIds, runningIds, executionStates }
-      }
-      case 'notify:desktop': {
-        const notifyArgs = (params ?? {}) as {
-          title?: string
-          body?: string
-          type?: string
-          duration?: number
-        }
-        try {
-          showSystemNotification(notifyArgs.title ?? 'OpenCoWork', notifyArgs.body ?? '')
-          return { success: true }
-        } catch (err) {
-          return { success: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
-      case 'fs/request-system-access':
-        return await requestSystemFileAccess(params, runWindowIds, sessionWindowIds)
-      case 'plugin:exec': {
-        const pluginArgs = (params ?? {}) as {
-          pluginId?: string
-          action?: string
-          params?: Record<string, unknown>
-          toolName?: string
-        }
-        if (!pluginArgs.pluginId || !pluginArgs.action) {
-          throw new Error('plugin:exec requires pluginId and action')
-        }
-        if (
-          pluginArgs.toolName &&
-          !(await isPluginToolEnabled(pluginArgs.pluginId, pluginArgs.toolName))
-        ) {
-          return { error: `Tool "${pluginArgs.toolName}" is disabled for this channel.` }
-        }
-        return await executePluginAction({
-          pluginId: pluginArgs.pluginId,
-          action: pluginArgs.action,
-          params: pluginArgs.params ?? {}
-        })
-      }
-      case 'plugin:tool-enabled': {
-        const pluginArgs = (params ?? {}) as {
-          pluginId?: string
-          toolName?: string
-        }
-        if (!pluginArgs.pluginId || !pluginArgs.toolName) {
-          throw new Error('plugin:tool-enabled requires pluginId and toolName')
-        }
-        return {
-          enabled: await isPluginToolEnabled(pluginArgs.pluginId, pluginArgs.toolName)
-        }
-      }
-      case 'codegraph:tool': {
-        // Agent tool calls (codegraph_explore, ...) from the in-worker runtime. The
-        // main worker cannot reach the CodeGraph sidecar directly; route through the
-        // same enabled-gated, success-shaped path the renderer passthrough uses.
-        const cgArgs = (params ?? {}) as {
-          name?: string
-          input?: Record<string, unknown>
-          workingFolder?: string
-        }
-        const toolName = typeof cgArgs.name === 'string' ? cgArgs.name : ''
-        if (!toolName.startsWith('codegraph_')) {
-          return codeGraphNotReadyResult(`Unknown CodeGraph tool: ${toolName || '(missing)'}`)
-        }
-        const cgMethod = `codegraph/${toolName.slice('codegraph_'.length)}`
-        const input =
-          cgArgs.input && typeof cgArgs.input === 'object'
-            ? { ...(cgArgs.input as Record<string, unknown>) }
-            : {}
-        if (
-          cgArgs.workingFolder &&
-          input.projectPath === undefined &&
-          input.workingFolder === undefined
-        ) {
-          input.workingFolder = cgArgs.workingFolder
-        }
-        // Explore over a large indexed graph can be slow; give it a generous timeout.
-        return await handleCodeGraphRequest(cgMethod, input, 120_000)
-      }
-      case DESKTOP_SCREENSHOT_CAPTURE:
-        return await captureDesktopScreenshot()
-      case DESKTOP_INPUT_CLICK:
-        return desktopInputClick((params ?? {}) as Parameters<typeof desktopInputClick>[0])
-      case DESKTOP_INPUT_TYPE:
-        return desktopInputType((params ?? {}) as Parameters<typeof desktopInputType>[0])
-      case DESKTOP_INPUT_SCROLL:
-        return desktopInputScroll((params ?? {}) as Parameters<typeof desktopInputScroll>[0])
-      case MCP_REVERSE_METHODS.callTool: {
-        const mcpArgs = (params ?? {}) as McpCallToolInvokeArgs
-        if (!mcpArgs.serverId || !mcpArgs.toolName) {
-          throw new Error('mcp:call-tool requires serverId and toolName')
-        }
-        return await executeMcpToolFromMain(
-          {
-            serverId: mcpArgs.serverId,
-            toolName: mcpArgs.toolName,
-            args: mcpArgs.args ?? {}
-          },
-          { hookMode: MCP_TOOL_HOOK_MODE.disabled }
-        )
-      }
-      case MCP_REVERSE_METHODS.readResource: {
-        const mcpArgs = (params ?? {}) as McpReadResourceInvokeArgs
-        if (!mcpArgs.serverId) {
-          throw new Error('mcp:read-resource requires serverId')
-        }
-        return await readMcpResourceFromMain({
-          serverId: mcpArgs.serverId,
-          uri: mcpArgs.uri,
-          resourceName: mcpArgs.resourceName
-        })
-      }
-      case 'extension:execute-js-tool':
-        return await executeJsExtensionToolInMain(params)
-      case 'ask-user/request':
-      case 'plan/ui-update':
-      case 'team/ui-update':
-      case 'subagent/ui-update':
-      case 'browser/tool-request':
-      case 'canvas/tool-request': {
-        const requestId = `sidecar-${method.replace(/[^a-z0-9]+/gi, '-')}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-        const targetWindow = resolveRendererTargetWindow(params, runWindowIds, sessionWindowIds)
-        const requestLabel =
-          method === 'ask-user/request'
-            ? 'AskUserQuestion request'
-            : method === 'browser/tool-request'
-              ? 'Browser tool request'
-              : method === 'canvas/tool-request'
-                ? 'Canvas tool request'
-                : method === 'team/ui-update'
-                  ? 'Team UI update request'
-                  : method === 'subagent/ui-update'
-                    ? 'Sub-agent UI update request'
-                    : 'Plan UI update request'
-
-        if (!targetWindow) {
-          throw new Error(`No renderer available for ${requestLabel}`)
-        }
-
-        return await new Promise<unknown>((resolve, reject) => {
-          const timer = setTimeout(() => {
-            pendingRendererToolRequests.delete(requestId)
-            reject(new Error(`${requestLabel} timed out`))
-          }, SIDECAR_RENDERER_REQUEST_TIMEOUT_MS)
-
-          pendingRendererToolRequests.set(requestId, { resolve, reject, timer })
-
-          const sent = sendReverseRequest(
-            targetWindow,
-            SIDECAR_RENDERER_TOOL_REQUEST_MSGPACK_CHANNEL,
-            {
-              requestId,
-              method,
-              params
-            }
-          )
-
-          if (!sent) {
-            clearTimeout(timer)
-            pendingRendererToolRequests.delete(requestId)
-            reject(new Error(`Failed to deliver ${requestLabel} to renderer`))
-          }
-        })
-      }
-      default:
-        if (CHANNEL_SPECIFIC_PLUGIN_INVOKE_CHANNELS.has(method)) {
-          return await executeChannelSpecificPluginTool(
-            method,
-            (params ?? {}) as Record<string, unknown>
-          )
-        }
-        throw new Error(`Unsupported reverse method: ${method}`)
-    }
-  })
+  manager.setRequestHandler(
+    createHostReverseRequestHandler({
+      flushStreamBatches: flushAllStreamBatches,
+      windows,
+      uiCapabilities
+    })
+  )
 
   registerSidecarMessagePackHandler<undefined>('sidecar:status', () => {
     return { running: manager.isRunning }
@@ -1658,9 +669,6 @@ export function registerSidecarHandlers(): void {
     return { ok: true }
   })
 
-  // Recovery lever that actually replaces the OS process. sidecar:stop only
-  // sends a shutdown RPC — a wedged worker survives it, so a renderer retry
-  // would keep talking to the same broken process.
   registerSidecarMessagePackHandler<undefined>('sidecar:recycle', async () => {
     console.warn('[Sidecar] recycle requested: replacing native worker process')
     await manager.stop().catch(() => {})
@@ -1674,10 +682,6 @@ export function registerSidecarHandlers(): void {
     params?: unknown
     timeoutMs?: number
   }>('sidecar:request', async (_event, { method, params, timeoutMs }) => {
-    // CodeGraph is an opt-in second sidecar. Route codegraph/* to its own lazy
-    // worker BEFORE any main-worker isRunning/ensure-start below, so a codegraph
-    // call neither boots nor depends on the main worker. Gated on the setting;
-    // resolves success-shaped when disabled (never throws).
     if (typeof method === 'string' && method.startsWith(CODEGRAPH_METHOD_PREFIX)) {
       return await handleCodeGraphRequest(method, params, timeoutMs)
     }
@@ -1710,298 +714,18 @@ export function registerSidecarHandlers(): void {
     }
   })
 
-  registerMessagePackInvokeHandler<unknown>('agent:run', async (event, params) => {
-    console.log('[Sidecar] agent:run requested')
-    rememberRendererOrigin(event, params, runWindowIds, sessionWindowIds)
-    const ready = await manager.ensureStarted()
-    if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
-    const enrichedParams = await prepareGoalAwareAgentRunParams(params, manager)
-    const hookAdjustedParams = await runSessionStartHook(enrichedParams)
-    await validateAgentRunCapabilityContext(hookAdjustedParams)
-    // Defense in depth: guarantee the permission whitelist snapshot is present even for
-    // run initiators that bypass buildSidecarAgentRunRequest. Renderer-provided policy wins.
-    if (
-      hookAdjustedParams &&
-      typeof hookAdjustedParams === 'object' &&
-      !Array.isArray(hookAdjustedParams) &&
-      (hookAdjustedParams as Record<string, unknown>).permissionPolicy === undefined
-    ) {
-      const permissionPolicy = readPermissionPolicySnapshot()
-      if (permissionPolicy) {
-        ;(hookAdjustedParams as Record<string, unknown>).permissionPolicy = permissionPolicy
-      }
-    }
-    const runRecord = normalizeRendererRequestRecord(hookAdjustedParams)
-    let requestedRunId = readNonEmptyString(runRecord.runId)
-    const requestedSessionId = readNonEmptyString(runRecord.sessionId)
-    if (!requestedRunId && requestedSessionId) {
-      requestedRunId = randomUUID()
-      runRecord.runId = requestedRunId
-    }
-    if (requestedRunId && requestedSessionId) {
-      // Track the accepted intent before dispatch. The worker can crash after it
-      // accepts agent/run but before loop_start reaches main; without this entry
-      // disconnect recovery has no run to terminate and the renderer waits for
-      // its generic first-progress timeout.
-      activeRunSessions.set(requestedRunId, {
-        sessionId: requestedSessionId,
-        lastSeq: 0,
-        dispatchedAt: Date.now(),
-        acceptedAt: null,
-        lastEventAt: null,
-        jobState: 'queued'
-      })
-    }
-    try {
-      const result = (await manager.request('agent/run', hookAdjustedParams, 60_000)) as {
-        started: boolean
-        runId: string
-        state?: string
-      }
-      rememberRendererOrigin(
-        event,
-        hookAdjustedParams,
-        runWindowIds,
-        sessionWindowIds,
-        result.runId
-      )
-      if (requestedRunId && result.runId !== requestedRunId) {
-        const pretracked = activeRunSessions.get(requestedRunId)
-        const streamedRun = activeRunSessions.get(result.runId)
-        activeRunSessions.delete(requestedRunId)
-        const resultRun = getRuntimeRegistry()
-          .getRunSnapshots()
-          .find((run) => run.runId === result.runId)
-        if (pretracked && streamedRun) {
-          activeRunSessions.set(result.runId, {
-            ...pretracked,
-            ...streamedRun,
-            dispatchedAt: pretracked.dispatchedAt,
-            acceptedAt: streamedRun.acceptedAt ?? pretracked.acceptedAt ?? Date.now()
-          })
-        } else if (pretracked && !resultRun) {
-          activeRunSessions.set(result.runId, {
-            ...pretracked,
-            acceptedAt: Date.now(),
-            jobState: result.state === 'running' ? 'running' : 'queued'
-          })
-        }
-      } else if (requestedRunId) {
-        const trackedRun = activeRunSessions.get(requestedRunId)
-        if (trackedRun) {
-          activeRunSessions.set(requestedRunId, {
-            ...trackedRun,
-            acceptedAt: trackedRun.acceptedAt ?? Date.now(),
-            jobState: result.state === 'running' ? 'running' : trackedRun.jobState
-          })
-        }
-      }
-      console.log('[Sidecar] agent:run request accepted')
-      return result
-    } catch (error) {
-      if (requestedRunId) activeRunSessions.delete(requestedRunId)
-      console.warn(
-        `[Sidecar] agent:run failed: ${error instanceof Error ? error.message : String(error)}`
-      )
-      throw error
-    }
-  })
-
-  registerMessagePackInvokeHandler<unknown>('agent:cancel', async (_event, params) => {
-    if (!manager.isRunning) {
-      return { cancelled: false }
-    }
-    const result = (await manager.request('agent/cancel', params, 10_000)) as {
-      cancelled: boolean
-      runId?: string
-    }
-    if (result.cancelled && result.runId) {
-      runWindowIds.delete(result.runId)
-    }
-    return result
-  })
-
-  registerMessagePackInvokeHandler<{ runId?: string; throughSeq?: number }>(
-    'agent:event-ack',
-    async (_event, params) => {
-      const runId = readNonEmptyString(params?.runId)
-      const throughSeq = params?.throughSeq
-      if (
-        !runId ||
-        typeof throughSeq !== 'number' ||
-        !Number.isFinite(throughSeq) ||
-        throughSeq <= 0
-      ) {
-        return { acked: false }
-      }
-      return await getNativeWorker().request(
-        'events/ack',
-        { consumerId: 'desktop', jobId: runId, throughSeq },
-        10_000
-      )
-    }
-  )
-
-  // Heal a run that was accepted but produced no renderer-visible stream yet:
-  // unstick the durable outbox, re-check Job state, and push any journalled
-  // frames to the calling window.
-  registerMessagePackInvokeHandler<unknown>('agent:recover-stream', async (event, params) => {
-    const record = normalizeRendererRequestRecord(params)
-    const runId = readNonEmptyString(record.runId)
-    const sessionId = readNonEmptyString(record.sessionId)
-    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-
-    if (runId && isUsableRendererWindow(sourceWindow)) {
-      runWindowIds.set(runId, sourceWindow.id)
-      if (sessionId) sessionWindowIds.set(sessionId, sourceWindow.id)
-      let attached = attachedWindowsByRun.get(runId)
-      if (!attached) {
-        attached = new Set()
-        attachedWindowsByRun.set(runId, attached)
-      }
-      attached.add(sourceWindow.id)
-    }
-
-    const recovery = runId
-      ? await recoverDurableEventPump(runId)
-      : { published: 0, jobState: null as string | null }
-
-    flushAllStreamBatches()
-
-    let journalFrames = 0
-    if (runId && isUsableRendererWindow(sourceWindow)) {
-      const frames = getRuntimeRegistry().getFramesSince(runId, -1)
-      journalFrames = frames.length
-      for (const bytes of frames) {
-        sendAgentStreamBytes(sourceWindow, bytes, {
-          source: 'recover-stream-journal',
-          runId,
-          frames: frames.length
-        })
-      }
-    }
-
-    const tracked = runId ? activeRunSessions.get(runId) : undefined
-    return {
-      recovered: true,
-      runId: runId ?? null,
-      published: recovery.published,
-      jobState: recovery.jobState ?? tracked?.jobState ?? null,
-      journalFrames,
-      lastEventAt: tracked?.lastEventAt ?? null,
-      acceptedAt: tracked?.acceptedAt ?? null
-    }
-  })
-
-  // Snapshot of in-flight runtime state for a (re)mounting window. Lets a
-  // renderer that reloaded mid-run (Vite HMR) or a freshly-opened detached
-  // window rebuild its running-session state instead of appearing idle.
-  registerMessagePackInvokeHandler<unknown>('agent:runtime-state', async (_event, _params) => {
-    const registry = getRuntimeRegistry()
-    return {
-      runs: registry.getRunSnapshots(),
-      approvals: registry.getApprovalSnapshots()
-    }
-  })
-
-  // Replay the journalled event tail for a run to the requesting window and
-  // re-point this run/session at that window so subsequent live frames follow.
-  // Also re-posts any outstanding approval for the run's session so a reloaded
-  // window can still act on it.
-  registerMessagePackInvokeHandler<unknown>('agent:attach-run', async (event, params) => {
-    const record = normalizeRendererRequestRecord(params)
-    const runId = readNonEmptyString(record.runId)
-    if (!runId) {
-      return { attached: false, frames: 0 }
-    }
-    const sinceSeq = typeof record.sinceSeq === 'number' ? record.sinceSeq : -1
-
-    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-    if (!isUsableRendererWindow(sourceWindow)) {
-      return { attached: false, frames: 0 }
-    }
-
-    // Register the attaching window as an additional subscriber for this run's
-    // live frames. This intentionally does NOT overwrite the primary routing
-    // (runWindowIds/sessionWindowIds) — the window that started the run keeps
-    // receiving frames as before, and this window gets a fanout copy. That way
-    // "open a detached window on a running session" doesn't steal the stream
-    // from the main window, and after a full renderer reload the same window
-    // id remains the primary target so live frames continue to arrive.
-    let attached = attachedWindowsByRun.get(runId)
-    if (!attached) {
-      attached = new Set()
-      attachedWindowsByRun.set(runId, attached)
-    }
-    attached.add(sourceWindow.id)
-
-    // Drain any batched live frames first so replay never interleaves ahead of
-    // frames that were already queued for this run.
-    flushAllStreamBatches()
-
-    const frames = getRuntimeRegistry().getFramesSince(runId, sinceSeq)
-    for (const bytes of frames) {
-      sendAgentStreamBytes(sourceWindow, bytes, { source: 'journal-replay', runId })
-    }
-
-    // Re-post outstanding approvals for this run's session to the attaching
-    // window (main is the durable authority; the original renderer promise is
-    // gone after a reload).
-    const sessionId = readNonEmptyString(record.sessionId)
-    let repostedApprovals = 0
-    for (const [requestId, pending] of pendingApprovalRequests) {
-      const matchesRun = pending.runId && pending.runId === runId
-      const matchesSession = sessionId && pending.sessionId === sessionId
-      if (!matchesRun && !matchesSession) continue
-      const sent = sendReverseRequest(sourceWindow, SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL, {
-        requestId,
-        method: 'approval/request',
-        params: pending.params
-      })
-      if (sent) repostedApprovals += 1
-    }
-
-    return { attached: true, frames: frames.length, repostedApprovals }
-  })
-
-  registerMessagePackInvokeHandler<unknown>('agent:request-stop', async (_event, params) => {
-    if (!manager.isRunning) {
-      return { stopped: false }
-    }
-    return await manager.request('agent/request-stop', params, 10_000)
-  })
-
-  registerMessagePackInvokeHandler<unknown>('agent:append-messages', async (_event, params) => {
-    if (!manager.isRunning) {
-      return { appended: false, count: 0 }
-    }
-    return await manager.request('agent/append-messages', params, 10_000)
-  })
-
-  registerMessagePackInvokeHandler<unknown>('agent:compress-context', async (_event, params) => {
-    const ready = await manager.ensureStarted()
-    if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
-    await runManualCompactHooks(HOOK_EVENTS.preCompact, params)
-    const result = await manager.request('agent/compress-context', params, 130_000)
-    await runManualCompactHooks(HOOK_EVENTS.postCompact, params, result)
-    return result
-  })
-
-  ipcMain.on(toMessagePackChannel('agent:session-visibility'), (event, bytes: Uint8Array) => {
-    const payload = decodeMessagePackPayload<{ sessionId?: string; visible?: boolean }>(bytes)
-    const sessionId = readNonEmptyString(payload?.sessionId)
-    if (!sessionId) return
-
-    const sourceWindow = BrowserWindow.fromWebContents(event.sender)
-    if (isUsableRendererWindow(sourceWindow)) {
-      if (payload.visible === true) {
-        sessionWindowIds.set(sessionId, sourceWindow.id)
-      } else if (sessionWindowIds.get(sessionId) === sourceWindow.id) {
-        sessionWindowIds.delete(sessionId)
-      }
-    }
-
-    manager.setSessionVisibility(sessionId, payload.visible === true)
+  registerRuntimeCommandGateway({
+    isRunning: () => manager.isRunning,
+    ensureStarted: () => manager.ensureStarted(),
+    request: (method, params, timeoutMs) => manager.request(method, params, timeoutMs),
+    notify: (method, params) => manager.notify(method, params),
+    setSessionVisibility: (sessionId, visible) => manager.setSessionVisibility(sessionId, visible),
+    windows,
+    uiCapabilities,
+    activeRuns: activeRunSessions,
+    recoverPump: recoverDurableEventPump,
+    flushStreamBatches: flushAllStreamBatches,
+    sendAgentStreamBytes
   })
 
   ipcMain.on(toMessagePackChannel('sidecar:notify'), (_event, bytes: Uint8Array) => {
@@ -2011,45 +735,10 @@ export function registerSidecarHandlers(): void {
     }
   })
 
-  const completeApprovalResponse = (payload: {
-    requestId: string
-    approved: boolean
-    reason?: string
-  }): { ok: boolean } => {
-    const pending = pendingApprovalRequests.get(payload.requestId)
-    if (!pending) return { ok: false }
-
-    pendingApprovalRequests.delete(payload.requestId)
-    clearTimeout(pending.timer)
-    pending.resolve({
-      approved: payload.approved === true,
-      ...(payload.reason ? { reason: payload.reason } : {})
-    })
-    return { ok: true }
-  }
-
-  const completeRendererToolResponse = (payload: {
-    requestId: string
-    result?: unknown
-    error?: string
-  }): { ok: boolean } => {
-    const pending = pendingRendererToolRequests.get(payload.requestId)
-    if (!pending) return { ok: false }
-
-    pendingRendererToolRequests.delete(payload.requestId)
-    clearTimeout(pending.timer)
-    if (payload.error) {
-      pending.reject(new Error(payload.error))
-    } else {
-      pending.resolve(payload.result)
-    }
-    return { ok: true }
-  }
-
   ipcMain.handle(
     SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL,
     async (_event, bytes: Uint8Array): Promise<{ ok: boolean }> => {
-      return completeApprovalResponse(
+      return uiCapabilities.completeApproval(
         decodeMessagePackPayload<{ requestId: string; approved: boolean; reason?: string }>(bytes)
       )
     }
@@ -2058,17 +747,12 @@ export function registerSidecarHandlers(): void {
   ipcMain.handle(
     SIDECAR_RENDERER_TOOL_RESPONSE_MSGPACK_CHANNEL,
     async (_event, bytes: Uint8Array): Promise<{ ok: boolean }> => {
-      return completeRendererToolResponse(
+      return uiCapabilities.completeUiCapability(
         decodeMessagePackPayload<{ requestId: string; result?: unknown; error?: string }>(bytes)
       )
     }
   )
 
-  /**
-   * Check if the sidecar can handle a specific capability.
-   * Used by the renderer to route only capabilities that are implemented
-   * in the native worker.
-   */
   registerSidecarMessagePackHandler<string>('sidecar:can-handle', async (_event, capability) => {
     console.log(`[Sidecar] capability check requested: ${capability}`)
 
@@ -2099,10 +783,19 @@ export function registerSidecarHandlers(): void {
     }
   })
 
-  // Pull-based snapshot for windows that mount after a state transition already
-  // fired (the push channel above only reaches live windows).
   registerSidecarMessagePackHandler<unknown>('sidecar:worker-state', async () => {
     return getNativeWorker().getStateSnapshot()
+  })
+
+  registerRuntimeIpcHandlers({
+    isRunning: () => manager.isRunning,
+    ensureStarted: () => manager.ensureStarted(),
+    request: (method, params, timeoutMs) => manager.request(method, params, timeoutMs),
+    resolveApproval: (payload) => uiCapabilities.completeApproval(payload),
+    getWorkerInstanceId: () =>
+      getNativeAgentRuntimeManager().runtimeCapabilities?.workerInstanceId ?? 'uninitialized',
+    windows,
+    activeRuns: activeRunSessions
   })
 }
 

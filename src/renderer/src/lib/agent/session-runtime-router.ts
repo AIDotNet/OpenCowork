@@ -5,6 +5,7 @@ import type {
   ToolUseBlock,
   UnifiedMessage
 } from '@renderer/lib/api/types'
+import { flushRuntimeProjectionPatches } from '@renderer/lib/runtime/runtime-client'
 import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
 import { appendOrUpsertContentBlock } from '@renderer/lib/content-blocks'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -62,6 +63,7 @@ export function setSessionForegroundVisibility(sessionId: string, visible: boole
 
   if (visible) {
     _explicitVisibleSessionIds.add(normalizedSessionId)
+    flushRuntimeProjectionPatches()
   } else {
     _explicitVisibleSessionIds.delete(normalizedSessionId)
   }

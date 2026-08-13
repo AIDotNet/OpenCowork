@@ -1,5 +1,6 @@
 import { getNativeWorker, type NativeWorkerRawEventFrame } from '../lib/native-worker'
 import type { RuntimeInitializeResultV2 } from '../../shared/agent-runtime-v2'
+import { getWorkerEventConsumer } from './agent-runtime/worker-event-consumer-host'
 
 type RawEventHandler = (frame: NativeWorkerRawEventFrame) => void
 type RequestHandler = (id: number | string, method: string, params: unknown) => Promise<unknown>
@@ -97,8 +98,8 @@ export class NativeAgentRuntimeManager {
       this.installEventBridge()
       const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
       this.initializeResult = this.validateInitializeResult(result)
-      await this.subscribeEvents()
       await this.refreshActiveRuns()
+      await this.rebuildOverlayFromDurableJobs()
       this.lastInitializeError = null
       this.running = true
       return true
@@ -146,8 +147,8 @@ export class NativeAgentRuntimeManager {
     try {
       const result = await getNativeWorker().request('initialize', { runtime: 'agent' }, 30_000)
       this.initializeResult = this.validateInitializeResult(result)
-      await this.subscribeEvents()
       await this.refreshActiveRuns()
+      await this.rebuildOverlayFromDurableJobs()
       this.lastInitializeError = null
       console.log('[NativeAgentRuntime] re-initialized after worker restart')
     } catch (error) {
@@ -263,6 +264,19 @@ export class NativeAgentRuntimeManager {
           )
         })
       })
+    }
+  }
+
+  private async rebuildOverlayFromDurableJobs(): Promise<void> {
+    try {
+      await getWorkerEventConsumer().rebuildActiveOverlay()
+    } catch (error) {
+      console.warn(
+        `[NativeAgentRuntime] overlay rebuild from durable jobs failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+      await this.subscribeEvents().catch(() => {})
     }
   }
 

@@ -19,13 +19,10 @@ import { initProviderStore, useProviderStore } from './stores/provider-store'
 import { initAppPluginStore, useAppPluginStore } from './stores/app-plugin-store'
 import { CODEGRAPH_PLUGIN_ID } from './lib/app-plugin/types'
 import { initExtensionStore } from './stores/extension-store'
-import { useAgentStore } from './stores/agent-store'
 import { useChatStore } from './stores/chat-store'
 import { usePlanStore } from './stores/plan-store'
 import { installGoalSyncListener, useGoalStore } from './stores/goal-store'
 import { useSshStore } from './stores/ssh-store'
-import { useTaskStore } from './stores/task-store'
-import { useTeamStore } from './stores/team-store'
 import { useUIStore } from './stores/ui-store'
 import { registerAllViewers } from './lib/preview/register-viewers'
 import { initChannelEventListener } from './stores/channel-store'
@@ -37,15 +34,12 @@ import { useCronStore, type CronAgentLogEntry } from './stores/cron-store'
 import { ipcClient } from './lib/ipc/ipc-client'
 import { IPC } from './lib/ipc/channels'
 import { agentStream } from './lib/ipc/agent-stream-receiver'
+import { installRuntimeClient } from './lib/runtime/runtime-client'
 import { reattachActiveRuns } from './lib/agent/runtime-reattach'
 import { nanoid } from 'nanoid'
 import type { UnifiedMessage } from './lib/api/types'
 import { NotifyToastContainer } from './components/notify/NotifyWindow'
-import {
-  installAgentRuntimeSyncListener,
-  withAgentRuntimeSyncSuppressed,
-  type AgentRuntimeSyncEvent
-} from './lib/agent-runtime-sync'
+import { installAgentRuntimeSyncListener } from './lib/agent-runtime-sync'
 import { installSessionRuntimeSyncListener } from './lib/session-runtime-sync'
 import { installRendererMemoryMonitor } from './lib/renderer-memory-monitor'
 import {
@@ -90,6 +84,7 @@ registerAllViewers()
 initProviderStore()
 initAppPluginStore()
 agentStream.attach()
+void installRuntimeClient()
 
 // UI-bound runtime bridges are needed only after the app surface begins mounting.
 // Loading them asynchronously keeps their tool implementations off the bootstrap path.
@@ -368,6 +363,7 @@ function App(): React.JSX.Element {
   }, [sessionWindowView])
 
   useEffect(() => installSessionRuntimeSyncListener(), [])
+  useEffect(() => installAgentRuntimeSyncListener(), [])
   useEffect(() => installRendererMemoryMonitor(), [])
   useEffect(() => installGoalSyncListener(), [])
 
@@ -397,65 +393,6 @@ function App(): React.JSX.Element {
       })
     })
   }, [])
-
-  useEffect(
-    () =>
-      installAgentRuntimeSyncListener((event: AgentRuntimeSyncEvent) => {
-        withAgentRuntimeSyncSuppressed(() => {
-          const store = useAgentStore.getState()
-          switch (event.kind) {
-            case 'set_running':
-              store.setRunning(event.running)
-              return
-            case 'set_session_status':
-              store.setSessionStatus(event.sessionId, event.status)
-              return
-            case 'add_tool_call':
-              store.addToolCall(event.toolCall, event.sessionId)
-              return
-            case 'update_tool_call':
-              store.updateToolCall(event.id, event.patch, event.sessionId)
-              return
-            case 'task_add':
-              useTaskStore.getState().applySyncedTaskAdd(event.task)
-              return
-            case 'task_update':
-              useTaskStore.getState().applySyncedTaskUpdate(event.id, event.patch)
-              return
-            case 'task_delete':
-              useTaskStore.getState().applySyncedTaskDelete(event.id)
-              return
-            case 'task_delete_session':
-              useTaskStore.getState().applySyncedDeleteSessionTasks(event.sessionId)
-              return
-            case 'team_event':
-              useTeamStore.getState().handleTeamEvent(event.event, event.sessionId ?? undefined)
-              return
-            case 'team_snapshot':
-              useTeamStore
-                .getState()
-                .syncRuntimeSnapshot(event.snapshot, event.sessionId ?? undefined)
-              return
-            case 'team_meta':
-              useTeamStore.getState().updateTeamMeta(event.patch)
-              return
-            case 'clear_session_team':
-              useTeamStore.getState().clearSessionTeam(event.sessionId)
-              return
-            case 'subagent_event':
-              store.handleSubAgentEvent(event.event, event.sessionId ?? undefined)
-              return
-            case 'resolve_approval':
-              store.resolveApproval(event.toolCallId, event.approved)
-              return
-            case 'clear_pending_approvals':
-              store.clearPendingApprovals()
-              return
-          }
-        })
-      }),
-    []
-  )
 
   // Navigate to the pet studio when requested from the pet window's menu.
   useEffect(() => {

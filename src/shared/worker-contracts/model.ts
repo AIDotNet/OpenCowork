@@ -13,6 +13,7 @@
  *     string | T[] | `T | null`. Annotate C# integer width with `@cs int` /
  *     `@cs long` JSDoc tags (numbers default to double).
  *   - `export interface WorkerMethods` maps method names to { params; result }.
+ * Runtime domain contracts live in `src/shared/runtime-contracts/model.ts`.
  */
 
 export const constants = {

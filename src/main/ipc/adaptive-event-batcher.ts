@@ -79,7 +79,9 @@ function mergeWidgetInputSnapshot(
   }
 }
 
-// ---- Batcher ----
+// Transport-only coalescer for live agent/stream envelopes. It must not change
+// event identity, per-run sequence, or projection revision — those stay on the
+// durable consumer / projection path.
 
 export type EnvelopeHandler = (envelope: AgentStreamEnvelope) => void
 

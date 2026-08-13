@@ -3,8 +3,9 @@ import type { TeamEvent } from '@renderer/lib/agent/teams/types'
 import type { ToolCallState } from '@renderer/lib/agent/types'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
-import type { TaskItem } from '@renderer/stores/task-store'
-import type { ActiveTeam } from '@renderer/stores/team-store'
+import { useAgentStore } from '@renderer/stores/agent-store'
+import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
+import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import type { TeamRuntimeSnapshot } from '../../../shared/team-runtime-types'
 
 export type AgentRuntimeSyncEvent =
@@ -60,10 +61,61 @@ export function emitAgentRuntimeSync(event: AgentRuntimeSyncEvent): void {
   ipcClient.send(IPC.AGENT_RUNTIME_SYNC, event)
 }
 
-export function installAgentRuntimeSyncListener(
-  onEvent: (event: AgentRuntimeSyncEvent) => void
-): () => void {
+function applyAgentRuntimeSyncEvent(event: AgentRuntimeSyncEvent): void {
+  withAgentRuntimeSyncSuppressed(() => {
+    const store = useAgentStore.getState()
+    switch (event.kind) {
+      case 'set_running':
+        store.setRunning(event.running)
+        return
+      case 'set_session_status':
+        store.setSessionStatus(event.sessionId, event.status)
+        return
+      case 'add_tool_call':
+        store.addToolCall(event.toolCall, event.sessionId)
+        return
+      case 'update_tool_call':
+        store.updateToolCall(event.id, event.patch, event.sessionId)
+        return
+      case 'task_add':
+        useTaskStore.getState().applySyncedTaskAdd(event.task)
+        return
+      case 'task_update':
+        useTaskStore.getState().applySyncedTaskUpdate(event.id, event.patch)
+        return
+      case 'task_delete':
+        useTaskStore.getState().applySyncedTaskDelete(event.id)
+        return
+      case 'task_delete_session':
+        useTaskStore.getState().applySyncedDeleteSessionTasks(event.sessionId)
+        return
+      case 'team_event':
+        useTeamStore.getState().handleTeamEvent(event.event, event.sessionId ?? undefined)
+        return
+      case 'team_snapshot':
+        useTeamStore.getState().syncRuntimeSnapshot(event.snapshot, event.sessionId ?? undefined)
+        return
+      case 'team_meta':
+        useTeamStore.getState().updateTeamMeta(event.patch)
+        return
+      case 'clear_session_team':
+        useTeamStore.getState().clearSessionTeam(event.sessionId)
+        return
+      case 'subagent_event':
+        store.handleSubAgentEvent(event.event, event.sessionId ?? undefined)
+        return
+      case 'resolve_approval':
+        store.resolveApproval(event.toolCallId, event.approved)
+        return
+      case 'clear_pending_approvals':
+        store.clearPendingApprovals()
+        return
+    }
+  })
+}
+
+export function installAgentRuntimeSyncListener(): () => void {
   return ipcClient.on(IPC.AGENT_RUNTIME_SYNC, (data: unknown) => {
-    onEvent(data as AgentRuntimeSyncEvent)
+    applyAgentRuntimeSyncEvent(data as AgentRuntimeSyncEvent)
   })
 }

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "envelope": {
+    "schemaVersion": 1,
+    "gatewayEpoch": "gw-1",
+    "workerInstanceId": "worker-1",
+    "eventId": "evt-1",
+    "correlationId": "corr-1",
+    "causationId": "cause-1",
+    "runId": "run-1",
+    "sessionId": "session-1",
+    "runSeq": 1,
+    "projectionRevision": 1,
+    "occurredAt": 1760000000000,
+    "event": {
+      "type": "runtime.reset",
+      "reason": "worker-reconnect",
+      "workerInstanceId": "worker-1"
+    }
+  },
+  "attachResult": {
+    "mode": "snapshot",
+    "gatewayEpoch": "gw-1",
+    "workerInstanceId": "worker-1",
+    "projectionRevision": 1,
+    "snapshot": {
+      "gatewayEpoch": "gw-1",
+      "workerInstanceId": "worker-1",
+      "schemaVersion": 1,
+      "projectionRevision": 1,
+      "runs": [
+        {
+          "runId": "run-1",
+          "sessionId": "session-1",
+          "status": "running",
+          "assistantMessageId": "msg-1",
+          "lastSeq": 1
+        }
+      ],
+      "messages": [],
+      "toolCalls": [],
+      "approvals": [],
+      "pendingUiCapabilities": []
+    },
+    "patches": [],
+    "errorCode": null
+  }
+}

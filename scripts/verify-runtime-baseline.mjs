@@ -183,7 +183,12 @@ const roundTripped = decode(encode(fixture))
 assert.deepEqual(roundTripped, fixture, 'runtime fixture survives MessagePack round-trip')
 
 const sidecarManager = readRepoFile('src/main/ipc/sidecar-manager.ts')
-const runtimeStateHandler = handlerSlice(sidecarManager, 'agent:runtime-state', 'agent:attach-run')
+const commandGateway = readRepoFile('src/main/ipc/agent-runtime/runtime-command-gateway.ts')
+const uiCapabilityRouter = readRepoFile('src/main/ipc/agent-runtime/ui-capability-router.ts')
+const consumerHost = readRepoFile('src/main/ipc/agent-runtime/worker-event-consumer-host.ts')
+const consumer = readRepoFile('src/main/ipc/agent-runtime/worker-event-consumer.ts')
+
+const runtimeStateHandler = handlerSlice(commandGateway, 'agent:runtime-state', 'agent:attach-run')
 assertSourceInvariant(
   runtimeStateHandler,
   /runs:\s*registry\.getRunSnapshots\(\)/u,
@@ -195,17 +200,13 @@ assertSourceInvariant(
   'runtime snapshot reads pending approvals from the Main registry'
 )
 
-const attachHandler = handlerSlice(sidecarManager, 'agent:attach-run', 'agent:request-stop')
+const attachHandler = handlerSlice(commandGateway, 'agent:attach-run', 'agent:request-stop')
 assertSourceInvariant(
   attachHandler,
-  /attached\.add\(sourceWindow\.id\)/u,
+  /attachObserver\(runId,\s*sourceWindow\.id\)/u,
   'attach adds an observer window'
 )
-assert.doesNotMatch(
-  attachHandler,
-  /runWindowIds\.set\(runId,\s*sourceWindow\.id\)/u,
-  'attach does not steal the primary run route'
-)
+assert.doesNotMatch(attachHandler, /bindPrimary\(/u, 'attach does not steal the primary run route')
 assertSourceInvariant(
   attachHandler,
   /getFramesSince\(runId,\s*sinceSeq\)/u,
@@ -213,20 +214,73 @@ assertSourceInvariant(
 )
 assertSourceInvariant(
   attachHandler,
-  /SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL/u,
+  /repostApprovals\(/u,
   'attach re-posts matching pending approvals'
 )
 
-const approvalHandler = handlerSlice(sidecarManager, 'approval/request', 'cron/schedule-job')
 assertSourceInvariant(
-  approvalHandler,
-  /pendingApprovalRequests\.set\(requestId/u,
+  uiCapabilityRouter,
+  /pendingApprovals\.set\(requestId/u,
   'approval reverse requests are retained in Main while pending'
 )
 assertSourceInvariant(
-  approvalHandler,
+  uiCapabilityRouter,
   /SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL/u,
   'approval reverse requests use the dedicated MessagePack channel'
+)
+
+const agentStreamReceiver = readRepoFile('src/renderer/src/lib/ipc/agent-stream-receiver.ts')
+assert.doesNotMatch(
+  agentStreamReceiver,
+  /agent:event-ack/u,
+  'Renderer must not ACK the Worker durable outbox'
+)
+
+const eventAckHandler = handlerSlice(commandGateway, 'agent:event-ack', 'agent:recover-stream')
+assert.doesNotMatch(
+  eventAckHandler,
+  /events\/ack/u,
+  'agent:event-ack must not write the desktop durable cursor'
+)
+assertSourceInvariant(
+  eventAckHandler,
+  /ignored:\s*true/u,
+  'legacy agent:event-ack remains a counted no-op for one release'
+)
+
+assert.doesNotMatch(
+  sidecarManager,
+  /events\/ack/u,
+  'sidecar-manager must not ACK the Worker durable outbox'
+)
+assertSourceInvariant(
+  sidecarManager,
+  /consumeFrame\(/u,
+  'sidecar raw handler delegates frames to the durable consumer'
+)
+assert.equal(
+  [...consumerHost.matchAll(/events\/ack/gu)].length,
+  1,
+  'the single desktop ACK writer lives in the worker event consumer host'
+)
+assertSourceInvariant(
+  consumerHost,
+  /consumerId:\s*DESKTOP_EVENT_CONSUMER_ID/u,
+  'the single ACK writer uses consumerId desktop'
+)
+assertSourceInvariant(consumer, /ingestFrame/u, 'durable ACK is gated on projection ingest')
+
+const cronAgent = readRepoFile('src/main/cron/cron-agent-background.ts')
+assert.doesNotMatch(cronAgent, /events\/ack/u, 'cron must not ACK the Worker durable outbox')
+assert.doesNotMatch(
+  cronAgent,
+  /['"]agent\/run['"]/u,
+  'cron must start runs through the hosted session service, not agent/run'
+)
+assertSourceInvariant(
+  cronAgent,
+  /agent\/session-close/u,
+  'cron closes the hosted session after the turn'
 )
 
 console.log(

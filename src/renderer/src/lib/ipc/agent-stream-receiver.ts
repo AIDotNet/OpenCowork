@@ -93,22 +93,17 @@ export class AgentStreamReceiver {
     // Idempotency: an envelope whose seq we've already applied is a duplicate —
     // e.g. journal replay on reattach overlapping frames the window already saw.
     // Terminal batches follow the same rule: finalizing a run twice can duplicate
-    // messages and state transitions. Re-ACK every duplicate because the first ACK
-    // may have been lost after reducers committed the original batch.
+    // messages and state transitions. Main owns the Worker durable cursor; this
+    // map is only a per-window apply cursor.
     if (lastSeq !== undefined && envelope.seq <= lastSeq) {
-      // The original ACK may have been lost after the reducer committed. Re-ACK
-      // duplicates so the worker's durable cursor and in-flight window can advance.
-      void ipcClient
-        .invoke('agent:event-ack', { runId: envelope.runId, throughSeq: envelope.seq })
-        .catch(() => {})
       return
     }
     if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
       console.warn(
         `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
       )
-      // Event reconnect already requests durable replay. Never apply/ACK past a
-      // gap: ACK-through would permanently skip the missing envelope.
+      // Event reconnect already requests durable replay. Never apply past a gap:
+      // the window cursor must not skip a missing envelope.
       return
     }
     if (lastSeq === undefined || envelope.seq > lastSeq) {
@@ -128,12 +123,6 @@ export class AgentStreamReceiver {
     for (const event of envelope.events) {
       this.dispatch(envelope.runId, envelope.sessionId, event)
     }
-
-    // ACK only after every synchronous reducer/subscriber has applied the batch.
-    // ACK loss is harmless: the worker replays and the seq guard above deduplicates it.
-    void ipcClient
-      .invoke('agent:event-ack', { runId: envelope.runId, throughSeq: envelope.seq })
-      .catch(() => {})
   }
 
   /** Highest seq applied for a run, or undefined if none seen. Used to compute

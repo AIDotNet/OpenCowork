@@ -7,6 +7,7 @@ import { buildMemoryContext } from './agent/dynamic-context'
 import type { LayeredMemorySnapshot, SessionMemoryScope } from './agent/memory-files'
 import type { PromptEnvironmentContext } from './agent/system-prompt'
 import { normalizeLanguageCode, resolveLanguageName } from './i18n-language'
+import { buildChatModeSystemPrompt as buildSharedChatModeSystemPrompt } from '../../../shared/agent-system-prompt'
 
 const CHAT_MODE_CORE_TOOL_NAMES = new Set([
   'WebSearch',
@@ -181,89 +182,14 @@ export function buildChatModePromptContextCacheKey(options: ChatModePromptOption
 }
 
 export function buildChatModeSystemPrompt(options: ChatModePromptOptions): string {
-  const parts: string[] = [
-    'You are **OpenCowork**, a helpful AI assistant running inside a desktop agents application.',
-    'OpenCowork is developed by the **AIDotNet** team. Core contributor: **token** (GitHub: @AIDotNet).',
-    `IMPORTANT: You MUST respond in ${resolveLanguageName(options.language)} unless the user explicitly requests otherwise.`,
-    'Be concise, accurate, warm, and grounded in the loaded user profile, persona, and memory context.',
-    'Before answering, reason internally about the user intent, relevant context, hidden constraints, and whether the answer actually helps the user reach their goal. Do not expose private chain-of-thought.',
-    'Use markdown formatting when it improves readability. Use fenced code blocks with language identifiers for code.',
-    '',
-    '## Chat Mode',
-    '- Chat mode is conversation-first, but it has the same tool access as other agent modes when tools are provided.',
-    '- Answer directly when tools are unnecessary; use file, shell, skill, MCP, and other tools when they help satisfy the user request.',
-    '- For actions that modify files, run commands, contact external services, or otherwise have side effects, keep the user informed and respect the app approval flow.',
-    '- Treat loaded memory and project protocol as context with higher priority than ordinary conversation history, while still following this system prompt first.'
-  ]
-
-  const environmentContext = options.environmentContext
-  if (environmentContext) {
-    const executionTarget =
-      environmentContext.target === 'ssh'
-        ? environmentContext.host
-          ? `SSH Remote Host (${environmentContext.host})`
-          : 'SSH Remote Host'
-        : 'Local Machine'
-    parts.push('', '## Environment', `- Execution Target: ${executionTarget}`)
-    if (environmentContext.connectionName) {
-      parts.push(`- SSH Connection: ${environmentContext.connectionName}`)
-    }
-    parts.push(`- Operating System: ${environmentContext.operatingSystem}`)
-    parts.push(`- Shell: ${environmentContext.shell}`)
-    if (environmentContext.target === 'ssh') {
-      parts.push('- Filesystem Scope: Remote filesystem over SSH')
-      if (environmentContext.pathStyle === 'posix') {
-        parts.push('- Path Style: Prefer POSIX-style paths unless evidence suggests otherwise')
-      } else if (environmentContext.pathStyle === 'windows') {
-        parts.push('- Path Style: Prefer Windows-style paths on the remote host')
-      }
-      parts.push(
-        "- Remote Guidance: Do not assume the local computer's OS, shell, paths, or home directory when SSH is active."
-      )
-    }
-  }
-
-  const workingFolder = options.workingFolder?.trim()
-  if (workingFolder) {
-    parts.push(
-      '',
-      '## Working Folder',
-      `\`${workingFolder}\``,
-      'Resolve relative paths against this folder for file and shell work.'
-    )
-  }
-
-  if (options.planMode) {
-    parts.push(
-      '',
-      '## Mode: Plan (ACTIVE)',
-      '**You are currently in Plan Mode.** Explore the codebase and produce a detailed implementation plan, not implementation code.',
-      '- Prioritize read/search tools to understand the codebase. Write operations are allowed when the planning work needs them, but the plan file is the deliverable.',
-      '- Sub-agents inherit the same tools exposed to this run. When delegating planning work, give one agent clear ownership of the plan file and avoid concurrent edits.',
-      '- Write the plan into the current plan file using Write/Edit.',
-      '- The plan must include scope, requirements, acceptance criteria, design direction, file-level implementation steps, validation, assumptions, risks, and out-of-scope items.',
-      '- After the plan file is ready, call ExitPlanMode in the same turn. A plan is not complete until ExitPlanMode succeeds.',
-      '- After ExitPlanMode succeeds, stop and wait for user review.'
-    )
-  }
-
-  const memoryContext = options.memorySnapshot
-    ? buildMemoryContext(options.memorySnapshot, options.sessionScope ?? 'main')
-    : null
-  if (memoryContext) {
-    parts.push('', memoryContext)
-  }
-
-  const userRules = normalizeUserRules(options.userRules)
-  if (userRules) {
-    parts.push(
-      '',
-      '<user_rules>',
-      'The following are user-defined rules. Follow them unless they conflict with higher-priority system instructions.',
-      userRules,
-      '</user_rules>'
-    )
-  }
-
-  return parts.join('\n')
+  return buildSharedChatModeSystemPrompt({
+    languageName: resolveLanguageName(options.language),
+    userRules: options.userRules,
+    workingFolder: options.workingFolder,
+    environmentContext: options.environmentContext,
+    memoryContext: options.memorySnapshot
+      ? buildMemoryContext(options.memorySnapshot, options.sessionScope ?? 'main')
+      : null,
+    planMode: options.planMode
+  })
 }

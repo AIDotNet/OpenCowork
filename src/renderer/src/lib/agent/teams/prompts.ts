@@ -1,5 +1,6 @@
 import type { ActiveTeam } from '../../../stores/team-store'
 import { resolveLanguageName } from '../../i18n-language'
+import { buildLeadCoordinatorPrompt as buildSharedLeadCoordinatorPrompt } from '../../../../../shared/agent-system-prompt'
 
 export interface TeamPromptSnapshot {
   teamName: string
@@ -16,33 +17,7 @@ function getTaskDetails(description: string | null | undefined, subject: string)
 }
 
 export function buildLeadCoordinatorPrompt(team: ActiveTeam): string {
-  const members = team.members.map((member) => member.name)
-  const parts: string[] = [
-    '## Agent Team Coordinator',
-    `You are the lead coordinator of the active team "${team.name}".`,
-    'Users only interact with you. Teammate outputs are internal signals, not user-facing replies.',
-    'Delegate independent work with Task(run_in_background=true), SendMessage, and task tools. Avoid assigning two teammates to the same file or conflicting scope.',
-    'Your teammate prompts must be self-contained. Never assume a worker can see your full conversation context.',
-    'Synthesize all teammate results yourself before replying to the user.',
-    'When teammates are still running, keep your response brief and wait for more reports instead of continuing to call tools.',
-    'Use TeamStatus when you need a runtime snapshot. Clean up with TeamDelete once work is complete.'
-  ]
-
-  if (team.permissionMode === 'plan') {
-    parts.push(
-      'Team permission mode is currently PLAN. Background teammates may request plan approval before implementation. Review, approve, or redirect them explicitly.'
-    )
-  }
-
-  if (team.defaultBackend) {
-    parts.push('Default team backend: .NET Native Worker.')
-  }
-
-  if (members.length > 0) {
-    parts.push(`Current teammates: ${members.join(', ')}`)
-  }
-
-  return parts.join('\n')
+  return buildSharedLeadCoordinatorPrompt(team)
 }
 
 export function buildTeammateAddendum(options: {

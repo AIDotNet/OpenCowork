@@ -1,4 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { OpenCoworkRuntimeAPI } from '../shared/runtime-contracts/generated/ipc'
 import type {
   AppendTeamRuntimeMessageArgs,
   ConsumeTeamRuntimeMessagesArgs,
@@ -30,6 +31,7 @@ interface OpenCoworkAPI {
   teamRuntimeConsumeMessages: (
     args: ConsumeTeamRuntimeMessagesArgs
   ) => Promise<TeamRuntimeMessageRecord[]>
+  runtime: OpenCoworkRuntimeAPI
 }
 
 declare global {

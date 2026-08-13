@@ -40,6 +40,7 @@ internal static class AgentStreamMessagePackEmitter
         writer.WriteString("type");
         writer.WriteString(streamEvent.Type);
 
+        WriteOptionalString(writer, "assistantMessageId", streamEvent.AssistantMessageId);
         WriteOptionalInt(writer, "iteration", streamEvent.Iteration);
         WriteOptionalString(writer, "reason", streamEvent.Reason);
         WriteOptionalString(writer, "stopReason", streamEvent.StopReason);
@@ -95,6 +96,7 @@ internal static class AgentStreamMessagePackEmitter
     private static int CountEventProperties(AgentRuntimeStreamEvent streamEvent)
     {
         var count = 1;
+        if (streamEvent.AssistantMessageId is not null) count++;
         if (streamEvent.Iteration.HasValue) count++;
         if (streamEvent.Reason is not null) count++;
         if (streamEvent.StopReason is not null) count++;

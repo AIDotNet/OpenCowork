@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
+using OpenCowork.Contracts.Generated;
 
 internal static class AgentRuntimeTools
 {
@@ -20,7 +21,7 @@ internal static class AgentRuntimeTools
         WorkerLog.Info("agent runtime initialized runtime=native-aot");
         return WorkerResponse.Json(
             CreateInitializeResult(),
-            WorkerJsonContext.Default.AgentRuntimeInitializeResult);
+            AgentRuntimeContractsJsonContext.Default.WorkerInitializeResult);
     }
 
     public static WorkerResponse Ping(JsonElement parameters)
@@ -46,7 +47,7 @@ internal static class AgentRuntimeTools
         WorkerLog.Info("agent runtime shutdown");
         return WorkerResponse.Json(
             CreateInitializeResult(),
-            WorkerJsonContext.Default.AgentRuntimeInitializeResult);
+            AgentRuntimeContractsJsonContext.Default.WorkerInitializeResult);
     }
 
     public static WorkerResponse CheckCapability(JsonElement parameters)
@@ -102,8 +103,14 @@ internal static class AgentRuntimeTools
 
         var runId = NormalizeRunId(JsonHelpers.GetString(parameters, "runId"));
         var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
+        var assistantMessageId = JsonHelpers.GetString(parameters, "assistantMessageId")?.Trim();
+        if (string.IsNullOrEmpty(assistantMessageId))
+        {
+            assistantMessageId = AgentRuntimeIdentities.AssistantMessageIdForRun(runId);
+        }
         var initialMessageCount = CountArray(parameters, "messages");
         var state = new AgentRuntimeRunState(runId, sessionId, context.CancellationToken);
+        state.AssistantMessageId = assistantMessageId;
         try
         {
             state.ReplaceParameters(parameters.Clone());
@@ -128,7 +135,7 @@ internal static class AgentRuntimeTools
 
         await ExecuteRunAsync(state, context);
         return WorkerResponse.Json(
-            new AgentRuntimeRunResult(true, runId),
+            new AgentRuntimeRunResult(true, runId, state.AssistantMessageId),
             WorkerJsonContext.Default.AgentRuntimeRunResult);
     }
 
@@ -138,25 +145,25 @@ internal static class AgentRuntimeTools
         if (string.IsNullOrEmpty(runId))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeCancelResult(false, null),
-                WorkerJsonContext.Default.AgentRuntimeCancelResult);
+                new CancelRunResult(false, null),
+                AgentRuntimeContractsJsonContext.Default.CancelRunResult);
         }
 
         var durableState = RuntimeJobCoordinator.Cancel(runId);
         if (!ActiveRuns.TryGetValue(runId, out var state))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeCancelResult(
+                new CancelRunResult(
                     durableState is "cancelled" or "cancelling",
                     runId),
-                WorkerJsonContext.Default.AgentRuntimeCancelResult);
+                AgentRuntimeContractsJsonContext.Default.CancelRunResult);
         }
 
         state.Cancel("user");
         WorkerLog.Info($"agent run cancel requested runId={runId}");
         return WorkerResponse.Json(
-            new AgentRuntimeCancelResult(true, runId),
-            WorkerJsonContext.Default.AgentRuntimeCancelResult);
+            new CancelRunResult(true, runId),
+            AgentRuntimeContractsJsonContext.Default.CancelRunResult);
     }
 
     public static WorkerResponse RequestStop(JsonElement parameters)
@@ -165,8 +172,8 @@ internal static class AgentRuntimeTools
         if (string.IsNullOrEmpty(runId))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeStopResult(false, null),
-                WorkerJsonContext.Default.AgentRuntimeStopResult);
+                new RequestStopRunResult(false, null),
+                AgentRuntimeContractsJsonContext.Default.RequestStopRunResult);
         }
 
         long? commandSeq = null;
@@ -183,8 +190,8 @@ internal static class AgentRuntimeTools
         {
             var queued = RuntimeJobCoordinator.Get(runId)?.State == "queued";
             return WorkerResponse.Json(
-                new AgentRuntimeStopResult(queued, runId),
-                WorkerJsonContext.Default.AgentRuntimeStopResult);
+                new RequestStopRunResult(queued, runId),
+                AgentRuntimeContractsJsonContext.Default.RequestStopRunResult);
         }
 
         // The startup path and this live path can observe the same command while
@@ -196,8 +203,8 @@ internal static class AgentRuntimeTools
         }
         WorkerLog.Info($"agent run stop requested runId={runId}");
         return WorkerResponse.Json(
-            new AgentRuntimeStopResult(true, runId),
-            WorkerJsonContext.Default.AgentRuntimeStopResult);
+            new RequestStopRunResult(true, runId),
+            AgentRuntimeContractsJsonContext.Default.RequestStopRunResult);
     }
 
     public static WorkerResponse CancelSubAgent(JsonElement parameters)
@@ -219,8 +226,8 @@ internal static class AgentRuntimeTools
         if (string.IsNullOrEmpty(runId))
         {
             return WorkerResponse.Json(
-                new AgentRuntimeAppendMessagesResult(false, null, 0),
-                WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
+                new AppendRunMessagesResult(false, null, 0),
+                AgentRuntimeContractsJsonContext.Default.AppendRunMessagesResult);
         }
 
         var requestedCount = CountArray(parameters, "messages");
@@ -238,9 +245,9 @@ internal static class AgentRuntimeTools
         {
             var queued = RuntimeJobCoordinator.Get(runId)?.State == "queued";
             return WorkerResponse.Json(
-                new AgentRuntimeAppendMessagesResult(queued && requestedCount > 0, runId,
+                new AppendRunMessagesResult(queued && requestedCount > 0, runId,
                     queued ? requestedCount : 0),
-                WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
+                AgentRuntimeContractsJsonContext.Default.AppendRunMessagesResult);
         }
 
         var count = requestedCount;
@@ -250,8 +257,8 @@ internal static class AgentRuntimeTools
         }
         WorkerLog.Debug($"agent run append messages runId={runId} count={count}");
         return WorkerResponse.Json(
-            new AgentRuntimeAppendMessagesResult(count > 0, runId, count),
-            WorkerJsonContext.Default.AgentRuntimeAppendMessagesResult);
+            new AppendRunMessagesResult(count > 0, runId, count),
+            AgentRuntimeContractsJsonContext.Default.AppendRunMessagesResult);
     }
 
     public static WorkerResponse ReverseResponse(JsonElement parameters)
@@ -263,8 +270,8 @@ internal static class AgentRuntimeTools
     {
         _ = parameters;
         return WorkerResponse.Json(
-            new AgentRuntimeReverseResponseResult(true),
-            WorkerJsonContext.Default.AgentRuntimeReverseResponseResult);
+            new ReverseResponseResult(true),
+            AgentRuntimeContractsJsonContext.Default.ReverseResponseResult);
     }
 
     private static async Task ExecuteRunAsync(AgentRuntimeRunState state, WorkerRequestContext context)
@@ -280,7 +287,10 @@ internal static class AgentRuntimeTools
             }
 
             ApplyQueuedCommands(state);
-            await EmitAsync(state, context, new AgentRuntimeStreamEvent("loop_start"));
+            await EmitAsync(
+                state,
+                context,
+                new AgentRuntimeStreamEvent("loop_start", AssistantMessageId: state.AssistantMessageId));
 
             if (state.IsCancellationRequested)
             {
@@ -396,9 +406,9 @@ internal static class AgentRuntimeTools
         }
     }
 
-    private static AgentRuntimeInitializeResult CreateInitializeResult()
+    private static WorkerInitializeResult CreateInitializeResult()
     {
-        return new AgentRuntimeInitializeResult(
+        return new WorkerInitializeResult(
             true,
             "native-aot",
             "0.2",
@@ -406,7 +416,7 @@ internal static class AgentRuntimeTools
             [2],
             CoreManifestHash,
             WorkerInstanceId,
-            new AgentRuntimeFeatureSet(
+            new WorkerFeatureSet(
                 CapabilitySnapshot: true,
                 StrictToolValidation: true,
                 DurableEvents: true,
@@ -414,7 +424,7 @@ internal static class AgentRuntimeTools
                 CheckpointRecovery: false,
                 ToolReconciliation: false,
                 LaneScheduler: true),
-            new AgentRuntimeCompatibility(
+            new WorkerCompatibility(
                 AcceptsV1RunRequest: false,
                 CanRecoverV2Run: true,
                 MinimumRendererVersion: "1.2.8",
@@ -504,6 +514,8 @@ internal static class AgentRuntimeTools
         public string RunId { get; }
 
         public string SessionId { get; }
+
+        public string AssistantMessageId { get; set; } = string.Empty;
 
         public long StartedAt { get; }
 

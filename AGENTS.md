@@ -44,8 +44,9 @@ resources/             # Bundled runtime assets (loaded at runtime, not source)
 **Entry points:** `src/main/index.ts` (main process), `src/renderer/src/App.tsx` (renderer).
 
 **Key architectural patterns:**
+
 - **IPC:** Renderer calls `ipcClient.invoke(channel)`, main handles in `src/main/ipc/*-handlers.ts`.
-- **Agent runtime:** Runs in main process (`src/main/ipc/native-agent-runtime.ts`), provider-agnostic. Accepts a generic `provider` object; feature-gated via `supportsCapability()`.
+- **Agent runtime:** The .NET Native Worker owns the provider loop, tools, approvals, and hosted sessions. `src/main/ipc/native-agent-runtime.ts` is the Main handshake/subscribe/request shim. Interactive runs are still started from the renderer via `agent:run`; cron starts them in Main. Target boundaries: `docs/architecture/agent-runtime-boundaries.md`.
 - **Tool system:** Tools in `src/renderer/src/lib/tools/`, registered in phases (core → skills → sub-agents → teams). Some tools (WebSearch, Browser, CodeGraph) are registered/unregistered dynamically based on user settings.
 - **Session modes:** `chat`, `clarify`, `cowork`, `code`, `acp` — each with distinct prompts/tools/UI. Mode stored per-session in `SessionPromptSnapshot` (`chat-store.ts`).
 - **SQLite schema:** Evolves via additive `ensureColumn` — columns added if absent, never dropped. No migration files.
@@ -74,15 +75,15 @@ npm run postinstall  # Rebuild native modules (better-sqlite3, robotjs, ssh2, no
 
 ## Coding Style & Naming Conventions
 
-| Rule             | Convention                                                    |
-| ---------------- | ------------------------------------------------------------- |
-| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas |
-| Indentation      | 2 spaces, LF line endings, UTF-8, final newline (EditorConfig) |
-| React components | PascalCase (`Layout.tsx`)                                     |
-| Stores/helpers   | kebab-case (`chat-store.ts`)                                  |
-| Path aliases     | `@renderer/*` → `src/renderer/src/*`                          |
+| Rule             | Convention                                                                                                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas                                                                                                                |
+| Indentation      | 2 spaces, LF line endings, UTF-8, final newline (EditorConfig)                                                                                                                           |
+| React components | PascalCase (`Layout.tsx`)                                                                                                                                                                |
+| Stores/helpers   | kebab-case (`chat-store.ts`)                                                                                                                                                             |
+| Path aliases     | `@renderer/*` → `src/renderer/src/*`                                                                                                                                                     |
 | i18n             | `t('key', { defaultValue: 'English text' })` — never hardcode Chinese in UI. Namespaced JSON under `src/renderer/src/locales/`. Language is static at init; changes require app restart. |
-| Comments         | Explain intent, invariants, boundaries, or non-obvious behavior. Avoid restating the code. |
+| Comments         | Explain intent, invariants, boundaries, or non-obvious behavior. Avoid restating the code.                                                                                               |
 
 **Lint/format on save:** ESLint + Prettier enforce these rules automatically. Run `npm run lint` and `npm run format` before pushing.
 
@@ -110,6 +111,7 @@ refactor(scope): description    # Code restructuring without behavior change
 Keep commits focused; don't mix refactors with behavior changes.
 
 **Pull requests:**
+
 - Link the relevant issue (if any).
 - Include a brief description of what changed and why.
 - Attach screenshots for UI changes.
@@ -125,8 +127,9 @@ Keep commits focused; don't mix refactors with behavior changes.
 ## Agent-Specific Instructions
 
 When modifying agent behavior:
+
 - **Prompts:** Bundled prompt templates live in `resources/prompts/`; user overrides in `~/.open-cowork/prompts/`. The renderer loads them via IPC (`prompt-loader.ts` → `prompts:load` channel). Each mode (`chat`, `cowork`, `code`, etc.) has its own prompt template.
 - **Tools:** New tools must be registered in `src/renderer/src/lib/tools/index.ts` and follow the existing `ToolHandler` interface (`tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and IPC client.
-- **Runtime:** The agent runtime (`src/main/ipc/native-agent-runtime.ts`) is provider-agnostic. Test with at least two different LLM providers when changing runtime logic.
+- **Runtime:** Do not add a JavaScript agent loop. Interactive and cron runs both execute in the Native Worker. Test with at least two different LLM providers when changing runtime logic. New runtime protocol belongs in `src/shared/runtime-contracts/model.ts`.
 - **MCP integration:** Model Context Protocol tools are loaded dynamically. Changes to MCP handling require testing with both connected and disconnected MCP servers.
 - **Skills & agents:** Bundled skills in `resources/skills/` (SKILL.md + scripts/), bundled agents in `resources/agents/` (Markdown + frontmatter). Users add custom skills in `~/.agents/skills/` (the Native Worker skill catalog directory) and custom agents in `~/.open-cowork/agents/`.

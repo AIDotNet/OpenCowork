@@ -14,11 +14,6 @@
     },
     {
       "rule": "renderer-view-no-agent-bridge",
-      "source": "src/renderer/src/components/draw/graph/use-graph-generation 2.ts",
-      "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
-    },
-    {
-      "rule": "renderer-view-no-agent-bridge",
       "source": "src/renderer/src/components/draw/graph/use-graph-generation.ts",
       "target": "src/renderer/src/lib/ipc/agent-bridge.ts"
     },

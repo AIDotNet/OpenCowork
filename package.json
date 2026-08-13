@@ -39,6 +39,8 @@
     "contracts:check": "node ./scripts/generate-worker-contracts.mjs --check",
     "verify:architecture": "node ./scripts/verify-architecture-boundaries.mjs",
     "verify:runtime-baseline": "node ./scripts/verify-runtime-baseline.mjs",
+    "verify:runtime-protocol": "node ./scripts/verify-runtime-protocol.mjs",
+    "verify:runtime-projection": "node ./scripts/verify-runtime-projection.mjs",
     "verify:native-worker-jobs": "node ./scripts/verify-native-worker-jobs.mjs",
     "native:publish": "node ./scripts/publish-native-worker.mjs",
     "codegraph:publish": "npm run native:publish",

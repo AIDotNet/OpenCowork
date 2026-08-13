@@ -145,6 +145,37 @@ export class McpManager {
     return client?.status === 'connected'
   }
 
+  listConnectedServers(): Array<{
+    id: string
+    name: string
+    description?: string
+    transport: string
+    projectId?: string | null
+    tools: { name: string; description?: string; inputSchema: Record<string, unknown> }[]
+  }> {
+    const servers: Array<{
+      id: string
+      name: string
+      description?: string
+      transport: string
+      projectId?: string | null
+      tools: { name: string; description?: string; inputSchema: Record<string, unknown> }[]
+    }> = []
+    for (const [id, client] of this.clients) {
+      if (client.status !== 'connected') continue
+      const config = client.serverConfig
+      servers.push({
+        id,
+        name: config.name,
+        description: config.description,
+        transport: config.transport,
+        projectId: config.projectId,
+        tools: client.tools
+      })
+    }
+    return servers
+  }
+
   /** Disconnect all servers (app shutdown) */
   async disconnectAll(): Promise<void> {
     const ids = Array.from(this.clients.keys())

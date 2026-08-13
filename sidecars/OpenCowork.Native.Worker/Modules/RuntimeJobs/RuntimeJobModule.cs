@@ -41,13 +41,16 @@ internal sealed class RuntimeJobModule : IWorkerModule
         }
         catch (Exception ex)
         {
+            var errorCode = ex is RuntimeJobRejectedException rejected
+                ? rejected.ErrorCode
+                : "queue_unavailable";
             return WorkerResponse.FromWriter(writer =>
             {
                 writer.WriteStartObject();
                 writer.WriteBoolean("accepted", false);
                 writer.WriteBoolean("duplicate", false);
-                writer.WriteString("state", "queue_unavailable");
-                writer.WriteString("errorCode", "queue_unavailable");
+                writer.WriteString("state", errorCode);
+                writer.WriteString("errorCode", errorCode);
                 writer.WriteString("error", ex.Message);
                 writer.WriteEndObject();
             });
@@ -190,6 +193,16 @@ internal sealed class RuntimeJobModule : IWorkerModule
             writer.WriteBoolean("duplicate", submission.Duplicate);
             writer.WriteString("jobId", submission.Job.JobId);
             if (submission.Job.RunId is not null) writer.WriteString("runId", submission.Job.RunId);
+            if (submission.AssistantMessageId is not null)
+            {
+                writer.WriteString("assistantMessageId", submission.AssistantMessageId);
+            }
+            else if (submission.Job.RunId is not null)
+            {
+                writer.WriteString(
+                    "assistantMessageId",
+                    AgentRuntimeIdentities.AssistantMessageIdForRun(submission.Job.RunId));
+            }
             writer.WriteString("state", submission.Job.State);
             writer.WriteEndObject();
         });

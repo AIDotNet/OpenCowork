@@ -65,7 +65,7 @@ export interface ToolCallState {
 // ---- Agent loop events ----
 
 export type InteractiveAgentEvent =
-  | { type: 'loop_start' }
+  | { type: 'loop_start'; assistantMessageId?: string }
   | { type: 'iteration_start'; iteration: number }
   | { type: 'thinking_delta'; thinking: string }
   | {

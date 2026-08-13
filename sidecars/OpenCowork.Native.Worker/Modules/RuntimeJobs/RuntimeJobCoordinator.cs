@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -71,28 +72,35 @@ internal static class RuntimeJobCoordinator
 
         var sessionId = ReadString(parameters, "sessionId");
         var runId = ReadString(parameters, "runId");
+        var assistantMessageId = ReadString(parameters, "assistantMessageId");
+        if (string.Equals(method, "agent/session-send", StringComparison.Ordinal) &&
+            !AgentRuntimeSessionHost.IsOpen(sessionId))
+        {
+            throw new RuntimeJobRejectedException(
+                "session_evicted",
+                $"agent session is not open: {sessionId ?? "(missing sessionId)"}");
+        }
         var requestedId = NormalizeIdentifier(requestedJobId);
         string jobId;
+        var storedParameters = parameters;
         if (string.Equals(method, "agent/run", StringComparison.Ordinal) ||
             string.Equals(method, "agent/session-send", StringComparison.Ordinal))
         {
-            if (runId is null)
-            {
-                throw new InvalidOperationException(
-                    $"{method} Jobs require params.runId so durable events can address the Job.");
-            }
+            runId ??= AgentRuntimeIdentities.NewRunId();
+            assistantMessageId ??= AgentRuntimeIdentities.AssistantMessageIdForRun(runId);
             if (requestedId is not null && !string.Equals(requestedId, runId, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"{method} requires jobId to match params.runId.");
             }
             jobId = runId;
+            storedParameters = WithAgentJobIdentities(parameters, runId, assistantMessageId);
         }
         else
         {
             jobId = requestedId ?? Guid.NewGuid().ToString("N");
         }
         var key = NormalizeIdentifier(idempotencyKey) ?? jobId;
-        var resolvedLaneKey = ResolveLaneKey(parameters, sessionId, jobId);
+        var resolvedLaneKey = ResolveLaneKey(storedParameters, sessionId, jobId);
         var laneKey = sessionId is not null
             ? resolvedLaneKey
             : NormalizeIdentifier(explicitLaneKey) ?? resolvedLaneKey;
@@ -101,13 +109,17 @@ internal static class RuntimeJobCoordinator
             HostId,
             key,
             method,
-            parameters.ValueKind == JsonValueKind.Undefined ? "{}" : parameters.GetRawText(),
+            storedParameters.ValueKind == JsonValueKind.Undefined ? "{}" : storedParameters.GetRawText(),
             sessionId,
             runId,
             laneKey,
             Now());
         Wake();
-        return submission;
+        return new RuntimeJobSubmission(
+            submission.Accepted,
+            submission.Duplicate,
+            submission.Job,
+            assistantMessageId);
     }
 
     public static RuntimeJobRecord? Get(string jobId)
@@ -576,6 +588,34 @@ internal static class RuntimeJobCoordinator
             method.StartsWith("seedance-video/", StringComparison.Ordinal) ||
             method.StartsWith("xai-video/", StringComparison.Ordinal) ||
             method.StartsWith("media/", StringComparison.Ordinal);
+    }
+
+    private static JsonElement WithAgentJobIdentities(
+        JsonElement parameters,
+        string runId,
+        string assistantMessageId)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            if (parameters.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in parameters.EnumerateObject())
+                {
+                    if (property.NameEquals("runId") || property.NameEquals("assistantMessageId"))
+                    {
+                        continue;
+                    }
+                    property.WriteTo(writer);
+                }
+            }
+            writer.WriteString("runId", runId);
+            writer.WriteString("assistantMessageId", assistantMessageId);
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
     }
 
     private static string? ReadString(JsonElement parameters, string propertyName)

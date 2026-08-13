@@ -3,9 +3,9 @@
   "sourceOfTruth": {
     "runRequest": "src/renderer/src/lib/ipc/sidecar-protocol.ts#SidecarAgentRunRequest",
     "streamEnvelope": "src/shared/agent-stream-protocol.ts#AgentStreamEnvelope",
-    "approvalReverseRequest": "src/main/ipc/sidecar-manager.ts#approval/request",
+    "approvalReverseRequest": "src/main/ipc/agent-runtime/ui-capability-router.ts#requestApproval",
     "runtimeSnapshot": "src/main/ipc/runtime-registry.ts#RuntimeRunSnapshot",
-    "attachReplay": "src/main/ipc/sidecar-manager.ts#agent:attach-run"
+    "attachReplay": "src/main/ipc/agent-runtime/runtime-command-gateway.ts#agent:attach-run"
   },
   "runRequest": {
     "runtimeProtocolVersion": 2,

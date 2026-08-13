@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
 import i18n from '@renderer/locales'
-import { useChatStore, type Session } from '@renderer/stores/chat-store'
+import { useChatStore, flushSessionMessageWrites, type Session } from '@renderer/stores/chat-store'
 import {
   clampMaxParallelToolCalls,
   resolveReasoningEffortForModel,
@@ -230,6 +230,11 @@ import {
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { toAgentEvent, toSubAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 import { sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
+import {
+  cancelHostedSessionRun,
+  shouldUseHostedSessionRun,
+  startHostedSessionRun
+} from '@renderer/lib/agent/hosted-session-run'
 import type { AgentStreamEvent } from '../../../shared/agent-stream-protocol'
 
 /** Per-session abort controllers — module-level so concurrent sessions don't overwrite each other */
@@ -3638,6 +3643,7 @@ async function cancelSidecarRun(sessionId: string): Promise<void> {
   const runId = sessionSidecarRunIds.get(sessionId)
   if (!runId) return
   sessionSidecarRunIds.delete(sessionId)
+  await cancelHostedSessionRun(runId, sessionId)
   try {
     await agentBridge.cancelAgent(runId)
   } catch {
@@ -3658,12 +3664,13 @@ function isActiveWorkerJobState(jobState: string | null | undefined): boolean {
 
 function createSidecarEventStream(options: {
   sessionId: string
-  sidecarRequest: unknown
+  sidecarRequest?: unknown
+  startAcceptedRun?: () => Promise<{ runId: string }>
   signal?: AbortSignal
   logLabel: 'chat' | 'agent'
   onRunIdAssigned?: (runId: string) => void
 }): AsyncIterable<AgentEvent> {
-  const { sessionId, sidecarRequest, signal, logLabel, onRunIdAssigned } = options
+  const { sessionId, sidecarRequest, startAcceptedRun, signal, logLabel, onRunIdAssigned } = options
 
   return {
     async *[Symbol.asyncIterator]() {
@@ -3823,6 +3830,7 @@ function createSidecarEventStream(options: {
               diagnostics: error.details
             })
             if (runId) {
+              void cancelHostedSessionRun(runId, sessionId)
               void agentBridge.cancelAgent(runId).catch(() => {})
             }
             fail(error)
@@ -3885,13 +3893,19 @@ function createSidecarEventStream(options: {
       })
 
       try {
-        const result = await agentBridge.runAgent(sidecarRequest)
+        const result = startAcceptedRun
+          ? await startAcceptedRun()
+          : await agentBridge.runAgent(sidecarRequest)
         runId = result.runId
         sessionSidecarRunIds.set(sessionId, result.runId)
         onRunIdAssigned?.(result.runId)
-        console.log(`[ChatActions] sidecar ${logLabel} stream started`, { sessionId, runId })
+        console.log(
+          `[ChatActions] ${startAcceptedRun ? 'hosted' : 'sidecar'} ${logLabel} stream started`,
+          { sessionId, runId }
+        )
 
         if (signal?.aborted) {
+          void cancelHostedSessionRun(runId, sessionId)
           void agentBridge.cancelAgent(runId).catch(() => {})
           finish()
         } else {
@@ -5274,94 +5288,126 @@ export function useChatActions(): {
             })
 
             const maxParallelTools = getConfiguredMaxParallelTools()
-            // A tool-result continuation writes into the existing assistant bubble, but
-            // must still be a distinct worker run. Reusing the message ID here restarts
-            // the worker's per-run sequence at 1 under an already-seen ID, causing the
-            // stream receiver to discard all early events as duplicates.
-            const sidecarRunId = source === 'continue' ? nanoid() : assistantMsgId
-            const sidecarRequest = buildSidecarAgentRunRequest({
-              messages: messagesToSend,
-              provider: agentProviderConfig,
-              tools: effectiveToolDefs,
-              runId: sidecarRunId,
-              sessionId,
-              projectId: session?.projectId,
-              sessionPromptMode: sessionMode,
-              workingFolder: sessionWorkingFolder,
-              maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-              forceApproval: false,
-              maxParallelTools,
-              compression: compressionConfig,
-              imagePluginProvider: imagePluginConfig,
-              sessionMode: 'agent',
-              planMode: isPlanMode,
-              planModeAllowedTools: isPlanMode ? [...PLAN_MODE_ALLOWED_TOOLS] : undefined,
-              planRevision: requestPlanRevisionContext,
-              planExecution: requestPlanExecutionContext,
-              slashCommand: requestSlashCommandContext,
-              systemCommand: requestSystemCommandContext,
-              requestContextTexts,
-              goalRunSource: source === 'continue' ? 'continue' : 'user_turn',
-              teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
-              activeTeamName: activeTeam?.name,
-              pluginId: session?.pluginId,
-              pluginChatId: session?.externalChatId
-                ? extractPluginChatId(session.externalChatId)
-                : undefined,
-              pluginChatType: session?.pluginChatType,
-              pluginSenderId: session?.pluginSenderId,
-              pluginSenderName: session?.pluginSenderName,
-              pluginChannelContext,
-              sshConnectionId: session?.sshConnectionId,
-              includeFullDebugBody: settings.devMode
-            })
-
-            const useSidecar = await canUseSidecarForAgentRun({
-              messages: messagesToSend,
-              provider: agentProviderConfig,
-              tools: effectiveToolDefs,
-              sessionId,
-              projectId: session?.projectId,
-              workingFolder: sessionWorkingFolder,
-              sshConnectionId: session?.sshConnectionId,
-              maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
-              forceApproval: false,
-              compression: compressionConfig,
+            const hostedTriggerMessageId = userMsgForTurn?.id?.trim() ?? ''
+            const hostedProviderId = (
+              baseProviderConfig.providerId ??
+              session?.providerId ??
+              ''
+            ).trim()
+            const hostedModelId = (baseProviderConfig.model ?? session?.modelId ?? '').trim()
+            const useHostedSessionRun = shouldUseHostedSessionRun({
+              source,
               isPlanMode,
-              sessionMode: mode,
-              desktopControlMode: promptAllowsToolContext ? desktopControlMode : 'disabled',
-              hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
-              hasMcps: promptAllowsToolContext && activeMcps.length > 0,
-              teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
-              activeTeamName: activeTeam?.name,
-              imagePluginProvider: imagePluginConfig
+              isImageModel: resolvedModelConfig?.category === 'image',
+              triggerMessageId: hostedTriggerMessageId,
+              providerId: hostedProviderId,
+              modelId: hostedModelId
             })
 
-            console.log('[ChatActions] Agent execution path', {
-              sessionId,
-              useSidecar,
-              executionPath: 'sidecar',
-              providerType: agentProviderConfig.type,
-              toolNames: effectiveToolDefs.map((tool) => tool.name),
-              hasSidecarRequest: !!sidecarRequest,
-              isPlanMode,
-              sessionMode: mode,
-              hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
-              hasMcps: promptAllowsToolContext && activeMcps.length > 0
-            })
+            let sidecarRequest: ReturnType<typeof buildSidecarAgentRunRequest> | null = null
+            if (!useHostedSessionRun) {
+              // A tool-result continuation writes into the existing assistant bubble, but
+              // must still be a distinct worker run. Reusing the message ID here restarts
+              // the worker's per-run sequence at 1 under an already-seen ID, causing the
+              // stream receiver to discard all early events as duplicates.
+              const sidecarRunId = source === 'continue' ? nanoid() : assistantMsgId
+              sidecarRequest = buildSidecarAgentRunRequest({
+                messages: messagesToSend,
+                provider: agentProviderConfig,
+                tools: effectiveToolDefs,
+                runId: sidecarRunId,
+                sessionId,
+                projectId: session?.projectId,
+                sessionPromptMode: sessionMode,
+                workingFolder: sessionWorkingFolder,
+                maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+                forceApproval: false,
+                maxParallelTools,
+                compression: compressionConfig,
+                imagePluginProvider: imagePluginConfig,
+                sessionMode: 'agent',
+                planMode: isPlanMode,
+                planModeAllowedTools: isPlanMode ? [...PLAN_MODE_ALLOWED_TOOLS] : undefined,
+                planRevision: requestPlanRevisionContext,
+                planExecution: requestPlanExecutionContext,
+                slashCommand: requestSlashCommandContext,
+                systemCommand: requestSystemCommandContext,
+                requestContextTexts,
+                goalRunSource: source === 'continue' ? 'continue' : 'user_turn',
+                teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
+                activeTeamName: activeTeam?.name,
+                pluginId: session?.pluginId,
+                pluginChatId: session?.externalChatId
+                  ? extractPluginChatId(session.externalChatId)
+                  : undefined,
+                pluginChatType: session?.pluginChatType,
+                pluginSenderId: session?.pluginSenderId,
+                pluginSenderName: session?.pluginSenderName,
+                pluginChannelContext,
+                sshConnectionId: session?.sshConnectionId,
+                includeFullDebugBody: settings.devMode
+              })
 
-            if (!useSidecar) {
-              throw new Error(
-                'Native sidecar agent runtime is required for this provider, but its capability check failed.'
-              )
-            }
+              const useSidecar = await canUseSidecarForAgentRun({
+                messages: messagesToSend,
+                provider: agentProviderConfig,
+                tools: effectiveToolDefs,
+                sessionId,
+                projectId: session?.projectId,
+                workingFolder: sessionWorkingFolder,
+                sshConnectionId: session?.sshConnectionId,
+                maxIterations: DEFAULT_AGENT_MAX_ITERATIONS,
+                forceApproval: false,
+                compression: compressionConfig,
+                isPlanMode,
+                sessionMode: mode,
+                desktopControlMode: promptAllowsToolContext ? desktopControlMode : 'disabled',
+                hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
+                hasMcps: promptAllowsToolContext && activeMcps.length > 0,
+                teamToolsActive: settings.teamToolsEnabled && !!activeTeam,
+                activeTeamName: activeTeam?.name,
+                imagePluginProvider: imagePluginConfig
+              })
 
-            if (!sidecarRequest) {
-              throw new Error('Main-process agent request build failed')
+              console.log('[ChatActions] Agent execution path', {
+                sessionId,
+                useSidecar,
+                executionPath: 'sidecar',
+                providerType: agentProviderConfig.type,
+                toolNames: effectiveToolDefs.map((tool) => tool.name),
+                hasSidecarRequest: !!sidecarRequest,
+                isPlanMode,
+                sessionMode: mode,
+                hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
+                hasMcps: promptAllowsToolContext && activeMcps.length > 0
+              })
+
+              if (!useSidecar) {
+                throw new Error(
+                  'Native sidecar agent runtime is required for this provider, but its capability check failed.'
+                )
+              }
+
+              if (!sidecarRequest) {
+                throw new Error('Main-process agent request build failed')
+              }
+            } else {
+              console.log('[ChatActions] Agent execution path', {
+                sessionId,
+                useSidecar: true,
+                executionPath: 'hosted',
+                providerType: agentProviderConfig.type,
+                toolNames: effectiveToolDefs.map((tool) => tool.name),
+                hasSidecarRequest: false,
+                isPlanMode,
+                sessionMode: mode,
+                hasChannels: promptAllowsToolContext && scopedActiveChannels.length > 0,
+                hasMcps: promptAllowsToolContext && activeMcps.length > 0
+              })
             }
 
             setRequestTraceInfo(assistantMsgId, {
-              executionPath: 'sidecar'
+              executionPath: useHostedSessionRun ? 'hosted' : 'sidecar'
             })
 
             const initialized = await agentBridge.initialize()
@@ -5372,9 +5418,35 @@ export function useChatActions(): {
               )
             }
 
+            if (useHostedSessionRun) {
+              await flushSessionMessageWrites(sessionId)
+            }
+
             const loop: AsyncIterable<AgentEvent> = createSidecarEventStream({
               sessionId,
               sidecarRequest,
+              startAcceptedRun: useHostedSessionRun
+                ? async () => {
+                    const result = await startHostedSessionRun({
+                      sessionId,
+                      triggerMessageId: hostedTriggerMessageId,
+                      mode: sessionMode,
+                      providerId: hostedProviderId,
+                      modelId: hostedModelId,
+                      attachmentIds: [],
+                      commandMetadata: { goalRunSource: 'user_turn' }
+                    })
+                    if (!result.accepted || !result.runId.trim()) {
+                      throw await agentBridge.createDiagnosticError(
+                        result.errorCode
+                          ? `Hosted session run was not accepted (${result.errorCode})`
+                          : 'Hosted session run was not accepted',
+                        { sessionId }
+                      )
+                    }
+                    return { runId: result.runId }
+                  }
+                : undefined,
               signal: abortController.signal,
               logLabel: 'agent'
             })

@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.9] - 2026-08-14
+
+### Added
+
+- Added inline file diffs for Write/Edit tool results in chat, including snapshot-backed previews and syntax-highlighted mutation cards.
+- Added live sub-agent grouping in the CLI transcript (queued/running/completed, activity, tokens, model, elapsed) and matching desktop presentation phases.
+- Added the OpenCode Zen provider preset (`opencode.ai/zen`) with GPT 5.6 Terra/Luna, GPT 5.5, Claude Opus/Sonnet 5, Grok 4.6, Qwen3.7 Max, DeepSeek V4, GLM 5.2, MiniMax M3, and Kimi models.
+- Added shared ACP session-mode tool catalogs so the lead stays orchestration-only while sub-agents inherit the full implementation tool set and run in `code` mode.
+- Added Native Worker `AgentRuntimeToolError` so recoverable tool failures become model-safe `<system-remind>` text instead of AOT resource keys such as `IO_PathNotFound_Path`.
+- Added chat home insight copy, a hover-card titlebar mode switch with keyboard shortcuts, and motion helpers for popovers and preview rails.
+
+### Changed
+
+- Refreshed chat presentation (tool cards, thinking blocks, skills menu, input area, workspace sidebar) around disclosure, diffs, and plan review.
+- Bounded provider "context window exceeded" recovery to two overflow compressions per run so a misconfigured window cannot loop forever.
+- Treated Home as project-scoped when a project is already selected, so new sessions from the home picker inherit the project.
+- Removed the unused renderer prompt-optimizer module.
+
+### Fixed
+
+- Fixed Windows ARM CI `npm ci` failing on hung Electron downloads by caching the binary, retrying install, and falling back to the npmmirror already used by electron-builder.
+- Fixed Native Worker tool failures leaking framework resource keys to the model after AOT publish (`UseSystemResourceKeys`).
+
 ## [1.3.8] - 2026-08-13
 
 ### Added

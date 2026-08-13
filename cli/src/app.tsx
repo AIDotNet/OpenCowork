@@ -186,7 +186,7 @@ export function CliApp({
       {
         id: 'startup-resume',
         kind: 'system',
-        text: t('cli.runtime.resumedSession', 'Resumed session ? {{count}} canonical messages', {
+        text: t('cli.runtime.resumedSession', 'Resumed session · {{count}} canonical messages', {
           count: initialResume.session.messageCount
         }),
         tone: 'success'
@@ -1217,7 +1217,7 @@ export function CliApp({
     refreshRuntimeMetrics()
     if (result.warning) appendSystem(result.warning, 'warning')
     showNotice(
-      t('cli.runtime.sessionResumed', 'Resumed session · {{count}} canonical messages', {
+      t('cli.runtime.resumedSession', 'Resumed session · {{count}} canonical messages', {
         count: result.session.messageCount
       })
     )

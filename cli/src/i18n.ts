@@ -610,6 +610,8 @@ const chineseResources = {
       retry: '重试',
       retryIn: '将在',
       turnRunning: '已有会话正在运行 · Esc 中断',
+      turnAppended: '已插入当前执行中的对话 · Agent 会在下一步看到',
+      commandWhileRunning: '当前 Agent 正在执行 · 先 Esc 中断，或等本轮结束后再运行命令',
       visionUnsupported: '当前模型不支持图片输入 · 使用 Alt-P 选择 Vision 模型',
       compactUnavailable: '当前 Runtime 不支持手动压缩上下文。',
       workerRunning: '已有 Worker 操作正在运行',

@@ -3,7 +3,6 @@ import { APP_PLUGIN_DESCRIPTORS } from './app-plugin/types'
 import { PLUGIN_TOOL_DEFINITIONS } from './channel/plugin-tools'
 import { isMcpTool } from './mcp/mcp-tools'
 import type { McpServerConfig, McpTool } from './mcp/types'
-import { buildMemoryContext } from './agent/dynamic-context'
 import type { LayeredMemorySnapshot, SessionMemoryScope } from './agent/memory-files'
 import type { PromptEnvironmentContext } from './agent/system-prompt'
 import { normalizeLanguageCode, resolveLanguageName } from './i18n-language'
@@ -32,8 +31,8 @@ type ChatModePromptOptions = {
   planMode?: boolean
   hasWebSearch: boolean
   hasPluginTools?: boolean
-  activeMcps: Array<Pick<McpServerConfig, 'id' | 'name' | 'description' | 'transport'>>
-  activeMcpTools: Record<string, Array<Pick<McpTool, 'name'>>>
+  activeMcps?: Array<Pick<McpServerConfig, 'id' | 'name' | 'description' | 'transport'>>
+  activeMcpTools?: Record<string, Array<Pick<McpTool, 'name'>>>
 }
 
 type PromptCacheEnvironmentContext = {
@@ -162,7 +161,7 @@ export function buildChatModePromptContextCacheKey(options: ChatModePromptOption
       : null,
     hasWebSearch: options.hasWebSearch,
     hasPluginTools: Boolean(options.hasPluginTools),
-    activeMcps: options.activeMcps
+    activeMcps: (options.activeMcps ?? [])
       .map((server) => ({
         id: server.id,
         name: server.name,
@@ -171,7 +170,7 @@ export function buildChatModePromptContextCacheKey(options: ChatModePromptOption
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
     activeMcpTools: Object.fromEntries(
-      Object.entries(options.activeMcpTools)
+      Object.entries(options.activeMcpTools ?? {})
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([serverId, tools]) => [
           serverId,
@@ -186,10 +185,6 @@ export function buildChatModeSystemPrompt(options: ChatModePromptOptions): strin
     languageName: resolveLanguageName(options.language),
     userRules: options.userRules,
     workingFolder: options.workingFolder,
-    environmentContext: options.environmentContext,
-    memoryContext: options.memorySnapshot
-      ? buildMemoryContext(options.memorySnapshot, options.sessionScope ?? 'main')
-      : null,
-    planMode: options.planMode
+    environmentContext: options.environmentContext
   })
 }

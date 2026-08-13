@@ -33,6 +33,7 @@ import { RightPanel } from './RightPanel'
 import { setSessionForegroundVisibility } from '@renderer/lib/agent/session-runtime-router'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { selectSessionPendingApproval } from '@renderer/lib/agent/session-scoped-agent-state'
+import { isCliSessionId } from '@renderer/lib/cli-session'
 
 const SubAgentExecutionDetail = lazy(async () => {
   const mod = await import('./SubAgentExecutionDetail')
@@ -133,11 +134,13 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
   // does the same, but its Layout never mounts here.
   useEffect(() => {
     if (!sessionView.mode) return
-    const normalizedSessionMode: AppMode = sessionView.projectId
-      ? sessionView.mode === 'chat'
-        ? 'cowork'
-        : sessionView.mode
-      : 'chat'
+    const normalizedSessionMode: AppMode = isCliSessionId(sessionId)
+      ? sessionView.mode
+      : sessionView.projectId
+        ? sessionView.mode === 'chat'
+          ? 'cowork'
+          : sessionView.mode
+        : 'chat'
     if (useUIStore.getState().mode === normalizedSessionMode) return
     queueMicrotask(() => {
       if (useUIStore.getState().mode !== normalizedSessionMode) {
@@ -148,6 +151,12 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
 
   useEffect(() => {
     if (!sessionView.mode) return
+    if (isCliSessionId(sessionId)) {
+      if (sessionView.mode === 'chat') {
+        updateSessionMode(sessionId, 'code')
+      }
+      return
+    }
     if (sessionView.projectId && sessionView.mode === 'chat') {
       updateSessionMode(sessionId, 'cowork')
       return

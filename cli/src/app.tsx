@@ -280,6 +280,10 @@ export function CliApp({
 
   const contentWidth = Math.max(35, columns - 1)
   const fullscreen = tuiMode === 'fullscreen'
+  // Ink falls back to ansiEscapes.clearTerminal when its dynamic output occupies at least
+  // stdout.rows. Reserve one terminal row so a streaming fullscreen frame always stays below
+  // that threshold; otherwise every spinner/token update can become a whole-screen flash.
+  const frameRows = fullscreen ? Math.max(1, rows - 1) : rows
   const selectedModelOption = modelSelection
     ? modelCatalog.groups
         .flatMap((group) => group.models)
@@ -318,7 +322,7 @@ export function CliApp({
     overlayOpen: bottomOverlayOpen,
     scrollLocked: fullscreen && scrollAnchor !== null
   })
-  const transcriptBudget = Math.max(3, rows - chromeLines)
+  const transcriptBudget = Math.max(3, frameRows - chromeLines)
   const windowSource =
     fullscreen || firstMutableMessage < 0 ? messages : messages.slice(firstMutableMessage)
   const windowArgs = {
@@ -353,6 +357,45 @@ export function CliApp({
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
     }
   }, [])
+
+  /**
+   * Abort delivery is asynchronous in some runtimes. Close the local streaming projection
+   * immediately so an interrupted thought cannot remain rendered as active while the Worker
+   * unwinds its stream.
+   */
+  const interruptActiveOperation = (): void => {
+    const controller = abortControllerRef.current
+    if (!controller || controller.signal.aborted) return
+
+    controller.abort()
+    const completedAt = Date.now()
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.kind === 'assistant' && message.streaming) {
+          return {
+            ...message,
+            segments: finalizeAssistantSegments(
+              message.segments,
+              message.reasoningTokens,
+              completedAt
+            ),
+            streaming: false
+          }
+        }
+        if (message.kind === 'tool' && message.status === 'running') {
+          return {
+            ...message,
+            status: 'error',
+            summary: message.summary ?? t('cli.statuses.interrupted', 'Interrupted')
+          }
+        }
+        return message
+      })
+    )
+    setTurnStatus(null)
+    setActivity(undefined)
+    showNotice(t('cli.statuses.interrupted', 'Interrupted'))
+  }
 
   // The update probe runs after the UI is interactive so startup never blocks on npm.
   // A newer version surfaces as a persistent transcript notice instead of a modal prompt.
@@ -746,6 +789,7 @@ export function CliApp({
           ? {
               ...current,
               activeResponseCharacters: current.activeResponseCharacters + event.text.length,
+              firstResponseAt: current.firstResponseAt ?? Date.now(),
               phase: 'responding'
             }
           : current
@@ -766,6 +810,7 @@ export function CliApp({
           ? {
               ...current,
               activeResponseCharacters: current.activeResponseCharacters + event.thinking.length,
+              firstResponseAt: current.firstResponseAt ?? Date.now(),
               phase: 'thinking'
             }
           : current
@@ -899,44 +944,16 @@ export function CliApp({
     }
   }
 
-  const runPrompt = async (
+  const appendUserTranscript = (
     prompt: string,
-    images: PromptImageAttachment[] = [],
-    references: PromptReference[] = []
-  ): Promise<void> => {
-    if (isRunning) {
-      showNotice(t('cli.runtime.turnRunning', 'A turn is already running ? Esc to interrupt'))
-      return
-    }
-    if (images.length > 0 && !supportsVision) {
-      showNotice(
-        t(
-          'cli.runtime.visionUnsupported',
-          'Current model does not support image input ? choose a vision model with Alt-P'
-        )
-      )
-      return
-    }
-
-    // A new turn always returns the fullscreen viewport to follow-the-tail mode.
-    setScrollAnchor(null)
-    const startedAt = Date.now()
-    let requestTokens = Math.max(1, Math.ceil(prompt.length / 4))
-    const submission = { text: prompt, images, references }
-    try {
-      requestTokens = Math.max(
-        1,
-        runtime.estimateRequestTokens?.(submission) ??
-          (runtime.getContextSnapshot?.().estimatedTokens ?? 0) + requestTokens
-      )
-    } catch {
-      // The live transfer indicator remains available even if optional context metrics fail.
-    }
-
+    images: PromptImageAttachment[],
+    references: PromptReference[]
+  ): void => {
+    messageIdRef.current += 1
     setMessages((current) => [
       ...current,
       {
-        id: `user-${Date.now()}`,
+        id: `user-${Date.now()}-${messageIdRef.current}`,
         kind: 'user',
         text: prompt,
         ...(images.length > 0
@@ -954,6 +971,62 @@ export function CliApp({
           : {})
       }
     ])
+  }
+
+  const runPrompt = async (
+    prompt: string,
+    images: PromptImageAttachment[] = [],
+    references: PromptReference[] = []
+  ): Promise<void> => {
+    if (images.length > 0 && !supportsVision) {
+      showNotice(
+        t(
+          'cli.runtime.visionUnsupported',
+          'Current model does not support image input ? choose a vision model with Alt-P'
+        )
+      )
+      return
+    }
+
+    const submission = { text: prompt, images, references }
+    if (isRunning) {
+      if (!runtime.appendToActiveRun) {
+        showNotice(t('cli.runtime.turnRunning', 'A turn is already running ? Esc to interrupt'))
+        return
+      }
+      try {
+        await runtime.appendToActiveRun(submission)
+      } catch (error) {
+        appendSystem(error instanceof Error ? error.message : String(error), 'error')
+        return
+      }
+      setScrollAnchor(null)
+      appendUserTranscript(prompt, images, references)
+      refreshRuntimeMetrics()
+      showNotice(
+        t(
+          'cli.runtime.turnAppended',
+          'Inserted into the current turn · the agent will see it on the next step'
+        )
+      )
+      return
+    }
+
+    // A new turn always returns the fullscreen viewport to follow-the-tail mode.
+    setScrollAnchor(null)
+    const startedAt = Date.now()
+    let requestTokens = Math.max(1, Math.ceil(prompt.length / 4))
+    try {
+      requestTokens = Math.max(
+        1,
+        runtime.estimateRequestTokens?.(submission) ??
+          (runtime.getContextSnapshot?.().estimatedTokens ?? 0) + requestTokens
+      )
+    } catch {
+      // The live transfer indicator remains available even if optional context metrics fail.
+    }
+
+    appendUserTranscript(prompt, images, references)
     const controller = new AbortController()
     abortControllerRef.current = controller
     setIsRunning(true)
@@ -1741,6 +1814,17 @@ export function CliApp({
   ): void => {
     setShowHelp(false)
     const shellCandidate = submission.trimStart()
+    if (shellCandidate.startsWith('!') || shellCandidate.startsWith('/')) {
+      if (isRunning) {
+        showNotice(
+          t(
+            'cli.runtime.commandWhileRunning',
+            'Wait for the current turn to finish, or Esc to interrupt, before running a command'
+          )
+        )
+        return
+      }
+    }
     if (shellCandidate.startsWith('!')) {
       if (images.length > 0 || references.length > 0) {
         showNotice('Remove attached images and references before running a shell command')
@@ -1795,8 +1879,7 @@ export function CliApp({
 
   const handleAskUserCancel = (): void => {
     setAskUserRequest(null)
-    abortControllerRef.current?.abort()
-    showNotice('AskUserQuestion cancelled ? turn interrupted')
+    interruptActiveOperation()
   }
 
   const handlePlanApprove = (mode: PlanApprovalMode): void => {
@@ -1997,7 +2080,7 @@ export function CliApp({
       ) : null}
       <Box
         flexDirection="column"
-        height={fullscreen ? rows : undefined}
+        height={fullscreen ? frameRows : undefined}
         justifyContent={fullscreen ? 'space-between' : 'flex-start'}
         width={contentWidth}
       >
@@ -2084,10 +2167,7 @@ export function CliApp({
             <PlanPanel
               isRunning={isRunning || planActionPending}
               maxVisibleLines={Math.max(5, Math.min(16, rows - 14))}
-              onAbort={() => {
-                abortControllerRef.current?.abort()
-                showNotice('Interrupted')
-              }}
+              onAbort={interruptActiveOperation}
               onApprove={handlePlanApprove}
               onCycleMode={cyclePermissionMode}
               onNotice={showNotice}
@@ -2210,10 +2290,7 @@ export function CliApp({
               images={promptImages}
               initialValue={initialPrompt}
               isRunning={isRunning}
-              onAbort={() => {
-                abortControllerRef.current?.abort()
-                showNotice('Interrupted')
-              }}
+              onAbort={interruptActiveOperation}
               onCycleMode={cyclePermissionMode}
               onExit={exit}
               onListRewindCheckpoints={listRewindCheckpoints}
@@ -2252,10 +2329,10 @@ export function CliApp({
             supportsEffort={availableEffortLevels.length > 0}
             supportsThinking={supportsThinking}
             thinkingEnabled={thinkingEnabled}
+            turnStatus={turnStatus}
             usage={runtimeMetrics.usage}
             width={contentWidth}
           />
-          {fullscreen ? <Text color={theme.dim}> </Text> : null}
         </Box>
       </Box>
     </>

@@ -53,11 +53,15 @@ import type {
 import { hasPendingSessionMessagesForSession } from '@renderer/hooks/use-chat-actions'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
-import {
-  buildSystemPromptContextCacheKey,
-  haveSameToolDefinitions
-} from '@renderer/lib/chat-mode-tools'
+import { buildSystemPromptContextCacheKey } from '@renderer/lib/chat-mode-tools'
+import { canReuseSessionPromptPrefix } from '@renderer/lib/agent/prompt-prefix-pin'
 import { ensureRequestToolCatalogFresh } from '@renderer/lib/tools/dynamic-tool-catalog'
+import { getRegisteredSkills } from '@renderer/lib/tools/skill-tool'
+import { buildMemoryContext } from '@renderer/lib/agent/dynamic-context'
+import {
+  buildVolatilePromptTurnContext,
+  listUnpinnedToolNames
+} from '../../../shared/agent-system-prompt'
 import {
   summarizeToolInputForHistory,
   summarizeToolInputForLiveCard
@@ -688,21 +692,19 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
   const promptContextCacheKey = buildSystemPromptContextCacheKey({
     language: settings.language,
     userRules,
-    environmentContext,
-    memorySnapshot
+    environmentContext
   })
   const cachedPromptSnapshot = session.promptSnapshot
-  const canReusePromptSnapshot =
-    !!cachedPromptSnapshot &&
-    cachedPromptSnapshot.mode === 'cowork' &&
-    cachedPromptSnapshot.planMode === false &&
-    cachedPromptSnapshot.workingFolder === session.workingFolder &&
-    cachedPromptSnapshot.projectId === session.projectId &&
-    cachedPromptSnapshot.sshConnectionId === session.sshConnectionId &&
-    cachedPromptSnapshot.contextCacheKey === promptContextCacheKey &&
-    haveSameToolDefinitions(cachedPromptSnapshot.toolDefs, allToolDefs) &&
-    // Discard stale snapshots that lack plugin tools (issue #73).
-    cachedPromptSnapshot.toolDefs.some((t) => t.name === 'PluginSendMessage')
+  const canReusePromptSnapshot = canReuseSessionPromptPrefix({
+    snapshot: cachedPromptSnapshot,
+    mode: 'cowork',
+    projectId: session.projectId,
+    workingFolder: session.workingFolder,
+    sshConnectionId: session.sshConnectionId ?? null,
+    providerId: providerConfig.providerId ?? session.providerId ?? null,
+    modelId: providerConfig.model ?? session.modelId ?? null,
+    requirePluginSendMessage: true
+  })
 
   let effectiveToolDefs = allToolDefs
   let systemPrompt = cachedPromptSnapshot?.systemPrompt ?? ''
@@ -715,7 +717,6 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       userRules,
       toolDefs: allToolDefs,
       language: settings.language,
-      memorySnapshot,
       sessionScope,
       environmentContext
     })
@@ -728,9 +729,11 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       projectId: session.projectId,
       workingFolder: session.workingFolder,
       sshConnectionId: session.sshConnectionId,
+      providerId: providerConfig.providerId ?? session.providerId ?? null,
+      modelId: providerConfig.model ?? session.modelId ?? null,
       contextCacheKey: promptContextCacheKey
     })
-  } else {
+  } else if (cachedPromptSnapshot) {
     effectiveToolDefs = cachedPromptSnapshot.toolDefs.slice()
   }
 
@@ -963,6 +966,16 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
       messages: historyMessages,
       provider: agentProviderConfig,
       tools: effectiveToolDefs,
+      requestContextTexts: buildVolatilePromptTurnContext({
+        memoryContext: memorySnapshot
+          ? buildMemoryContext(memorySnapshot, sessionScope)
+          : null,
+        skills: getRegisteredSkills(),
+        unavailableToolNames: listUnpinnedToolNames(
+          effectiveToolDefs.map((tool) => tool.name),
+          allToolDefs.map((tool) => tool.name)
+        )
+      }),
       sessionId,
       workingFolder: session.workingFolder,
       maxIterations: 15,

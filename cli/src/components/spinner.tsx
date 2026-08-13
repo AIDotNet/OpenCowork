@@ -10,7 +10,7 @@ export function Spinner(): React.JSX.Element {
   const [frame, setFrame] = useState(0)
 
   useEffect(() => {
-    const timer = setInterval(() => setFrame((current) => (current + 1) % frames.length), 90)
+    const timer = setInterval(() => setFrame((current) => (current + 1) % frames.length), 160)
     return () => clearInterval(timer)
   }, [])
 

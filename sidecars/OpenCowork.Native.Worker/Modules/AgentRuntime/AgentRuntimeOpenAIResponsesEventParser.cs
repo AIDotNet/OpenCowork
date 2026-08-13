@@ -659,6 +659,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     {
         var cachedTokens = ReadFirstPositiveInt(
             usage,
+            "prompt_cache_hit_tokens",
             "cached_tokens",
             "cache_read_tokens",
             "cache_read_input_tokens",
@@ -673,6 +674,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             {
                 cachedTokens = ReadFirstPositiveInt(
                     details,
+                    "prompt_cache_hit_tokens",
                     "cached_tokens",
                     "cache_read_tokens",
                     "cache_read_input_tokens",
@@ -683,7 +685,17 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 }
             }
         }
-        return 0;
+
+        if (!usage.TryGetProperty("prompt_cache_miss_tokens", out var missProperty) ||
+            (missProperty.ValueKind != JsonValueKind.Number &&
+             missProperty.ValueKind != JsonValueKind.String))
+        {
+            return 0;
+        }
+
+        var missTokens = ReadInt(usage, "prompt_cache_miss_tokens");
+        var promptTokens = ReadFirstPositiveInt(usage, "input_tokens", "prompt_tokens");
+        return promptTokens > missTokens ? promptTokens - missTokens : 0;
     }
 
     private static int ReadResponsesCacheWriteTokens(JsonElement usage)

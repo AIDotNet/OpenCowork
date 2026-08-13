@@ -70,13 +70,18 @@ import {
 import { loadProviderSetupCatalog, persistProviderSetup } from './provider-setup.js'
 import { parseSessionTitle, SESSION_TITLE_SYSTEM_PROMPT } from './session-title.js'
 import {
+  applyCliPromptPrefixPin,
   buildSkillToolDefinition,
+  buildSkillsTurnContext,
+  buildUnavailableToolsReminder,
   buildWorkerCompressionRequest,
   buildWorkerRunRequest,
   buildWorkerTitleRequest,
+  cliPromptPrefixIdentity,
   resolveReasoningEffort,
   resolveThinkingEnabled,
   resolveWorkerCompressionSettings,
+  type CliPromptPrefixPin,
   type SkillCatalogEntry,
   type WorkerMessage,
   type WorkerToolDefinition,
@@ -498,6 +503,18 @@ function findTasks(value: unknown): TaskItem[] | null {
   return null
 }
 
+function assistantTextFromMessages(value: unknown): string {
+  const messages = normalizeMessages(value)
+  if (!messages) return ''
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.role !== 'assistant') continue
+    const text = flattenContent(message.content).trim()
+    if (text) return text
+  }
+  return ''
+}
+
 function normalizeMessages(value: unknown): WorkerMessage[] | null {
   if (!Array.isArray(value)) return null
   const messages: WorkerMessage[] = []
@@ -880,6 +897,14 @@ export function buildWorkerUserContent(prompt: string, images: PromptImageAttach
   ]
 }
 
+function prependTextToWorkerContent(content: unknown, texts: string[]): unknown {
+  if (texts.length === 0) return content
+  const prefix = texts.join('\n\n')
+  if (typeof content === 'string') return content ? `${prefix}\n\n${content}` : prefix
+  if (Array.isArray(content)) return [{ type: 'text', text: prefix }, ...content]
+  return content
+}
+
 function validatePromptImages(images: PromptImageAttachment[]): void {
   if (images.length > MAX_PROMPT_IMAGES) {
     throw new Error(`A prompt can include up to ${MAX_PROMPT_IMAGES} images.`)
@@ -942,6 +967,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private rewindCheckpointRecords: RewindCheckpointRecord[] = []
   private rewindChangeSessionIds: string[] = []
   private activeCheckpointId: string | null = null
+  private promptPrefixPin: CliPromptPrefixPin | null = null
+  private skillCatalog: SkillCatalogEntry[] = []
 
   constructor(private readonly options: OpenCoworkWorkerRuntimeOptions) {
     const catalog = loadModelCatalog({
@@ -1848,21 +1875,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (this.activeRunId) throw new Error('An OpenCowork worker turn is already active')
     if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
     validatePromptImages(images)
-    if (images.length > 0) {
-      const configuration = loadOpenCoworkConfiguration()
-      const resolution = resolveProviderModel(configuration, {
-        providerId: this.config.providerId,
-        modelId: this.config.model
-      })
-      const providerType = resolution
-        ? stringValue(resolution.model.type) || stringValue(resolution.provider.type)
-        : ''
-      if (!resolution || !modelSupportsVision(resolution.model, providerType)) {
-        throw new Error(
-          'The current model does not support image input. Choose a vision-capable model with Alt-P.'
-        )
-      }
-    }
+    this.assertVisionSupport(images)
 
     const runId = `cli-run-${randomUUID()}`
     this.activeRunId = runId
@@ -1887,26 +1900,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         ? { meta: { promptReferences: references.map((reference) => ({ ...reference })) } }
         : {})
     }
-    const checkpointPrefix = [...this.rewindTranscript]
-    const previousUserCount = this.rewindCheckpointRecords.reduce(
-      (highest, record) => Math.max(highest, record.checkpoint.userIndex + 1),
-      0
-    )
-    this.rewindCheckpointRecords.push({
-      checkpoint: {
-        createdAt: userMessage.createdAt,
-        id: userMessage.id,
-        prompt,
-        userIndex: previousUserCount
-      },
-      images: images.map((image) => ({ ...image })),
-      prefix: checkpointPrefix,
-      references: references.map((reference) => ({ ...reference }))
-    })
-    if (this.rewindCheckpointRecords.length > 100) this.rewindCheckpointRecords.shift()
-    this.activeCheckpointId = userMessage.id
-    this.rewindTranscript = [...checkpointPrefix, userMessage]
-    this.messages.push(userMessage)
+    this.recordUserMessage(userMessage, prompt, images, references, { activateCheckpoint: true })
 
     const handleAbort = (): void => {
       void this.client.request('agent/cancel', { runId }, 10_000).catch((error) => {
@@ -1928,6 +1922,19 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         extraTools,
         requestContextTexts
       )
+      const pinned = applyCliPromptPrefixPin(
+        this.promptPrefixPin,
+        cliPromptPrefixIdentity(sessionOptions),
+        request
+      )
+      this.promptPrefixPin = pinned.pin
+      const turnContext = [
+        buildSkillsTurnContext(this.skillCatalog),
+        buildUnavailableToolsReminder(pinned.unpinnedToolNames)
+      ].filter((text): text is string => Boolean(text))
+      if (turnContext.length > 0) {
+        request.requestContextTexts = [...(request.requestContextTexts ?? []), ...turnContext]
+      }
       this.activeModelLabel = modelLabel
       await this.ensureSession()
       const result = await this.client.request<{ started?: boolean; runId?: string }>(
@@ -1972,6 +1979,43 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.activeCheckpointId = null
       this.resetStreamCursor()
     }
+  }
+
+  async appendToActiveRun(submission: PromptSubmission): Promise<void> {
+    const runId = this.activeRunId
+    if (!runId) throw new Error('No active Worker turn to append to.')
+    if (this.resumeOperation) throw new Error('Wait for the session resume operation to finish.')
+
+    const { images, references, text: prompt } = submission
+    validatePromptImages(images)
+    this.assertVisionSupport(images)
+
+    const signal = this.activeSignal ?? new AbortController().signal
+    const requestContextTexts = await this.buildFileReferenceContext(references, signal)
+    const userMessage: WorkerMessage = {
+      id: `user-${randomUUID()}`,
+      role: 'user',
+      content: prependTextToWorkerContent(
+        buildWorkerUserContent(prompt, images),
+        requestContextTexts
+      ),
+      createdAt: Date.now(),
+      ...(references.length > 0
+        ? { meta: { promptReferences: references.map((reference) => ({ ...reference })) } }
+        : {})
+    }
+
+    const result = await this.client.request<{ appended?: boolean; count?: number }>(
+      'agent/append-messages',
+      { runId, sessionId: this.sessionId, messages: [userMessage] },
+      10_000,
+      signal
+    )
+    if (result.appended !== true || !(result.count && result.count > 0)) {
+      throw new Error('The Native Worker did not accept the mid-turn message.')
+    }
+
+    this.recordUserMessage(userMessage, prompt, images, references, { activateCheckpoint: false })
   }
 
   async compactContext(
@@ -2332,6 +2376,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.rewindChangeSessionIds = []
     this.pendingPlanContext = {}
     this.sessionAllowedTools.clear()
+    this.promptPrefixPin = null
     await this.ensureSession()
   }
 
@@ -2479,6 +2524,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       ...this.createSessionOptions(runId),
       sessionId: `cli-title-session-${randomUUID()}`
     }
+    let titled = false
     let timedOut = false
     let timeout: NodeJS.Timeout | undefined
 
@@ -2532,11 +2578,13 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         30_000
       )
       this.assertMutationSucceeded(updated, 'Failed to update the generated CLI session title')
+      titled = true
     } catch {
       // Title generation is best-effort and must never fail or delay the conversational turn.
     } finally {
       if (timeout) clearTimeout(timeout)
       this.pendingTitleRuns.delete(runId)
+      if (!titled) this.titledSessionIds.delete(sessionId)
       if (timedOut) {
         void this.client.request('agent/cancel', { runId }, 10_000).catch(() => {})
       }
@@ -2600,6 +2648,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.sessionAllowedTools.clear()
     this.activeCodeGraphToolNames.clear()
     this.pendingReverse.clear()
+    this.promptPrefixPin = null
   }
 
   private resetStreamCursor(): void {
@@ -2635,6 +2684,52 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         ? { planRevision: this.pendingPlanContext.planRevision }
         : {})
     }
+  }
+
+  private assertVisionSupport(images: PromptImageAttachment[]): void {
+    if (images.length === 0) return
+    const configuration = loadOpenCoworkConfiguration()
+    const resolution = resolveProviderModel(configuration, {
+      providerId: this.config.providerId,
+      modelId: this.config.model
+    })
+    const providerType = resolution
+      ? stringValue(resolution.model.type) || stringValue(resolution.provider.type)
+      : ''
+    if (!resolution || !modelSupportsVision(resolution.model, providerType)) {
+      throw new Error(
+        'The current model does not support image input. Choose a vision-capable model with Alt-P.'
+      )
+    }
+  }
+
+  private recordUserMessage(
+    userMessage: WorkerMessage,
+    prompt: string,
+    images: PromptImageAttachment[],
+    references: PromptReference[],
+    options: { activateCheckpoint: boolean }
+  ): void {
+    const checkpointPrefix = [...this.rewindTranscript]
+    const previousUserCount = this.rewindCheckpointRecords.reduce(
+      (highest, record) => Math.max(highest, record.checkpoint.userIndex + 1),
+      0
+    )
+    this.rewindCheckpointRecords.push({
+      checkpoint: {
+        createdAt: userMessage.createdAt,
+        id: userMessage.id,
+        prompt,
+        userIndex: previousUserCount
+      },
+      images: images.map((image) => ({ ...image })),
+      prefix: checkpointPrefix,
+      references: references.map((reference) => ({ ...reference }))
+    })
+    if (this.rewindCheckpointRecords.length > 100) this.rewindCheckpointRecords.shift()
+    if (options.activateCheckpoint) this.activeCheckpointId = userMessage.id
+    this.rewindTranscript = [...checkpointPrefix, userMessage]
+    this.messages.push(userMessage)
   }
 
   private async updatePersistedSettings(patch: JsonRecord): Promise<void> {
@@ -2834,6 +2929,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.rewindCheckpointRecords = retainedCheckpoints
     this.rewindChangeSessionIds = [...new Set([sourceSessionId, ...this.rewindChangeSessionIds])]
     this.activeCheckpointId = null
+    this.promptPrefixPin = null
     this.pendingPlanContext = {}
     this.sessionAllowedTools.clear()
     await this.ensureSession()
@@ -2923,19 +3019,17 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   }
 
   /**
-   * Advertise the Skill tool with the Worker's current catalog. Execution happens in the
-   * Worker (AgentRuntimeSkillExecutor); a missing catalog is not an error — the tool is
-   * simply not advertised for this turn.
+   * Advertise the Skill tool with a stable schema. The live catalog is injected as
+   * last-user turn context so skill-list churn cannot bust the pinned tools prefix.
    */
   private async loadSkillToolDefinitions(signal?: AbortSignal): Promise<WorkerToolDefinition[]> {
     try {
-      const skills = await this.listSkills(signal)
-      if (skills.length === 0) return []
-      return [buildSkillToolDefinition(skills)]
+      this.skillCatalog = await this.listSkills(signal)
     } catch (error) {
       if (signal?.aborted) throw error
-      return []
+      this.skillCatalog = []
     }
+    return [buildSkillToolDefinition()]
   }
 
   /**
@@ -3083,11 +3177,13 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         this.client.ackEvent(envelope.runId, envelope.seq)
         return
       }
-      if (envelope.seq !== pendingTitle.lastSequence + 1) return
       pendingTitle.lastSequence = envelope.seq
       for (const event of envelope.events) {
         if (event.type === 'text_delta') pendingTitle.text += stringValue(event.text)
         if (event.type === 'loop_end' || event.type === 'error') {
+          if (event.type === 'loop_end' && !pendingTitle.text.trim()) {
+            pendingTitle.text = assistantTextFromMessages(event.messages)
+          }
           pendingTitle.resolve(event.type === 'error' ? '' : pendingTitle.text)
         }
       }

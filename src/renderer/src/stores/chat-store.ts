@@ -77,6 +77,8 @@ export interface SessionPromptSnapshot {
   projectId?: string
   workingFolder?: string
   sshConnectionId?: string | null
+  providerId?: string | null
+  modelId?: string | null
   contextCacheKey?: string
   systemHash?: string
   toolsHash?: string
@@ -1402,9 +1404,10 @@ interface ChatStore {
   /**
    * Fetches and merges a session (and its project) into the store when it
    * belongs to a project never loaded in this window (e.g. deep links from
-   * outside the sidebar tree). No-op if the session is already resident.
+   * outside the sidebar tree). Pass `refresh` to re-read the SQLite row so
+   * externally written CLI sessions pick up the latest message_count/title.
    */
-  ensureSessionLoaded: (sessionId: string) => Promise<boolean>
+  ensureSessionLoaded: (sessionId: string, options?: { refresh?: boolean }) => Promise<boolean>
   ensureSessionWindow: (sessionId: string, force?: boolean) => Promise<boolean>
   loadRecentSessionMessages: (sessionId: string, force?: boolean, limit?: number) => Promise<void>
   loadOlderSessionMessages: (sessionId: string, limit?: number) => Promise<number>
@@ -3355,6 +3358,7 @@ export const useChatStore = create<ChatStore>()(
     },
 
     ensureSessionWindow: async (sessionId, force = false) => {
+      await get().ensureSessionLoaded(sessionId, { refresh: true })
       await get().loadRecentSessionMessages(sessionId, force)
       const session = get().sessions.find((item) => item.id === sessionId)
       if (!session) return false
@@ -4292,8 +4296,8 @@ export const useChatStore = create<ChatStore>()(
       return loadRequestContextMessages(session, null)
     },
 
-    ensureSessionLoaded: async (sessionId) => {
-      if (getSessionByIdFromState(get(), sessionId)) return true
+    ensureSessionLoaded: async (sessionId, options) => {
+      if (getSessionByIdFromState(get(), sessionId) && !options?.refresh) return true
       try {
         const result = await invokeMessagePackBinary<{ session?: SessionRow | null } | null>(
           DB_SESSIONS_GET_MSGPACK_CHANNEL,
@@ -5137,6 +5141,8 @@ export const useChatStore = create<ChatStore>()(
           projectId: snapshot.projectId,
           workingFolder: snapshot.workingFolder,
           sshConnectionId: snapshot.sshConnectionId,
+          providerId: snapshot.providerId,
+          modelId: snapshot.modelId,
           contextCacheKey: snapshot.contextCacheKey,
           systemHash: snapshot.systemHash,
           toolsHash: snapshot.toolsHash,

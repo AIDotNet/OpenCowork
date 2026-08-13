@@ -277,16 +277,82 @@ function buildModePromptBody(
   ].join('\n')
 }
 
-function buildSkillsReminder(skills: readonly PromptSkill[]): string | null {
-  if (skills.length === 0) return null
+export const SKILL_TOOL_DESCRIPTION = `Load a skill by name to get detailed instructions or domain knowledge for a specialized task. Returns the full content of the skill's SKILL.md file as context.
+
+You have access to Skills — curated guides for specific workflows. Available skill names are listed in session turn context, not in this schema.
+Only use the Skill tool when the user's request clearly matches a listed skill, or when the user explicitly asks for a skill.
+Do not call Skill for ordinary coding, file editing, searching, debugging, or repository navigation requests unless a listed skill is obviously the best fit.
+
+### How to use Skills
+1. **Match carefully**: Use a skill only when the request clearly aligns with one of the available skills in the session context.
+2. **Load first when relevant**: If a listed skill is clearly applicable, call the Skill tool before other tools.
+3. **Read carefully**: After loading, read the Skill's content thoroughly before taking any action.
+4. **Follow strictly**: Execute the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach.
+5. **Retry on failure**: If a Skill's script fails, fix the issue and re-run the same script command when appropriate.
+6. If the user's message begins with "[Skill: <name>]", immediately call that Skill as your first action.`
+
+export function buildSkillsReminder(skills: readonly PromptSkill[]): string | null {
+  const listed = [...skills]
+    .map((skill) => ({
+      name: skill.name.trim(),
+      description: skill.description.trim()
+    }))
+    .filter((skill) => skill.name)
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+  if (listed.length === 0) return null
   return [
     '<system-reminder>',
     'Available Skills:',
-    `- Available Skills: ${skills.length}`,
-    ...skills.map((skill) => `  - ${skill.name}: ${skill.description}`),
+    `- Available Skills: ${listed.length}`,
+    ...listed.map((skill) => `  - ${skill.name}: ${skill.description}`),
     '  Reminder: If the request matches a listed skill, call the Skill tool first.',
     '</system-reminder>'
   ].join('\n')
+}
+
+export function listUnpinnedToolNames(
+  pinnedNames: readonly string[],
+  currentNames: readonly string[]
+): string[] {
+  const pinned = new Set(pinnedNames)
+  return currentNames.filter((name) => name.trim() && !pinned.has(name))
+}
+
+export function buildVolatilePromptTurnContext(options: {
+  memoryContext?: string | null
+  skills?: readonly PromptSkill[]
+  mcpSection?: string | null
+  channelSection?: string | null
+  extraSections?: readonly (string | null | undefined)[]
+  unavailableToolNames?: readonly string[]
+}): string[] {
+  const texts: string[] = []
+  const memory = options.memoryContext?.trim()
+  if (memory) texts.push(memory)
+  const skills = buildSkillsReminder(options.skills ?? [])
+  if (skills) texts.push(skills)
+  const mcpSection = options.mcpSection?.trim()
+  if (mcpSection) texts.push(mcpSection)
+  const channelSection = options.channelSection?.trim()
+  if (channelSection) texts.push(channelSection)
+  for (const section of options.extraSections ?? []) {
+    const trimmed = section?.trim()
+    if (trimmed) texts.push(trimmed)
+  }
+  const unavailable = (options.unavailableToolNames ?? [])
+    .map((name) => name.trim())
+    .filter(Boolean)
+  if (unavailable.length > 0) {
+    texts.push(
+      [
+        '<system-reminder>',
+        'The following tools became available after this session started and cannot be called until a new session is opened:',
+        unavailable.map((name) => `- \`${name}\``).join('\n'),
+        '</system-reminder>'
+      ].join('\n')
+    )
+  }
+  return texts
 }
 
 function appendEnvironmentSection(
@@ -336,11 +402,8 @@ export function buildAgentModeSystemPrompt(options: {
     workingFolder,
     userRules,
     languageName,
-    planMode,
     toolDefs,
-    skills = [],
     environmentContext,
-    memoryContext,
     globalHomePath,
     hasActiveTeam,
     teamCoordinatorPrompt
@@ -378,30 +441,6 @@ export function buildAgentModeSystemPrompt(options: {
     `</communication_guidelines>`
   )
 
-  if (planMode) {
-    parts.push(
-      `\n## Mode: Plan (ACTIVE)`,
-      `**You are currently in Plan Mode.** Explore the codebase and produce a detailed implementation plan (not code).`,
-      `\n**RULES:**`,
-      `- Prioritize investigation with Read/Glob/Grep and the Task tool. Write operations are allowed when the planning work needs them, but the plan file is the deliverable.`,
-      `- Sub-agents inherit the tools exposed to this run except Task; they are leaf workers and cannot delegate further. When delegating planning work, give one agent clear ownership of the plan file and avoid concurrent edits.`,
-      `- Ask the user when requirements are unclear or multiple valid approaches exist.`,
-      `- If you entered Plan Mode from Clarify mode, plan creation is mandatory. Enter only after questioning is exhausted or the user explicitly asks to move on, and once here do not bounce back into open-ended clarification.`,
-      `- Convert non-blocking uncertainty into explicit assumptions or risks inside the plan instead of delaying plan delivery.`,
-      `- Write the plan into the current plan file using Write/Edit.`,
-      `- Exiting Plan Mode is mandatory. After you finish writing the plan file, you MUST call ExitPlanMode in the same turn. A plan is not complete until ExitPlanMode succeeds.`,
-      `- If ExitPlanMode returns an error, treat the plan as unfinished: inspect the error, fix the blocking issue, and retry ExitPlanMode before ending your turn.`,
-      `- Never end a Plan Mode turn with only a written plan file, a suggestion to exit later, or a claim that planning is done without a successful ExitPlanMode result.`,
-      `- Call ExitPlanMode when the plan file is ready, then STOP and wait for user review.`,
-      `\n**Plan content should include:**`,
-      `1. Summary and scope`,
-      `2. Requirements with acceptance criteria`,
-      `3. Architecture/design and key types`,
-      `4. Step-by-step implementation with file paths`,
-      `5. Testing strategy and risks`
-    )
-  }
-
   parts.push(
     `\n<tool_calling>`,
     `Use tools when needed. Follow these rules:`,
@@ -420,26 +459,24 @@ export function buildAgentModeSystemPrompt(options: {
   )
   parts.push(`\n${buildParallelToolCallsPrompt()}`)
 
-  if (!planMode) {
-    parts.push(
-      `\n<making_code_changes>`,
-      `Prefer minimal, focused edits using the Edit tool. Read before edit and keep changes scoped to the request.`,
-      `When making code changes, do not output code to the USER unless requested. Use edit tools instead.`,
-      `Ensure code is runnable: add required imports/dependencies and keep imports at the top.`,
-      `If a change is very large (>300 lines), split it into smaller edits.`,
-      `\n**Code Safety Rules:**`,
-      `- Never introduce security vulnerabilities or hardcode secrets.`,
-      `- Never modify files you have not read.`,
-      `- Avoid over-engineering; do only what was asked.`,
-      `</making_code_changes>`,
-      `\n<file_data_integrity>`,
-      `When editing data/config files:`,
-      `- Preserve existing format (encoding, line endings, indentation, quoting).`,
-      `- Read the entire file and edit precisely; avoid rewriting the whole file for small changes.`,
-      `- Protect unrelated content before and after the edit region.`,
-      `</file_data_integrity>`
-    )
-  }
+  parts.push(
+    `\n<making_code_changes>`,
+    `Prefer minimal, focused edits using the Edit tool. Read before edit and keep changes scoped to the request.`,
+    `When making code changes, do not output code to the USER unless requested. Use edit tools instead.`,
+    `Ensure code is runnable: add required imports/dependencies and keep imports at the top.`,
+    `If a change is very large (>300 lines), split it into smaller edits.`,
+    `\n**Code Safety Rules:**`,
+    `- Never introduce security vulnerabilities or hardcode secrets.`,
+    `- Never modify files you have not read.`,
+    `- Avoid over-engineering; do only what was asked.`,
+    `</making_code_changes>`,
+    `\n<file_data_integrity>`,
+    `When editing data/config files:`,
+    `- Preserve existing format (encoding, line endings, indentation, quoting).`,
+    `- Read the entire file and edit precisely; avoid rewriting the whole file for small changes.`,
+    `- Protect unrelated content before and after the edit region.`,
+    `</file_data_integrity>`
+  )
 
   const taskToolNames = ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList']
   const hasTaskTools = taskToolNames.some((name) => toolDefs.some((tool) => tool.name === name))
@@ -456,22 +493,20 @@ export function buildAgentModeSystemPrompt(options: {
     )
   }
 
-  if (!planMode) {
-    parts.push(
-      `\n<running_commands>`,
-      environmentContext.target === 'ssh'
-        ? `You can run terminal commands on the selected SSH remote host.`
-        : `You can run terminal commands on the user's machine.`,
-      environmentContext.target === 'ssh'
-        ? `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead so it resolves on the remote host.`
-        : `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead.`,
-      `- The Bash tool name does not guarantee bash syntax; follow the shell shown in the Environment section.`,
-      `- Check for existing dev servers before starting new ones.`,
-      `- Unsafe commands require explicit user approval.`,
-      `- Never delete files, install system packages, or expose secrets in output.`,
-      `</running_commands>`
-    )
-  }
+  parts.push(
+    `\n<running_commands>`,
+    environmentContext.target === 'ssh'
+      ? `You can run terminal commands on the selected SSH remote host.`
+      : `You can run terminal commands on the user's machine.`,
+    environmentContext.target === 'ssh'
+      ? `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead so it resolves on the remote host.`
+      : `- Use the Bash tool to run terminal commands; never include \`cd\` in the command. Set \`cwd\` instead.`,
+    `- The Bash tool name does not guarantee bash syntax; follow the shell shown in the Environment section.`,
+    `- Check for existing dev servers before starting new ones.`,
+    `- Unsafe commands require explicit user approval.`,
+    `- Never delete files, install system packages, or expose secrets in output.`,
+    `</running_commands>`
+  )
 
   if (workingFolder) {
     parts.push(`\n## Working Folder\n\`${workingFolder}\``)
@@ -484,10 +519,6 @@ export function buildAgentModeSystemPrompt(options: {
     parts.push(
       `\n**Note:** No working folder is set. Ask the user to select one if file operations are needed.`
     )
-  }
-
-  if (memoryContext) {
-    parts.push(`\n${memoryContext}`)
   }
 
   if (toolDefs.length > 0) {
@@ -544,29 +575,24 @@ export function buildAgentModeSystemPrompt(options: {
       `</global_memory_files>`
     )
 
-    if (workingFolder) {
-      parts.push(
-        `\n<memory_file>`,
-        `Project memory files live under the working directory, preferably in \`${workingFolder}/.agents/\` (for example \`${workingFolder}/.agents/AGENTS.md\`, \`${workingFolder}/.agents/SOUL.md\`, \`${workingFolder}/.agents/USER.md\`, \`${workingFolder}/.agents/MEMORY.md\`, and \`${workingFolder}/.agents/memory/YYYY-MM-DD.md\`). Legacy root-level files like \`${workingFolder}/AGENTS.md\` are still supported for compatibility.`,
-        `Use \`AGENTS.md\` as workspace protocol. Project SOUL/USER/MEMORY files refine or override the global layer for this workspace only.`,
-        `Read before editing, preserve structure, and avoid storing secrets or unrelated temporary notes.`,
-        `</memory_file>`
-      )
-    }
+  if (workingFolder) {
+    parts.push(
+      `\n<memory_file>`,
+      `Project memory files live under the working directory, preferably in \`${workingFolder}/.agents/\` (for example \`${workingFolder}/.agents/AGENTS.md\`, \`${workingFolder}/.agents/SOUL.md\`, \`${workingFolder}/.agents/USER.md\`, \`${workingFolder}/.agents/MEMORY.md\`, and \`${workingFolder}/.agents/memory/YYYY-MM-DD.md\`). Legacy root-level files like \`${workingFolder}/AGENTS.md\` are still supported for compatibility.`,
+      `Use \`AGENTS.md\` as workspace protocol. Project SOUL/USER/MEMORY files refine or override the global layer for this workspace only.`,
+      `Read before editing, preserve structure, and avoid storing secrets or unrelated temporary notes.`,
+      `</memory_file>`
+    )
+  }
 
-    const skillsReminder = buildSkillsReminder(skills)
-    if (skillsReminder) {
-      parts.push(`\n${skillsReminder}`)
-    }
-
-    if (userRules) {
-      parts.push(
-        `\n<user_rules>`,
-        `The following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any other instructions.`,
-        `${userRules}`,
-        `</user_rules>`
-      )
-    }
+  if (userRules) {
+    parts.push(
+      `\n<user_rules>`,
+      `The following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any other instructions.`,
+      `${userRules}`,
+      `</user_rules>`
+    )
+  }
   }
 
   return parts.join('\n')
@@ -630,24 +656,6 @@ export function buildChatModeSystemPrompt(options: {
       `\`${workingFolder}\``,
       'Resolve relative paths against this folder for file and shell work.'
     )
-  }
-
-  if (options.planMode) {
-    parts.push(
-      '',
-      '## Mode: Plan (ACTIVE)',
-      '**You are currently in Plan Mode.** Explore the codebase and produce a detailed implementation plan, not implementation code.',
-      '- Prioritize read/search tools to understand the codebase. Write operations are allowed when the planning work needs them, but the plan file is the deliverable.',
-      '- Sub-agents inherit the same tools exposed to this run. When delegating planning work, give one agent clear ownership of the plan file and avoid concurrent edits.',
-      '- Write the plan into the current plan file using Write/Edit.',
-      '- The plan must include scope, requirements, acceptance criteria, design direction, file-level implementation steps, validation, assumptions, risks, and out-of-scope items.',
-      '- After the plan file is ready, call ExitPlanMode in the same turn. A plan is not complete until ExitPlanMode succeeds.',
-      '- After ExitPlanMode succeeds, stop and wait for user review.'
-    )
-  }
-
-  if (options.memoryContext) {
-    parts.push('', options.memoryContext)
   }
 
   const userRules = options.userRules?.trim() || ''

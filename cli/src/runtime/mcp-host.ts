@@ -416,7 +416,9 @@ export class CliMcpHost {
         })
       }
     }
-    return definitions
+    return definitions.sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+    )
   }
 
   async callTool(

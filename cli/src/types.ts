@@ -1,4 +1,4 @@
-﻿export type TuiMode = 'classic' | 'fullscreen'
+export type TuiMode = 'classic' | 'fullscreen'
 
 export type PermissionMode = 'manual' | 'acceptEdits' | 'plan' | 'auto'
 
@@ -397,6 +397,8 @@ export type TurnStatusPhase = 'requesting' | 'thinking' | 'responding' | 'tool-u
 export interface TurnStatusSnapshot {
   activeResponseCharacters: number
   completedOutputTokens: number
+  /** Timestamp for the first streamed thinking or response delta in this turn. */
+  firstResponseAt?: number
   id: string
   phase: TurnStatusPhase
   requestTokens: number
@@ -511,6 +513,10 @@ export type UiEvent =
 
 export interface AgentRuntime {
   send(submission: PromptSubmission, signal: AbortSignal): AsyncIterable<UiEvent>
+  /**
+   * Inject a user follow-up into the in-flight Worker conversation. The Native Worker
+   * drains it at the next iteration boundary and continues the same run.
+   */
   appendToActiveRun?(submission: PromptSubmission): Promise<void>
   getAgentCatalog(): AgentOption[]
   getConfigCatalog?(): ConfigCatalog

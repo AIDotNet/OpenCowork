@@ -1,11 +1,11 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Box, Text } from 'ink'
 import stringWidth from 'string-width'
 import { t } from '../i18n.js'
 import { formatTokenCount, formatUsdCost } from '../lib/metrics.js'
 import { fitText } from '../lib/text.js'
 import { permissionModeLabels, theme } from '../theme.js'
-import type { ContextSnapshot, PermissionMode, UsageSnapshot } from '../types.js'
+import type { ContextSnapshot, PermissionMode, TurnStatusSnapshot, UsageSnapshot } from '../types.js'
 import { Spinner } from './spinner.js'
 
 interface StatusLineProps {
@@ -19,6 +19,7 @@ interface StatusLineProps {
   supportsEffort: boolean
   supportsThinking: boolean
   thinkingEnabled: boolean
+  turnStatus?: TurnStatusSnapshot | null
   usage: UsageSnapshot | null
   width: number
 }
@@ -76,6 +77,27 @@ function cacheHitPercentage(usage: UsageSnapshot | null): number | null {
   return Math.round(Math.min(1, Math.max(0, ratio)) * 100)
 }
 
+interface AgentPerformance {
+  tps: string
+  ttft: string
+}
+
+function formatLatency(milliseconds: number): string {
+  if (milliseconds < 1_000) return `${Math.max(0, Math.round(milliseconds))}ms`
+  return `${(milliseconds / 1_000).toFixed(milliseconds < 10_000 ? 2 : 1)}s`
+}
+
+function agentPerformance(status: TurnStatusSnapshot | null | undefined, now: number): AgentPerformance | null {
+  if (!status?.firstResponseAt) return null
+  const generatedTokens = status.completedOutputTokens + status.activeResponseCharacters / 4
+  const secondsSinceFirstToken = Math.max(0.001, (now - status.firstResponseAt) / 1_000)
+  const tps = generatedTokens / secondsSinceFirstToken
+  return {
+    tps: `${tps < 10 ? tps.toFixed(1) : Math.round(tps)}`,
+    ttft: formatLatency(status.firstResponseAt - status.startedAt)
+  }
+}
+
 function joinMetricLine(context: string, metrics: string[], separator: string): MetricLine {
   return {
     context,
@@ -85,8 +107,10 @@ function joinMetricLine(context: string, metrics: string[], separator: string): 
 
 function selectMetricLine(
   context: ContextSnapshot | null,
+  turnStatus: TurnStatusSnapshot | null | undefined,
   usage: UsageSnapshot | null,
-  width: number
+  width: number,
+  now: number
 ): MetricLine {
   const contextPercent = formatPercentage(contextPercentage(context))
   const contextRatio = context
@@ -110,22 +134,46 @@ function selectMetricLine(
   const input = usage ? formatTokenCount(usage.inputTokens) : '—'
   const output = usage ? formatTokenCount(usage.outputTokens) : '—'
   const thinking = usage?.reasoningTokens ? formatTokenCount(usage.reasoningTokens) : null
+  const performance = agentPerformance(turnStatus, now)
   const wideTokens = [`${input} in`, `${output} out`, ...(thinking ? [`${thinking} think`] : [])]
   const compactTokens = [`In ${input}`, `Out ${output}`, ...(thinking ? [`Think ${thinking}`] : [])]
   const tinyTokens = [`I${input}`, `O${output}`, ...(thinking ? [`T${thinking}`] : [])]
+  const widePerformance = performance
+    ? `Agent ${performance.tps} TPS · TTFT ${performance.ttft}`
+    : null
+  const compactPerformance = performance ? `${performance.tps} TPS · ${performance.ttft} TTFT` : null
+  const tinyPerformance = performance ? `${performance.tps}TPS · ${performance.ttft}` : null
   const candidates = [
     joinMetricLine(
       `Context ${contextRatio}`,
-      [`Tokens ${wideTokens.join(' · ')}`, `Cache ${cache}`, `Cost ${cost}`],
+      [
+        `Tokens ${wideTokens.join(' · ')}`,
+        ...(widePerformance ? [widePerformance] : []),
+        `Cache ${cache}`,
+        `Cost ${cost}`
+      ],
       '   '
     ),
     joinMetricLine(
       `Ctx ${compactContextRatio}`,
-      [compactTokens.join(' · '), `Hit ${cache} · ${cost}`],
+      [
+        compactTokens.join(' · '),
+        ...(compactPerformance ? [compactPerformance] : []),
+        `Hit ${cache} · ${cost}`
+      ],
       ' │ '
     ),
-    joinMetricLine(`Ctx ${contextSummary}`, [...compactTokens, cost], ' · '),
-    joinMetricLine(`Ctx ${contextSummary}`, compactTokens, ' · '),
+    joinMetricLine(
+      `Ctx ${contextSummary}`,
+      [...compactTokens, ...(compactPerformance ? [compactPerformance] : []), cost],
+      ' · '
+    ),
+    joinMetricLine(
+      `Ctx ${contextSummary}`,
+      [...compactTokens, ...(tinyPerformance ? [tinyPerformance] : [])],
+      ' · '
+    ),
+    joinMetricLine(`C${contextSummary}`, [...tinyTokens, ...(tinyPerformance ? [tinyPerformance] : [])], ' '),
     joinMetricLine(`C${contextSummary}`, tinyTokens, ' ')
   ]
 
@@ -146,9 +194,19 @@ export function StatusLine({
   supportsEffort,
   supportsThinking,
   thinkingEnabled,
+  turnStatus,
   usage,
   width
 }: StatusLineProps): React.JSX.Element {
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (!turnStatus?.firstResponseAt) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(timer)
+  }, [turnStatus?.firstResponseAt, turnStatus?.id])
+
   const contentWidth = Math.max(12, width - 4)
   const modeHint = !notice && !activity && !hideIdleHint ? activeModeHint(mode, contentWidth) : null
   const left =
@@ -167,7 +225,7 @@ export function StatusLine({
     .join(' · ')
   const right = fitText(`${model} · ${statusParts}`, Math.max(12, Math.floor(contentWidth * 0.62)))
   const leftWidth = Math.max(6, contentWidth - stringWidth(right) - 3)
-  const metrics = selectMetricLine(context, usage, contentWidth)
+  const metrics = selectMetricLine(context, turnStatus, usage, contentWidth, now)
   const metricText = metrics.context + metrics.remainder
   const metricsFit = stringWidth(metricText) <= contentWidth
   const contextWarning = Boolean(

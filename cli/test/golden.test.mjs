@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/explicit-function-return-type -- plain Node test script */
+﻿/* eslint-disable @typescript-eslint/explicit-function-return-type -- plain Node test script */
 // PTY golden snapshot tests for the OpenCowork CLI (node:test + node-pty + @xterm/headless).
 //
 // The CLI runs inside a real pseudo-terminal with the deterministic fixture runtime
@@ -80,6 +80,7 @@ class CliSession {
     this.home = mkdtempSync(join(tmpdir(), 'oc-golden-home-'))
     this.cwd = mkdtempSync(join(tmpdir(), 'oc-golden-cwd-'))
     this.terminal = new Terminal({ cols, rows, allowProposedApi: true })
+    this.output = ''
     this.child = pty.spawn(process.execPath, [cliEntry, '--tui', tui], {
       name: 'xterm-256color',
       cols,
@@ -95,7 +96,14 @@ class CliSession {
         LC_ALL: 'en_US.UTF-8'
       }
     })
-    this.child.onData((data) => this.terminal.write(data))
+    this.child.onData((data) => {
+      this.output += data
+      this.terminal.write(data)
+    })
+  }
+
+  clearOutput() {
+    this.output = ''
   }
 
   write(data) {
@@ -186,6 +194,22 @@ test('fullscreen prompt flow golden at 80 columns', async () => {
   const snapshot = await runPromptFlow({ cols: 80, rows: ROWS, tui: 'fullscreen' })
   assert.ok(snapshot.includes('You said: hello world'))
   compareGolden(`fullscreen-80x${ROWS}`, snapshot)
+})
+
+test('fullscreen resize redraw does not hard-clear the alternate screen', async () => {
+  const session = new CliSession({ cols: 80, rows: ROWS, tui: 'fullscreen' })
+  try {
+    await session.waitFor((screen) => screen.includes('❯'), 'prompt to appear')
+    session.clearOutput()
+    session.child.resize(100, ROWS)
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    // Ink clears its previous dynamic frame with line erases, but fullscreen resizing must not
+    // inject CSI 2J/3J and leave a visibly blank alternate-screen frame before rerendering.
+    assert.ok(!session.output.includes('\u001B[2J'), 'resize must not erase the fullscreen screen')
+    assert.ok(!session.output.includes('\u001B[3J'), 'resize must not clear fullscreen scrollback')
+  } finally {
+    session.dispose()
+  }
 })
 
 test('bracketed paste inserts multi-line text as one literal block', async () => {

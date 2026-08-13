@@ -491,25 +491,9 @@ export interface SkillCatalogEntry {
   description: string
 }
 
-/**
- * Skill execution lives in the Worker (AgentRuntimeSkillExecutor, ~/.agents/skills). The
- * definition mirrors the desktop Skill tool: the catalog is embedded in the description
- * and constrains SkillName so providers cannot invent skill names.
- */
-export function buildSkillToolDefinition(skills: SkillCatalogEntry[]): WorkerToolDefinition {
-  const skillList =
-    skills.length > 0
-      ? [
-          '',
-          'Currently available skills:',
-          ...skills.map((skill) => `- ${skill.name}: ${skill.description}`)
-        ].join('\n')
-      : '\n\nNo skills are currently installed.'
-  return {
-    name: 'Skill',
-    description: `Load a skill by name to get detailed instructions or domain knowledge for a specialized task. Returns the full content of the skill's SKILL.md file as context.
+const SKILL_TOOL_DESCRIPTION = `Load a skill by name to get detailed instructions or domain knowledge for a specialized task. Returns the full content of the skill's SKILL.md file as context.
 
-You have access to **Skills** — curated guides for specific workflows.
+You have access to Skills — curated guides for specific workflows. Available skill names are listed in session turn context, not in this schema.
 Only use the Skill tool when the user's request clearly matches a listed skill, or when the user explicitly asks for a skill.
 Do not call Skill for ordinary coding, file editing, searching, debugging, or repository navigation requests unless a listed skill is obviously the best fit.
 
@@ -519,18 +503,106 @@ Do not call Skill for ordinary coding, file editing, searching, debugging, or re
 3. **Read carefully**: After loading, read the Skill's content thoroughly before taking any action.
 4. **Follow strictly**: Execute the Skill's instructions step-by-step. Do NOT skip steps, reorder them, or substitute your own approach.
 5. **Retry on failure**: If a Skill's script fails, fix the issue and re-run the same script command when appropriate.
-6. If the user's message begins with "[Skill: <name>]", immediately call that Skill as your first action.${skillList}`,
+6. If the user's message begins with "[Skill: <name>]", immediately call that Skill as your first action.`
+
+/**
+ * Skill execution lives in the Worker (AgentRuntimeSkillExecutor, ~/.agents/skills).
+ * The schema stays stable across turns so the tools prefix can be pinned; the live
+ * catalog is injected as last-user turn context instead.
+ */
+export function buildSkillToolDefinition(_skills: SkillCatalogEntry[] = []): WorkerToolDefinition {
+  return {
+    name: 'Skill',
+    description: SKILL_TOOL_DESCRIPTION,
     inputSchema: {
       type: 'object',
       properties: {
         SkillName: {
           type: 'string',
-          description: 'The name of the skill to load. Must match one of the available skills.',
-          ...(skills.length > 0 ? { enum: skills.map((skill) => skill.name) } : {})
+          description:
+            'The name of the skill to load. Must match one of the available skills listed in session context.'
         }
       },
       required: ['SkillName']
     }
+  }
+}
+
+export function buildSkillsTurnContext(skills: readonly SkillCatalogEntry[]): string | null {
+  const listed = [...skills]
+    .map((skill) => ({
+      name: skill.name.trim(),
+      description: skill.description.trim()
+    }))
+    .filter((skill) => skill.name)
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+  if (listed.length === 0) return null
+  return [
+    '<system-reminder>',
+    'Available Skills:',
+    `- Available Skills: ${listed.length}`,
+    ...listed.map((skill) => `  - ${skill.name}: ${skill.description}`),
+    '  Reminder: If the request matches a listed skill, call the Skill tool first.',
+    '</system-reminder>'
+  ].join('\n')
+}
+
+export function listUnpinnedToolNames(
+  pinnedNames: readonly string[],
+  currentNames: readonly string[]
+): string[] {
+  const pinned = new Set(pinnedNames)
+  return currentNames.filter((name) => name.trim() && !pinned.has(name))
+}
+
+export function buildUnavailableToolsReminder(names: readonly string[]): string | null {
+  const unavailable = names.map((name) => name.trim()).filter(Boolean)
+  if (unavailable.length === 0) return null
+  return [
+    '<system-reminder>',
+    'The following tools became available after this session started and cannot be called until a new session is opened:',
+    unavailable.map((name) => `- \`${name}\``).join('\n'),
+    '</system-reminder>'
+  ].join('\n')
+}
+
+export type CliPromptPrefixPin = {
+  identity: string
+  systemPrompt: string
+  tools: WorkerToolDefinition[]
+}
+
+export function cliPromptPrefixIdentity(
+  options: Pick<WorkerSessionOptions, 'sessionId' | 'cwd' | 'providerId' | 'model'>
+): string {
+  return [options.sessionId, options.cwd, options.providerId, options.model].join('\u001f')
+}
+
+export function applyCliPromptPrefixPin(
+  pin: CliPromptPrefixPin | null,
+  identity: string,
+  request: WorkerRunRequest
+): { pin: CliPromptPrefixPin; unpinnedToolNames: string[] } {
+  const currentToolNames = request.tools.map((tool) => tool.name)
+  if (pin && pin.identity === identity) {
+    request.provider.systemPrompt = pin.systemPrompt
+    request.tools = pin.tools
+    return {
+      pin,
+      unpinnedToolNames: listUnpinnedToolNames(
+        pin.tools.map((tool) => tool.name),
+        currentToolNames
+      )
+    }
+  }
+  return {
+    pin: {
+      identity,
+      systemPrompt:
+        typeof request.provider.systemPrompt === 'string' ? request.provider.systemPrompt : '',
+      tools: request.tools.slice()
+    },
+    unpinnedToolNames: []
   }
 }
 
@@ -567,7 +639,9 @@ function mergeToolDefinitions(extraTools: WorkerToolDefinition[]): WorkerToolDef
     if (!tool.name.trim()) continue
     merged.set(tool.name, tool)
   }
-  return Array.from(merged.values())
+  return Array.from(merged.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  )
 }
 
 function numberValue(value: unknown, fallback: number): number {
@@ -920,21 +994,17 @@ function buildSystemPrompt(options: WorkerSessionOptions, settings: JsonRecord):
   const shell = process.env.SHELL || (platform() === 'win32' ? 'PowerShell' : '/bin/sh')
   const workspaceRules = readWorkspaceRules(options.cwd)
   const userPrompt = stringValue(settings.systemPrompt).trim()
-  const planMode = options.permissionMode === 'plan' || Boolean(options.planRevision)
   const codeGraphEnabled = settings.codegraphEnabled === true
   return [
     'You are OpenCoWork, an agentic coding assistant. The terminal is only the user interface; all tools and agent-loop decisions are executed by OpenCowork.Native.Worker.',
     '',
-    `## Mode: ${planMode ? 'Plan' : 'Code'}`,
+    '## Mode: Code',
     '- Inspect relevant files before editing them.',
     '- Match the repository conventions and make focused, complete changes.',
     '- Use Read/Glob/Grep instead of guessing project structure.',
     '- Use Edit for precise changes and Write only when creating or fully replacing a file.',
     '- Validate changes with the project’s own checks when practical.',
     '- Keep the user informed about material progress, risks, and blockers.',
-    planMode
-      ? '- In Plan Mode, do not implement source changes. Investigate, update the current .plan file, and call ExitPlanMode when the plan is ready for review.'
-      : '',
     '- Use AskUserQuestion for material clarification instead of asking questions in ordinary assistant prose.',
     codeGraphEnabled
       ? '- CodeGraph is enabled for this workspace. For definitions, callers/callees, impact, or code navigation, prefer codegraph_explore before broad Read/Grep/Glob exploration.'

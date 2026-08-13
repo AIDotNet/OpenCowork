@@ -14,6 +14,18 @@ using OpenCowork.Contracts.Generated;
 internal static class AgentRuntimeSessionHost
 {
     private const int MaxHostedSessions = 64;
+    // session-send may only overlay per-turn context. tools and provider.systemPrompt
+    // stay pinned on the session-open template so prompt-cache prefixes stay stable.
+    private static readonly HashSet<string> SendOverrideNames = new(StringComparer.Ordinal)
+    {
+        "requestContextTexts",
+        "planMode",
+        "planRevision",
+        "planExecution",
+        "planModeAllowedTools",
+        "commandMetadata",
+        "attachmentIds"
+    };
     private static readonly JsonWriterOptions WriterOptions = new() { SkipValidation = true };
     private static readonly ConcurrentDictionary<string, HostedSession> Sessions =
         new(StringComparer.Ordinal);
@@ -175,7 +187,10 @@ internal static class AgentRuntimeSessionHost
         var overrides = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in sendParameters.EnumerateObject())
         {
-            overrides.Add(property.Name);
+            if (SendOverrideNames.Contains(property.Name))
+            {
+                overrides.Add(property.Name);
+            }
         }
 
         return CreateObjectElement(writer =>
@@ -193,9 +208,7 @@ internal static class AgentRuntimeSessionHost
             }
             foreach (var property in sendParameters.EnumerateObject())
             {
-                if (property.NameEquals("messages") ||
-                    property.NameEquals("runId") ||
-                    property.NameEquals("sessionId"))
+                if (!overrides.Contains(property.Name))
                 {
                     continue;
                 }

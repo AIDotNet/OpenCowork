@@ -14,6 +14,15 @@ import type {
   AssembledSessionContext,
   RunContextAssemblerDeps
 } from './run-context-assembler'
+import {
+  listUnpinnedToolNames,
+  buildVolatilePromptTurnContext
+} from '../../../shared/agent-system-prompt'
+
+type OpenPrefixState = {
+  identity: string
+  toolNames: string[]
+}
 
 export type AgentSessionServiceDeps = {
   isRunning: () => boolean
@@ -67,8 +76,19 @@ function acceptedRun(sessionId: string, runId: string, assistantMessageId: strin
   }
 }
 
+const SESSION_SEND_TURN_KEYS = [
+  'requestContextTexts',
+  'planMode',
+  'planRevision',
+  'planExecution',
+  'planModeAllowedTools',
+  'commandMetadata',
+  'attachmentIds'
+] as const
+
 export class AgentSessionService {
   private readonly deps: AgentSessionServiceDeps
+  private readonly openPrefix = new Map<string, OpenPrefixState>()
 
   constructor(deps: AgentSessionServiceDeps) {
     this.deps = deps
@@ -98,9 +118,16 @@ export class AgentSessionService {
           30_000
         )
       )
+      const sessionId = typeof result.sessionId === 'string' ? result.sessionId : params.sessionId
+      if (result.ok === true) {
+        this.openPrefix.set(sessionId, {
+          identity: assembled.prefixIdentity,
+          toolNames: readTemplateToolNames(assembled.openTemplate)
+        })
+      }
       return {
         ok: result.ok === true,
-        sessionId: typeof result.sessionId === 'string' ? result.sessionId : params.sessionId,
+        sessionId,
         messageCount: typeof result.messageCount === 'number' ? result.messageCount : 0
       }
     } catch (error) {
@@ -130,8 +157,10 @@ export class AgentSessionService {
       return rejectedRun(params.sessionId, 'unknown')
     }
 
-    const opened = await this.openWithTemplate(assembled)
-    if (!opened) return rejectedRun(params.sessionId, 'unknown')
+    if (!this.canReuseOpenSession(params.sessionId, assembled.prefixIdentity)) {
+      const opened = await this.openWithTemplate(assembled)
+      if (!opened) return rejectedRun(params.sessionId, 'unknown')
+    }
     return await this.sendTurnMessages(params.sessionId, assembled, true)
   }
 
@@ -164,6 +193,7 @@ export class AgentSessionService {
   }
 
   async closeSession(sessionId: string): Promise<CloseAgentSessionResult> {
+    this.openPrefix.delete(sessionId)
     if (!this.deps.isRunning()) {
       return { ok: false, sessionId, closed: false }
     }
@@ -173,6 +203,36 @@ export class AgentSessionService {
       sessionId: typeof result.sessionId === 'string' ? result.sessionId : sessionId,
       closed: result.closed === true
     }
+  }
+
+  private canReuseOpenSession(sessionId: string, prefixIdentity: string): boolean {
+    return this.openPrefix.get(sessionId)?.identity === prefixIdentity
+  }
+
+  private rememberOpenPrefix(sessionId: string, assembled: AssembledSessionContext): void {
+    this.openPrefix.set(sessionId, {
+      identity: assembled.prefixIdentity,
+      toolNames: readTemplateToolNames(assembled.openTemplate)
+    })
+  }
+
+  private applyUnpinnedToolReminder(sessionId: string, assembled: AssembledSessionContext): void {
+    const pinned = this.openPrefix.get(sessionId)
+    if (!pinned) return
+    const extra = listUnpinnedToolNames(
+      pinned.toolNames,
+      readTemplateToolNames(assembled.openTemplate)
+    )
+    if (extra.length === 0) return
+    const existing = Array.isArray(assembled.openTemplate.requestContextTexts)
+      ? assembled.openTemplate.requestContextTexts.filter(
+          (text): text is string => typeof text === 'string'
+        )
+      : []
+    assembled.openTemplate.requestContextTexts = [
+      ...existing,
+      ...buildVolatilePromptTurnContext({ unavailableToolNames: extra })
+    ]
   }
 
   private async openWithTemplate(assembled: AssembledSessionContext): Promise<boolean> {
@@ -186,7 +246,14 @@ export class AgentSessionService {
         30_000
       )
     )
-    return result.ok === true
+    const sessionId =
+      typeof result.sessionId === 'string' ? result.sessionId : String(assembled.openTemplate.sessionId ?? '')
+    if (result.ok === true && sessionId) {
+      this.rememberOpenPrefix(sessionId, assembled)
+      return true
+    }
+    if (sessionId) this.openPrefix.delete(sessionId)
+    return false
   }
 
   private async sendTurnMessages(
@@ -200,6 +267,8 @@ export class AgentSessionService {
       messages: assembled.turnMessages
     }
     if (requestedRunId) payload.runId = requestedRunId
+    this.applyUnpinnedToolReminder(sessionId, assembled)
+    copySessionSendTurnFields(assembled.openTemplate, payload)
     try {
       const result = asRecord(await this.deps.request('agent/session-send', payload, 60_000))
       const accepted = result.started === true || result.accepted === true
@@ -218,6 +287,7 @@ export class AgentSessionService {
         console.warn('[agent-session-service] session_evicted; reopening from transcript', {
           sessionId
         })
+        this.openPrefix.delete(sessionId)
         const reopened = await this.openWithTemplate(assembled)
         if (!reopened) return rejectedRun(sessionId, 'session_evicted', requestedRunId ?? '')
         return await this.sendTurnMessages(sessionId, assembled, false)
@@ -242,6 +312,27 @@ function toAssembleIntent(params: StartRunParams): AssembleSessionIntent {
     attachmentIds: params.attachmentIds,
     commandMetadata: params.commandMetadata
   }
+}
+
+function copySessionSendTurnFields(
+  template: Record<string, unknown>,
+  payload: Record<string, unknown>
+): void {
+  for (const key of SESSION_SEND_TURN_KEYS) {
+    if (template[key] !== undefined) payload[key] = template[key]
+  }
+}
+
+function readTemplateToolNames(template: Record<string, unknown>): string[] {
+  const tools = template.tools
+  if (!Array.isArray(tools)) return []
+  return tools
+    .map((tool) =>
+      tool && typeof tool === 'object' && 'name' in tool && typeof tool.name === 'string'
+        ? tool.name
+        : ''
+    )
+    .filter(Boolean)
 }
 
 function readErrorCodeFromResult(result: Record<string, unknown>): RuntimeErrorCode | null {

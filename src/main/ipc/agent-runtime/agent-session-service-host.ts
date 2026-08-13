@@ -14,11 +14,11 @@ import {
   readPersistedSettingsState
 } from '../settings-handlers'
 import { nativeSkillsRequest, type SkillInfo } from '../skills-handlers'
+import { buildVolatilePromptTurnContext } from '../../../shared/agent-system-prompt'
 import { AgentSessionService } from './agent-session-service'
 import { assembleSessionContext, type SessionRecord } from './run-context-assembler'
 import { loadHostedMemoryContext } from './session-memory-context'
 import {
-  joinPromptRuleSections,
   loadHostedActiveTeam,
   loadHostedChannelContext,
   loadHostedExtensionTools,
@@ -141,8 +141,35 @@ export function getAgentSessionService(): AgentSessionService {
     service = new AgentSessionService({
       isRunning: () => getNativeWorker().isRunning,
       request: (method, params, timeoutMs) => getNativeWorker().request(method, params, timeoutMs),
-      assemble: (intent) =>
-        assembleSessionContext(intent, {
+      assemble: async (intent) => {
+        const settings = readPersistedSettingsState()
+        const runSettings = readSessionRunSettings(settings)
+        const row = intent.sessionId ? await getSession(intent.sessionId) : null
+        const projectId = row?.project_id ?? null
+        const workingFolder = row?.working_folder ?? null
+        const sshConnectionId = row?.ssh_connection_id ?? null
+        const [skills, memoryContext, promptSections] = await Promise.all([
+          loadHostedSkills(),
+          loadHostedMemoryContext({
+            workingFolder,
+            sshConnectionId,
+            memoryUseMemories: runSettings.memoryUseMemories,
+            memorySummaryBudgetTokens: runSettings.memorySummaryBudgetTokens
+          }),
+          loadHostedPromptContextSections(projectId)
+        ])
+        const volatileTexts = buildVolatilePromptTurnContext({
+          memoryContext,
+          skills,
+          mcpSection: promptSections.mcpSection,
+          channelSection: promptSections.channelSection
+        })
+        return assembleSessionContext(
+          {
+            ...intent,
+            requestContextTexts: [...volatileTexts, ...(intent.requestContextTexts ?? [])]
+          },
+          {
           getSession: async (sessionId) => {
             const row = await getSession(sessionId)
             if (!row) return null
@@ -174,37 +201,22 @@ export function getAgentSessionService(): AgentSessionService {
             mode,
             workingFolder,
             sshConnectionId,
-            toolNames,
-            projectId
+            toolNames
           }) => {
             const settings = readPersistedSettingsState()
-            const runSettings = readSessionRunSettings(settings)
-            const [skills, sshConnection, memoryContext, promptSections, activeTeam] =
-              await Promise.all([
-                loadHostedSkills(),
-                loadSshPromptConnection(sshConnectionId),
-                loadHostedMemoryContext({
-                  workingFolder,
-                  sshConnectionId,
-                  memoryUseMemories: runSettings.memoryUseMemories,
-                  memorySummaryBudgetTokens: runSettings.memorySummaryBudgetTokens
-                }),
-                loadHostedPromptContextSections(projectId),
-                loadHostedActiveTeam(sessionId)
-              ])
+            const [sshConnection, activeTeam] = await Promise.all([
+              loadSshPromptConnection(sshConnectionId),
+              loadHostedActiveTeam(sessionId)
+            ])
             return buildHostedSessionSystemPrompt({
               mode,
               workingFolder,
               sshConnectionId,
               toolNames,
               language: typeof settings.language === 'string' ? settings.language : 'en',
-              userRules: joinPromptRuleSections(
-                typeof settings.systemPrompt === 'string' ? settings.systemPrompt : '',
-                [promptSections.channelSection, promptSections.mcpSection]
-              ),
-              skills,
+              userRules:
+                typeof settings.systemPrompt === 'string' ? settings.systemPrompt : undefined,
               sshConnection,
-              memoryContext,
               activeTeam
             })
           },
@@ -215,7 +227,9 @@ export function getAgentSessionService(): AgentSessionService {
             )
             return config ? { ...config } : null
           }
-        })
+          }
+        )
+      }
     })
   }
   return service

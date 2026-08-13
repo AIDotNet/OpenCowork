@@ -2,6 +2,7 @@ import {
   createToolManifestV2,
   type RuntimeToolDefinitionLike
 } from '../../../shared/agent-runtime-v2'
+import { SKILL_TOOL_DESCRIPTION } from '../../../shared/agent-system-prompt'
 import type { RuntimeToolCatalogEntry } from '../../../shared/runtime-contracts/generated/contracts'
 import {
   BROWSER_SESSION_TOOLS,
@@ -365,7 +366,9 @@ export function listSessionTools(options: SessionToolCatalogOptions = {}): Sessi
     if (!tool.name.trim()) continue
     merged.set(tool.name, tool)
   }
-  return Array.from(merged.values())
+  return Array.from(merged.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  )
 }
 
 export function toRuntimeToolCatalogEntries(
@@ -383,20 +386,18 @@ export function toRuntimeToolCatalogEntries(
 }
 
 export function buildSkillToolDefinition(
-  skills: Array<{ name: string; description: string }>
+  _skills: Array<{ name: string; description: string }>
 ): SessionToolDefinition {
-  const names = skills.map((skill) => skill.name).filter((name) => name.trim().length > 0)
   return {
     name: 'Skill',
-    description:
-      'Load a skill by name to get detailed instructions or domain knowledge for a specialized task.',
+    description: SKILL_TOOL_DESCRIPTION,
     inputSchema: {
       type: 'object',
       properties: {
         SkillName: {
           type: 'string',
-          description: 'The name of the skill to load. Must match one of the available skills.',
-          ...(names.length > 0 ? { enum: names } : {})
+          description:
+            'The name of the skill to load. Must match one of the available skills listed in session context.'
         }
       },
       required: ['SkillName']

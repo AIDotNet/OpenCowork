@@ -21,6 +21,7 @@ import { AnimatePresence } from 'motion/react'
 import { PageTransition, PanelTransition } from '@renderer/components/animate-ui'
 import { useShallow } from 'zustand/react/shallow'
 import { selectSessionPendingApproval } from '@renderer/lib/agent/session-scoped-agent-state'
+import { isCliSessionId } from '@renderer/lib/cli-session'
 
 const SkillsPage = lazy(async () => {
   const mod = await import('@renderer/components/skills/SkillsPage')
@@ -259,11 +260,15 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
   // Sync UI mode only when session info changes, so manual top-bar toggles are respected
   useEffect(() => {
     if (!activeSessionMode) return
-    const normalizedSessionMode: AppMode = activeSessionProjectId
-      ? activeSessionMode === 'chat'
-        ? 'cowork'
-        : activeSessionMode
-      : 'chat'
+    // CLI sessions are durable `code` rows without a projectId. Keep their native
+    // mode so opening them in the desktop does not rewrite the shared SQLite row.
+    const normalizedSessionMode: AppMode = isCliSessionId(activeSessionId)
+      ? activeSessionMode
+      : activeSessionProjectId
+        ? activeSessionMode === 'chat'
+          ? 'cowork'
+          : activeSessionMode
+        : 'chat'
     const currentMode = useUIStore.getState().mode
     if (currentMode !== normalizedSessionMode) {
       queueMicrotask(() => {
@@ -276,6 +281,12 @@ export function Layout({ updateInfo, onOpenUpdateDialog }: LayoutProps): React.J
 
   useEffect(() => {
     if (chatView !== 'session' || !activeSessionId || !activeSessionMode) return
+    if (isCliSessionId(activeSessionId)) {
+      if (activeSessionMode === 'chat') {
+        updateSessionMode(activeSessionId, 'code')
+      }
+      return
+    }
 
     if (activeSessionProjectId && activeSessionMode === 'chat') {
       updateSessionMode(activeSessionId, 'cowork')

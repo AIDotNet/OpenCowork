@@ -3,7 +3,8 @@ import { Box, Text } from 'ink'
 import { graphemes } from '../lib/text.js'
 import { theme } from '../theme.js'
 
-const FRAME_INTERVAL_MS = 100
+// Keep decorative animation below the rate where terminal repaint becomes distracting.
+const FRAME_INTERVAL_MS = 180
 const EDGE_PADDING = 3
 
 /** Terminal counterpart of the desktop live-output shimmer: color moves, text does not. */

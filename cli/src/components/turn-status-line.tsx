@@ -8,7 +8,9 @@ import { theme } from '../theme.js'
 import type { TurnStatusSnapshot } from '../types.js'
 import { ShimmerText } from './shimmer-text.js'
 
-const TOKEN_ANIMATION_INTERVAL_MS = 60
+// Terminal redraws are expensive: a modest cadence keeps the transfer indicator legible
+// without repeatedly reconciling the fullscreen viewport while text is streaming.
+const TOKEN_ANIMATION_INTERVAL_MS = 180
 const ELAPSED_WIDTH_SAMPLE = '999m 59s'
 const TOKEN_WIDTH_SAMPLE = '999.9M'
 
@@ -147,7 +149,8 @@ export function TurnStatusLine({
 
   useEffect(() => {
     setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 250)
+    // formatElapsed() only displays whole seconds, so faster updates only redraw identical UI.
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
     return () => clearInterval(timer)
   }, [status.id])
 

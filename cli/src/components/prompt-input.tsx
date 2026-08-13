@@ -254,6 +254,15 @@ export function PromptInput({
   const submit = (submission: string): void => {
     const trimmed = submission.trim()
     if (!trimmed && images.length === 0 && references.length === 0) return
+    if (isRunning && (trimmed.startsWith('/') || trimmed.startsWith('!'))) {
+      onNotice(
+        t(
+          'cli.runtime.commandWhileRunning',
+          'Wait for the current turn to finish, or Esc to interrupt, before running a command'
+        )
+      )
+      return
+    }
     if ((images.length > 0 || references.length > 0) && trimmed.startsWith('/')) {
       onNotice('Remove attached images and references before running a CLI command')
       return
@@ -385,7 +394,7 @@ export function PromptInput({
         }
         const pasted = sanitizePastedText(pasteBufferRef.current + input.slice(0, endMatch.index))
         pasteBufferRef.current = null
-        if (!isRunning && pasted) replaceRange(currentCursor, currentCursor, pasted)
+        if (pasted) replaceRange(currentCursor, currentCursor, pasted)
         return
       }
       const pasteStart = PASTE_START.exec(input)
@@ -397,7 +406,7 @@ export function PromptInput({
           return
         }
         const pasted = sanitizePastedText(afterStart.slice(0, pasteEnd.index))
-        if (!isRunning && pasted) replaceRange(currentCursor, currentCursor, pasted)
+        if (pasted) replaceRange(currentCursor, currentCursor, pasted)
         return
       }
 
@@ -448,9 +457,8 @@ export function PromptInput({
         return
       }
 
-      // Keep the prompt focused so Ctrl-C can cancel the active Worker turn, but
-      // do not let ordinary editing or submission race the in-flight run.
-      if (isRunning) return
+      // Esc/Ctrl-C still cancel the in-flight Worker turn. Ordinary editing and
+      // Enter stay enabled so a follow-up can be injected into the live messages.
       if (!key.escape) lastEscapeAt = 0
 
       if (matchesKey('pasteImage', input, key) || input === '\u0016') {

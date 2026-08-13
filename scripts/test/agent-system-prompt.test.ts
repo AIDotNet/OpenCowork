@@ -8,6 +8,7 @@ import {
   buildActiveMcpPromptSection,
   buildLeadCoordinatorPrompt,
   buildProjectChannelsPromptSection,
+  buildVolatilePromptTurnContext,
   mapNodePlatformToPromptPlatform,
   resolvePromptEnvironmentFromPlatform,
   resolvePromptLanguageName,
@@ -36,7 +37,7 @@ test('chat prompt includes the chat heading and working folder', () => {
   assert.doesNotMatch(prompt, /## Mode: Code/)
 })
 
-test('code prompt includes mode body, working folder, and skills reminder', () => {
+test('code prompt includes mode body and working folder, not the live skills catalog', () => {
   const prompt = buildAgentModeSystemPrompt({
     mode: 'code',
     workingFolder: '/tmp/project',
@@ -49,9 +50,29 @@ test('code prompt includes mode body, working folder, and skills reminder', () =
   assert.match(prompt, /## Mode: Code/)
   assert.match(prompt, /## Working Folder/)
   assert.match(prompt, /`\/tmp\/project`/)
-  assert.match(prompt, /Available Skills: 1/)
-  assert.match(prompt, /csv-pipeline: Process CSV files/)
+  assert.doesNotMatch(prompt, /Available Skills/)
+  assert.doesNotMatch(prompt, /csv-pipeline: Process CSV files/)
   assert.match(prompt, /Operating System: macOS/)
+})
+
+test('volatile turn context carries skills, memory, and late tools', () => {
+  const texts = buildVolatilePromptTurnContext({
+    memoryContext: '<global_soul priority="high">\nBe kind.\n</global_soul>',
+    skills: [
+      { name: 'zeta-skill', description: 'Second' },
+      { name: 'csv-pipeline', description: 'Process CSV files' }
+    ],
+    unavailableToolNames: ['mcp__docs__search']
+  })
+  const joined = texts.join('\n')
+  assert.match(joined, /<global_soul/)
+  assert.match(joined, /Be kind\./)
+  assert.match(joined, /Available Skills: 2/)
+  assert.match(joined, /csv-pipeline: Process CSV files/)
+  assert.match(joined, /zeta-skill: Second/)
+  assert.ok(joined.indexOf('csv-pipeline') < joined.indexOf('zeta-skill'))
+  assert.match(joined, /mcp__docs__search/)
+  assert.match(joined, /cannot be called until a new session is opened/)
 })
 
 test('hosted chat prompt uses the shared chat builder', () => {
@@ -70,7 +91,7 @@ test('hosted chat prompt uses the shared chat builder', () => {
   assert.doesNotMatch(prompt, /## Mode: Code/)
 })
 
-test('hosted code prompt includes skills and SSH environment', () => {
+test('hosted code prompt includes SSH environment and keeps skills out of the system prefix', () => {
   const prompt = buildHostedSessionSystemPrompt({
     mode: 'code',
     workingFolder: '/home/ubuntu/app',
@@ -93,9 +114,9 @@ test('hosted code prompt includes skills and SSH environment', () => {
   assert.match(prompt, /## Mode: Code/)
   assert.match(prompt, /SSH Remote Host \(10\.0\.0\.8\)/)
   assert.match(prompt, /SSH Connection: prod/)
-  assert.match(prompt, /alpha-skill: First/)
-  assert.match(prompt, /zeta-skill: Second/)
-  assert.ok(prompt.indexOf('alpha-skill') < prompt.indexOf('zeta-skill'))
+  assert.doesNotMatch(prompt, /alpha-skill: First/)
+  assert.doesNotMatch(prompt, /zeta-skill: Second/)
+  assert.doesNotMatch(prompt, /Available Skills/)
   assert.match(prompt, /Always write tests\./)
   assert.match(prompt, /`\/home\/user\/\.open-cowork`/)
 })
@@ -125,7 +146,7 @@ test('hosted memory context injects soul and withholds user files when memories 
   assert.doesNotMatch(disabled ?? '', /Prefers terse answers\./)
 })
 
-test('hosted chat prompt includes injected memory context', () => {
+test('hosted chat prompt keeps memory out of the pinned system prefix', () => {
   const prompt = buildHostedSessionSystemPrompt({
     mode: 'chat',
     workingFolder: '/tmp/project',
@@ -135,8 +156,8 @@ test('hosted chat prompt includes injected memory context', () => {
     globalHomePath: '/tmp/home/.open-cowork'
   })
   assert.match(prompt, /## Chat Mode/)
-  assert.match(prompt, /<global_soul/)
-  assert.match(prompt, /Be kind\./)
+  assert.doesNotMatch(prompt, /<global_soul/)
+  assert.doesNotMatch(prompt, /Be kind\./)
 })
 
 test('hosted memory context includes daily notes when memories are enabled', () => {
@@ -220,4 +241,19 @@ test('hosted code prompt injects the active team coordinator block', () => {
   assert.match(prompt, /## Agent Team Coordinator/)
   assert.match(prompt, /active team "Ship Crew"/)
   assert.match(prompt, /Current teammates: Scout/)
+})
+
+test('planMode does not change the hosted system prefix', () => {
+  const args = {
+    mode: 'code' as const,
+    workingFolder: '/tmp/project',
+    platform: 'darwin',
+    language: 'en',
+    toolNames: ['Read', 'Write', 'ExitPlanMode'],
+    globalHomePath: '/tmp/home/.open-cowork'
+  }
+  const code = buildHostedSessionSystemPrompt(args)
+  const plan = buildHostedSessionSystemPrompt({ ...args, planMode: true })
+  assert.equal(code, plan)
+  assert.doesNotMatch(code, /Plan Mode \(ACTIVE\)/)
 })

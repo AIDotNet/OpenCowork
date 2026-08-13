@@ -149,6 +149,97 @@ test('start-run opens a hosted session then sends only the trigger turn', async 
   )
 })
 
+test('start-run reuses an open hosted session when prefix identity is unchanged', async () => {
+  const calls: string[] = []
+  let sendCount = 0
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => `run-${sendCount + 1}`,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      calls.push(method)
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        sendCount += 1
+        const runId = (params as { runId?: string }).runId ?? `run-${sendCount}`
+        return {
+          started: true,
+          runId,
+          assistantMessageId: `asst:${runId}`,
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const params = {
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  }
+  await service.startRun(params)
+  await service.startRun(params)
+
+  assert.deepEqual(calls, ['agent/session-open', 'agent/session-send', 'agent/session-send'])
+})
+
+test('start-run reopens when prefix identity changes', async () => {
+  const calls: string[] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method) => {
+      calls.push(method)
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: 'run-1',
+          assistantMessageId: 'asst:run-1',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'code',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  assert.deepEqual(calls, [
+    'agent/session-open',
+    'agent/session-send',
+    'agent/session-open',
+    'agent/session-send'
+  ])
+})
+
 test('start-run uses Worker-allocated run and assistant message ids', async () => {
   const calls: Array<{ method: string; params: Record<string, unknown> }> = []
   const service = new AgentSessionService({
@@ -363,7 +454,12 @@ test('assembler appends ultra multi-agent authorization to the hosted prompt', a
     }
   )
   const prompt = (assembled.openTemplate.provider as { systemPrompt?: string }).systemPrompt ?? ''
-  assert.match(prompt, /<multi_agent_mode>/)
+  assert.doesNotMatch(prompt, /<multi_agent_mode>/)
+  const texts = assembled.openTemplate.requestContextTexts as string[]
+  assert.equal(
+    texts.some((text) => text.includes('<multi_agent_mode>')),
+    true
+  )
   assert.match(prompt, /hosted prompt/)
 })
 

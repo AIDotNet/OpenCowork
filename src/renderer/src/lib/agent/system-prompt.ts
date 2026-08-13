@@ -1,7 +1,5 @@
 import type { LayeredMemorySnapshot, SessionMemoryScope } from './memory-files'
-import { buildMemoryContext } from './dynamic-context'
 import { toolRegistry } from './tool-registry'
-import { getRegisteredSkills } from '../tools/skill-tool'
 import { buildLeadCoordinatorPrompt } from './teams/prompts'
 import type { ActiveTeam } from '../../stores/team-store'
 import { resolveLanguageName } from '../i18n-language'
@@ -52,20 +50,13 @@ export function buildSystemPrompt(options: {
   const environmentContext =
     options.environmentContext ??
     resolvePromptEnvironmentContext({ workingFolder: options.workingFolder })
-  const memoryContext = options.memorySnapshot
-    ? buildMemoryContext(options.memorySnapshot, options.sessionScope ?? 'main')
-    : null
-
   return buildAgentModeSystemPrompt({
     mode: options.mode,
     workingFolder: options.workingFolder,
     userRules: options.userRules,
     languageName: resolveLanguageName(options.language),
-    planMode: options.planMode,
     toolDefs,
-    skills: getRegisteredSkills(),
     environmentContext,
-    memoryContext,
     globalHomePath: options.memorySnapshot?.globalHomePath,
     hasActiveTeam: options.hasActiveTeam,
     teamCoordinatorPrompt: options.activeTeam

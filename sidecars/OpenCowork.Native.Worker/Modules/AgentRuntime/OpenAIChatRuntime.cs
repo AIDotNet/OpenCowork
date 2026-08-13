@@ -3877,8 +3877,11 @@ internal static class OpenAIChatRuntime
 
     private static int ReadChatCacheReadTokens(JsonElement usage)
     {
+        // DeepSeek reports hits as prompt_cache_hit_tokens; OpenAI-compatible
+        // gateways usually nest the same count under prompt_tokens_details.cached_tokens.
         var cachedTokens = ReadFirstPositiveInt(
             usage,
+            "prompt_cache_hit_tokens",
             "cached_tokens",
             "cache_read_tokens",
             "cache_read_input_tokens",
@@ -3894,6 +3897,7 @@ internal static class OpenAIChatRuntime
             {
                 cachedTokens = ReadFirstPositiveInt(
                     details,
+                    "prompt_cache_hit_tokens",
                     "cached_tokens",
                     "cache_read_tokens",
                     "cache_read_input_tokens",
@@ -3904,7 +3908,27 @@ internal static class OpenAIChatRuntime
                 }
             }
         }
-        return 0;
+
+        return ReadCacheHitFromMissTokens(usage);
+    }
+
+    private static int ReadCacheHitFromMissTokens(JsonElement usage)
+    {
+        if (!HasIntProperty(usage, "prompt_cache_miss_tokens"))
+        {
+            return 0;
+        }
+
+        var missTokens = ReadInt(usage, "prompt_cache_miss_tokens");
+        var promptTokens = ReadInt(usage, "prompt_tokens");
+        return promptTokens > missTokens ? promptTokens - missTokens : 0;
+    }
+
+    private static bool HasIntProperty(JsonElement element, string propertyName)
+    {
+        return element.ValueKind == JsonValueKind.Object &&
+            element.TryGetProperty(propertyName, out var property) &&
+            (property.ValueKind == JsonValueKind.Number || property.ValueKind == JsonValueKind.String);
     }
 
     private static int ReadChatCacheWriteTokens(JsonElement usage)

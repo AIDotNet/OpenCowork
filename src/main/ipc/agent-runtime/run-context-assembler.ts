@@ -32,6 +32,25 @@ export type AssembledSessionContext = {
   openTemplate: Record<string, unknown>
   historyMessages: AssembledWireMessage[]
   turnMessages: AssembledWireMessage[]
+  prefixIdentity: string
+}
+
+export function hostedSessionPrefixIdentity(args: {
+  sessionId: string
+  mode: string
+  providerId: string
+  modelId: string
+  workingFolder: string | null
+  sshConnectionId: string | null
+}): string {
+  return [
+    args.sessionId,
+    args.mode,
+    args.providerId,
+    args.modelId,
+    args.workingFolder ?? '',
+    args.sshConnectionId ?? ''
+  ].join('\0')
 }
 
 export type SessionRecord = {
@@ -110,11 +129,13 @@ export async function assembleSessionContext(
 
   const permissionPolicy = deps.readPermissionPolicy()
   const runSettings = deps.readRunSettings()
-  const tools = await deps.listTools({
-    sessionId: intent.sessionId,
-    mode,
-    projectId: session.projectId
-  })
+  const tools = [
+    ...(await deps.listTools({
+      sessionId: intent.sessionId,
+      mode,
+      projectId: session.projectId
+    }))
+  ].sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
   let systemPrompt = await deps.resolveSystemPrompt({
     sessionId: intent.sessionId,
     mode,
@@ -126,9 +147,6 @@ export async function assembleSessionContext(
 
   const provider = asProviderRecord(resolvedProvider)
   provider.sessionId = intent.sessionId
-  if (systemPrompt && provider.thinkingEnabled === true && provider.reasoningEffort === 'ultra') {
-    systemPrompt = `${systemPrompt}\n\n${MULTI_AGENT_MODE_PROMPT}`
-  }
   if (systemPrompt) {
     provider.systemPrompt = systemPrompt
   }
@@ -192,6 +210,9 @@ export async function assembleSessionContext(
     openTemplate.attachmentIds = intent.attachmentIds
   }
   const requestContextTexts = [...(intent.requestContextTexts ?? [])]
+  if (provider.thinkingEnabled === true && provider.reasoningEffort === 'ultra') {
+    requestContextTexts.push(MULTI_AGENT_MODE_PROMPT)
+  }
   if (tools.some((tool) => tool.name === 'codegraph_explore')) {
     requestContextTexts.push(CODEGRAPH_SYSTEM_GUIDANCE)
   }
@@ -206,5 +227,17 @@ export async function assembleSessionContext(
     Object.assign(openTemplate, intent.extraTemplate)
   }
 
-  return { openTemplate, historyMessages, turnMessages }
+  return {
+    openTemplate,
+    historyMessages,
+    turnMessages,
+    prefixIdentity: hostedSessionPrefixIdentity({
+      sessionId: intent.sessionId,
+      mode,
+      providerId,
+      modelId,
+      workingFolder: session.workingFolder,
+      sshConnectionId: session.sshConnectionId
+    })
+  }
 }

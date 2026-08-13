@@ -49,26 +49,15 @@ export function buildHostedSessionSystemPrompt(args: HostedSystemPromptInput): s
   const languageName = resolvePromptLanguageName(args.language)
   const userRules = args.userRules?.trim() || undefined
   const workingFolder = args.workingFolder
-  const planMode = args.planMode === true
 
   if (!isAgentModePromptMode(args.mode)) {
     return buildChatModeSystemPrompt({
       languageName,
       userRules,
       workingFolder,
-      environmentContext,
-      planMode,
-      memoryContext: args.memoryContext
+      environmentContext
     })
   }
-
-  const skills = [...(args.skills ?? [])]
-    .map((skill) => ({
-      name: skill.name.trim(),
-      description: skill.description.trim()
-    }))
-    .filter((skill) => skill.name)
-    .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
 
   const activeTeam = args.activeTeam ?? null
   const teamCoordinatorPrompt =
@@ -79,11 +68,8 @@ export function buildHostedSessionSystemPrompt(args: HostedSystemPromptInput): s
     workingFolder,
     userRules,
     languageName,
-    planMode,
     toolDefs: (args.toolNames ?? []).map((name) => ({ name })),
-    skills,
     environmentContext,
-    memoryContext: args.memoryContext,
     globalHomePath: args.globalHomePath ?? resolveDefaultGlobalMemoryHomePath(),
     hasActiveTeam: args.hasActiveTeam === true || activeTeam != null,
     teamCoordinatorPrompt

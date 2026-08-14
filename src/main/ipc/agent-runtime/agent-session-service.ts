@@ -189,6 +189,10 @@ export class AgentSessionService {
     if (assembled.turnMessages.length === 0) {
       return rejectedRun(params.sessionId, 'unknown')
     }
+    if (!this.canReuseOpenSession(params.sessionId, assembled.prefixIdentity)) {
+      const opened = await this.openWithTemplate(assembled)
+      if (!opened) return rejectedRun(params.sessionId, 'unknown')
+    }
     return await this.sendTurnMessages(params.sessionId, assembled, true)
   }
 

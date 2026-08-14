@@ -1,10 +1,9 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
-// Dependency-free checks for the renderer's compact request-view invariants.
-// Mirrors resolveActiveCompactArtifacts + applyLatestCompactRequestView in
-// src/renderer/src/lib/agent/context-compression.ts and
-// src/renderer/src/stores/chat-store.ts so pairing/truncation rules can be
-// reviewed without booting Electron. Keep the mirrors in sync when editing.
+// Dependency-free checks for compact request-view invariants.
+// Mirrors src/shared/compact-request-view.ts so pairing/truncation rules can be
+// reviewed without booting Electron. Keep this file in sync when editing the
+// shared module; scripts/test/compact-request-view.test.ts imports the source.
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)

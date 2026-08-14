@@ -4,6 +4,11 @@ import {
   type CapabilityCallerType
 } from '../../../shared/agent-runtime-v2'
 import { MULTI_AGENT_MODE_PROMPT } from '../../../shared/agent-system-prompt'
+import {
+  applyLatestCompactRequestView,
+  compactRequestFence,
+  type CompactRequestMeta
+} from '../../../shared/compact-request-view'
 import type { SessionRunSettings } from './session-run-settings'
 import type { SessionToolDefinition } from './session-tool-catalog'
 import { splitToolsForSubAgentCatalog } from '../../../shared/session-mode-tools'
@@ -25,8 +30,9 @@ export type AssembleSessionIntent = {
 export type AssembledWireMessage = {
   id: string
   role: string
-  content: string
+  content: unknown
   createdAt: number
+  meta?: CompactRequestMeta
 }
 
 export type AssembledSessionContext = {
@@ -43,6 +49,8 @@ export function hostedSessionPrefixIdentity(args: {
   modelId: string
   workingFolder: string | null
   sshConnectionId: string | null
+  /** Latest compact boundary/summary pair; changes after compression force a reopen. */
+  compactFence?: string | null
 }): string {
   return [
     args.sessionId,
@@ -50,7 +58,8 @@ export function hostedSessionPrefixIdentity(args: {
     args.providerId,
     args.modelId,
     args.workingFolder ?? '',
-    args.sshConnectionId ?? ''
+    args.sshConnectionId ?? '',
+    args.compactFence ?? ''
   ].join('\0')
 }
 
@@ -67,8 +76,9 @@ export type SessionRecord = {
 export type TranscriptMessage = {
   id: string
   role: string
-  content: string
+  content: unknown
   createdAt: number
+  meta?: CompactRequestMeta
 }
 
 export type RunContextAssemblerDeps = {
@@ -98,7 +108,8 @@ function toWireMessage(message: TranscriptMessage): AssembledWireMessage {
     id: message.id,
     role: message.role,
     content: message.content,
-    createdAt: message.createdAt
+    createdAt: message.createdAt,
+    ...(message.meta ? { meta: message.meta } : {})
   }
 }
 
@@ -124,9 +135,20 @@ export async function assembleSessionContext(
 
   const mode = intent.mode || session.mode
   const mapped = (await deps.getMessages(intent.sessionId)).map(toWireMessage)
-  const triggerIndex = mapped.findIndex((message) => message.id === intent.triggerMessageId)
-  const historyMessages = triggerIndex >= 0 ? mapped.slice(0, triggerIndex) : mapped
-  const turnMessages = triggerIndex >= 0 ? mapped.slice(triggerIndex, triggerIndex + 1) : []
+  const requestMessages = applyLatestCompactRequestView(mapped)
+  if (requestMessages.length !== mapped.length) {
+    console.log('[RunContextAssembler] Applied compact request view', {
+      sessionId: intent.sessionId,
+      before: mapped.length,
+      after: requestMessages.length,
+      compactFence: compactRequestFence(requestMessages)
+    })
+  }
+  const triggerIndex = requestMessages.findIndex((message) => message.id === intent.triggerMessageId)
+  const historyMessages =
+    triggerIndex >= 0 ? requestMessages.slice(0, triggerIndex) : requestMessages
+  const turnMessages =
+    triggerIndex >= 0 ? requestMessages.slice(triggerIndex, triggerIndex + 1) : []
 
   const permissionPolicy = deps.readPermissionPolicy()
   const runSettings = deps.readRunSettings()
@@ -245,7 +267,8 @@ export async function assembleSessionContext(
       providerId,
       modelId,
       workingFolder: session.workingFolder,
-      sshConnectionId: session.sshConnectionId
+      sshConnectionId: session.sshConnectionId,
+      compactFence: compactRequestFence(requestMessages)
     })
   }
 }

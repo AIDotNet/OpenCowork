@@ -34,7 +34,8 @@ const projection = run(process.execPath, [
   'scripts/test/agent-system-prompt.test.ts',
   'scripts/test/session-mode-tools.test.ts',
   'scripts/test/hosted-session-run.test.ts',
-  'scripts/test/session-scope.test.ts'
+  'scripts/test/session-scope.test.ts',
+  'scripts/test/compact-request-view.test.ts'
 ])
 if (projection.status !== 0) {
   process.stderr.write(projection.stderr || projection.stdout || '')

@@ -16,6 +16,10 @@ import {
 import { nativeSkillsRequest, type SkillInfo } from '../skills-handlers'
 import { buildVolatilePromptTurnContext } from '../../../shared/agent-system-prompt'
 import { AgentSessionService } from './agent-session-service'
+import {
+  parsePersistedMessageContent,
+  parsePersistedMessageMeta
+} from '../../../shared/compact-request-view'
 import { assembleSessionContext, type SessionRecord } from './run-context-assembler'
 import { loadHostedMemoryContext } from './session-memory-context'
 import {
@@ -185,12 +189,16 @@ export function getAgentSessionService(): AgentSessionService {
           },
           getMessages: async (sessionId) => {
             const rows = await getMessages(sessionId)
-            return rows.map((row) => ({
-              id: row.id,
-              role: row.role,
-              content: row.content,
-              createdAt: row.created_at
-            }))
+            return rows.map((row) => {
+              const meta = parsePersistedMessageMeta(row.meta)
+              return {
+                id: row.id,
+                role: row.role,
+                content: parsePersistedMessageContent(row.content),
+                createdAt: row.created_at,
+                ...(meta ? { meta } : {})
+              }
+            })
           },
           resolveProvider: resolveProviderFromStore,
           readPermissionPolicy: () => readPermissionPolicySnapshot() ?? null,

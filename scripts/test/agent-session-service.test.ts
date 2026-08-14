@@ -319,8 +319,87 @@ test('send-turn reopens from transcript after session_evicted and retries once',
 
   assert.equal(result.accepted, true)
   assert.equal(result.errorCode, null)
-  assert.deepEqual(calls, ['agent/session-send', 'agent/session-open', 'agent/session-send'])
+  assert.deepEqual(calls, ['agent/session-open', 'agent/session-send', 'agent/session-open', 'agent/session-send'])
   assert.equal(sendAttempts, 2)
+})
+
+test('send-turn reopens when compact fence changes', async () => {
+  const calls: string[] = []
+  let messageSet: typeof messages = messages
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) =>
+      assembleSessionContext(intent, {
+        ...assemblerDeps(),
+        getMessages: async () => messageSet
+      }),
+    request: async (method) => {
+      calls.push(method)
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: 'run-1',
+          assistantMessageId: 'asst:run-1',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  messageSet = [
+    ...messages.slice(0, 2),
+    {
+      id: 'boundary-1',
+      role: 'system',
+      content: 'Conversation compacted',
+      createdAt: 4,
+      meta: {
+        compactBoundary: {
+          trigger: 'manual',
+          preTokens: 80000,
+          messagesSummarized: 2,
+          summaryId: 'summary-1'
+        }
+      }
+    },
+    {
+      id: 'summary-1',
+      role: 'user',
+      content: '[Context Memory Compressed Summary]\n\nPrior turns.',
+      createdAt: 5,
+      meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+    },
+    messages[2]
+  ]
+
+  await service.sendTurn({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  assert.deepEqual(calls, [
+    'agent/session-open',
+    'agent/session-send',
+    'agent/session-open',
+    'agent/session-send'
+  ])
 })
 
 test('assembler marks cron callerType and keeps cron extras off the chat session id', async () => {
@@ -550,4 +629,114 @@ test('assembler injects CodeGraph guidance when explore is in the catalog', asyn
   const texts = assembled.openTemplate.requestContextTexts as string[]
   assert.equal(texts.length, 1)
   assert.match(texts[0], /codegraph_explore/)
+})
+
+test('assembler drops pre-compression history and keeps the compact fence', async () => {
+  const compactMessages = [
+    { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1 },
+    { id: 'old-2', role: 'assistant', content: 'huge earlier reply', createdAt: 2 },
+    {
+      id: 'boundary-1',
+      role: 'system',
+      content: 'Conversation compacted',
+      createdAt: 3,
+      meta: {
+        compactBoundary: {
+          trigger: 'auto',
+          preTokens: 120000,
+          messagesSummarized: 2,
+          summaryId: 'summary-1'
+        }
+      }
+    },
+    {
+      id: 'summary-1',
+      role: 'user',
+      content: '[Context Memory Compressed Summary]\n\nEarlier work is done.',
+      createdAt: 4,
+      meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+    },
+    { id: 'asst-after', role: 'assistant', content: 'continued from summary', createdAt: 5 },
+    { id: 'user-2', role: 'user', content: 'next question', createdAt: 6 }
+  ]
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => compactMessages
+    }
+  )
+  assert.deepEqual(
+    assembled.historyMessages.map((message) => message.id),
+    ['boundary-1', 'summary-1', 'asst-after']
+  )
+  assert.deepEqual(
+    assembled.turnMessages.map((message) => message.id),
+    ['user-2']
+  )
+  assert.equal(assembled.historyMessages.some((message) => message.id === 'old-1'), false)
+  assert.ok(assembled.prefixIdentity.endsWith('\0boundary-1:summary-1'))
+})
+
+test('assembler prefix identity changes after a new compact fence', async () => {
+  const before = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    assemblerDeps()
+  )
+  const after = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => [
+        ...messages.slice(0, 2),
+        {
+          id: 'boundary-1',
+          role: 'system',
+          content: 'Conversation compacted',
+          createdAt: 4,
+          meta: {
+            compactBoundary: {
+              trigger: 'manual',
+              preTokens: 80000,
+              messagesSummarized: 2,
+              summaryId: 'summary-1'
+            }
+          }
+        },
+        {
+          id: 'summary-1',
+          role: 'user',
+          content: '[Context Memory Compressed Summary]\n\nPrior turns.',
+          createdAt: 5,
+          meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+        },
+        messages[2]
+      ]
+    }
+  )
+  assert.notEqual(before.prefixIdentity, after.prefixIdentity)
 })

@@ -2711,7 +2711,13 @@ internal static class OpenAIChatRuntime
         var directMessages = ReadMessageArrayProperty(parameters, "messages");
         if (directMessages.Count > 0)
         {
-            return directMessages;
+            var compactView = ApplyCompactRequestView(directMessages);
+            if (compactView.Count != directMessages.Count)
+            {
+                WorkerLog.Info(
+                    $"compact request view applied source=messages before={directMessages.Count} after={compactView.Count}");
+            }
+            return compactView;
         }
 
         var contextMessages = ReadContextSourceMessages(parameters);
@@ -3365,30 +3371,84 @@ internal static class OpenAIChatRuntime
             : null;
     }
 
+    private sealed record ActiveCompactArtifacts(
+        int BoundaryIndex,
+        int SummaryIndex,
+        string? BoundaryId,
+        string? SummaryId);
+
     private static List<JsonElement> ApplyCompactRequestView(List<JsonElement> messages)
     {
-        var boundaryIndex = messages.FindIndex(IsCompactBoundaryMessage);
-        if (boundaryIndex < 0)
+        var active = ResolveActiveCompactArtifacts(messages);
+        if (active is null)
         {
             return messages
-                .Where(message => !IsCompactArtifactMessage(message))
+                .Where(message => !IsCompactArtifactMessage(message) && !IsUiOnlyRequestMessage(message))
                 .Select(message => message.Clone())
                 .ToList();
         }
 
-        var summaryIndex = FindCompactSummaryIndex(messages, boundaryIndex);
-        var boundaryId = GetWireMessageId(messages[boundaryIndex]);
-        var summaryId = summaryIndex >= 0 ? GetWireMessageId(messages[summaryIndex]) : null;
-        var compactMessages = new List<JsonElement>();
-        var seenIds = new HashSet<string>(StringComparer.Ordinal);
-
-        AppendCompactRequestMessage(compactMessages, seenIds, messages[boundaryIndex], boundaryId, summaryId);
-        if (summaryIndex >= 0)
+        if (active.BoundaryIndex < 0)
         {
-            AppendCompactRequestMessage(compactMessages, seenIds, messages[summaryIndex], boundaryId, summaryId);
+            if (IsFailedCompactSummary(messages[active.SummaryIndex]))
+            {
+                return messages
+                    .Where(message => !IsCompactArtifactMessage(message) && !IsUiOnlyRequestMessage(message))
+                    .Select(message => message.Clone())
+                    .ToList();
+            }
+
+            var tail = new List<JsonElement>();
+            if (active.SummaryIndex >= 0 && active.SummaryIndex < messages.Count)
+            {
+                AppendCompactRequestMessage(
+                    tail,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    messages[active.SummaryIndex],
+                    active.BoundaryId,
+                    active.SummaryId);
+            }
+            var seenIds = new HashSet<string>(tail.Select(GetWireMessageId).OfType<string>(), StringComparer.Ordinal);
+            for (var index = active.SummaryIndex + 1; index < messages.Count; index++)
+            {
+                if (IsCompactArtifactMessage(messages[index]) || IsUiOnlyRequestMessage(messages[index]))
+                {
+                    continue;
+                }
+                AppendCompactRequestMessage(tail, seenIds, messages[index], active.BoundaryId, active.SummaryId);
+            }
+            return tail;
         }
 
-        if (TryGetCompactPreservedSegment(messages[boundaryIndex], out var headId, out var tailId))
+        if (active.SummaryIndex >= 0 &&
+            active.SummaryIndex < messages.Count &&
+            IsFailedCompactSummary(messages[active.SummaryIndex]))
+        {
+            return messages
+                .Where(message => !IsCompactArtifactMessage(message) && !IsUiOnlyRequestMessage(message))
+                .Select(message => message.Clone())
+                .ToList();
+        }
+
+        var compactMessages = new List<JsonElement>();
+        var compactSeenIds = new HashSet<string>(StringComparer.Ordinal);
+        AppendCompactRequestMessage(
+            compactMessages,
+            compactSeenIds,
+            messages[active.BoundaryIndex],
+            active.BoundaryId,
+            active.SummaryId);
+        if (active.SummaryIndex >= 0)
+        {
+            AppendCompactRequestMessage(
+                compactMessages,
+                compactSeenIds,
+                messages[active.SummaryIndex],
+                active.BoundaryId,
+                active.SummaryId);
+        }
+
+        if (TryGetCompactPreservedSegment(messages[active.BoundaryIndex], out var headId, out var tailId))
         {
             var headIndex = messages.FindIndex(message => GetWireMessageId(message) == headId);
             if (headIndex >= 0)
@@ -3408,22 +3468,100 @@ internal static class OpenAIChatRuntime
                     {
                         AppendCompactRequestMessage(
                             compactMessages,
-                            seenIds,
+                            compactSeenIds,
                             messages[index],
-                            boundaryId,
-                            summaryId);
+                            active.BoundaryId,
+                            active.SummaryId);
                     }
                 }
             }
         }
 
-        var trailingStartIndex = Math.Max(boundaryIndex, summaryIndex) + 1;
+        var trailingStartIndex = Math.Max(active.BoundaryIndex, active.SummaryIndex) + 1;
         for (var index = Math.Max(0, trailingStartIndex); index < messages.Count; index++)
         {
-            AppendCompactRequestMessage(compactMessages, seenIds, messages[index], boundaryId, summaryId);
+            AppendCompactRequestMessage(
+                compactMessages,
+                compactSeenIds,
+                messages[index],
+                active.BoundaryId,
+                active.SummaryId);
         }
 
         return compactMessages;
+    }
+
+    private static ActiveCompactArtifacts? ResolveActiveCompactArtifacts(IReadOnlyList<JsonElement> messages)
+    {
+        ActiveCompactArtifacts? active = null;
+        var activeScore = long.MinValue;
+
+        for (var boundaryIndex = 0; boundaryIndex < messages.Count; boundaryIndex++)
+        {
+            if (!IsCompactBoundaryMessage(messages[boundaryIndex]))
+            {
+                continue;
+            }
+
+            var summaryIndex = FindCompactSummaryIndex(messages, boundaryIndex);
+            if (summaryIndex < 0)
+            {
+                continue;
+            }
+
+            var score = Math.Max(
+                JsonHelpers.GetLong(messages[boundaryIndex], "createdAt", 0),
+                JsonHelpers.GetLong(messages[summaryIndex], "createdAt", 0));
+            if (score < activeScore)
+            {
+                continue;
+            }
+
+            activeScore = score;
+            active = new ActiveCompactArtifacts(
+                boundaryIndex,
+                summaryIndex,
+                GetWireMessageId(messages[boundaryIndex]),
+                GetWireMessageId(messages[summaryIndex]));
+        }
+
+        if (active is not null)
+        {
+            return active;
+        }
+
+        for (var summaryIndex = 0; summaryIndex < messages.Count; summaryIndex++)
+        {
+            if (!IsCompactSummaryLikeMessage(messages[summaryIndex]))
+            {
+                continue;
+            }
+
+            var score = JsonHelpers.GetLong(messages[summaryIndex], "createdAt", 0);
+            if (score < activeScore)
+            {
+                continue;
+            }
+
+            activeScore = score;
+            active = new ActiveCompactArtifacts(
+                -1,
+                summaryIndex,
+                null,
+                GetWireMessageId(messages[summaryIndex]));
+        }
+
+        return active;
+    }
+
+    private static bool IsFailedCompactSummary(JsonElement message)
+    {
+        return message.TryGetProperty("meta", out var meta) &&
+            meta.ValueKind == JsonValueKind.Object &&
+            meta.TryGetProperty("compactSummary", out var compactSummary) &&
+            compactSummary.ValueKind == JsonValueKind.Object &&
+            compactSummary.TryGetProperty("summarizerFailed", out var failed) &&
+            failed.ValueKind == JsonValueKind.True;
     }
 
     private static int FindCompactSummaryIndex(IReadOnlyList<JsonElement> messages, int boundaryIndex)

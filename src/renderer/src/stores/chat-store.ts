@@ -63,12 +63,11 @@ import {
   summarizeToolInputForHistory,
   sanitizeMessagesForToolReplay
 } from '../lib/tools/tool-input-sanitizer'
+import { applyLatestCompactRequestView } from '../../../shared/compact-request-view'
 import {
   isCompactArtifactMessage,
-  isCompactBoundaryMessage,
   isCompactSummaryLikeMessage,
-  resolveActiveCompactArtifacts,
-  type ActiveCompactArtifacts
+  resolveActiveCompactArtifacts
 } from '../lib/agent/context-compression'
 
 export type SessionMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
@@ -2353,146 +2352,6 @@ function clampWindowedRequestContext(
   }
 
   return messages.filter((message) => selectedIds.has(message.id))
-}
-
-function isUiOnlyRequestMessage(message: UnifiedMessage): boolean {
-  if (message.role !== 'system') return false
-  if (message.meta?.compressionStatus) return true
-  if (message.meta?.compactBoundary) return false
-  if (typeof message.content === 'string') return message.content.trim().length === 0
-  return Array.isArray(message.content) && message.content.length === 0
-}
-
-function stripThinkingBlocksForCompactRequest(message: UnifiedMessage): UnifiedMessage {
-  if (!Array.isArray(message.content)) return message
-
-  const content = message.content.filter((block) => block.type !== 'thinking')
-  if (content.length === message.content.length) return message
-
-  return { ...message, content }
-}
-
-function appendCompactRequestMessage(
-  result: UnifiedMessage[],
-  seenIds: Set<string>,
-  message: UnifiedMessage | undefined,
-  activeCompact: ActiveCompactArtifacts
-): void {
-  if (!message || seenIds.has(message.id) || isUiOnlyRequestMessage(message)) return
-  if (isCompactArtifactMessage(message)) {
-    if (isCompactBoundaryMessage(message)) {
-      if (message.id !== activeCompact.boundaryId) return
-    } else if (message.id !== activeCompact.summaryId) {
-      return
-    }
-  }
-
-  result.push(stripThinkingBlocksForCompactRequest(message))
-  seenIds.add(message.id)
-}
-
-function collectCompactPreservedMessages(
-  messages: UnifiedMessage[],
-  boundaryMessage: UnifiedMessage | undefined,
-  activeCompact: ActiveCompactArtifacts
-): UnifiedMessage[] {
-  const preservedSegment = boundaryMessage?.meta?.compactBoundary?.preservedSegment
-  const preservedHeadId = preservedSegment?.headId?.trim() ?? ''
-  const preservedTailId = preservedSegment?.tailId?.trim() ?? ''
-  if (!preservedHeadId || !preservedTailId) return []
-
-  const headIndex = messages.findIndex((message) => message.id === preservedHeadId)
-  if (headIndex < 0) return []
-
-  let tailIndex = -1
-  for (let index = headIndex; index < messages.length; index += 1) {
-    if (messages[index]?.id === preservedTailId) {
-      tailIndex = index
-      break
-    }
-  }
-  if (tailIndex < headIndex) return []
-
-  const preservedMessages: UnifiedMessage[] = []
-  const seenIds = new Set<string>()
-  for (const message of messages.slice(headIndex, tailIndex + 1)) {
-    appendCompactRequestMessage(preservedMessages, seenIds, message, activeCompact)
-  }
-  return preservedMessages
-}
-
-function applyLatestCompactRequestView(messages: UnifiedMessage[]): UnifiedMessage[] {
-  const activeCompact = resolveActiveCompactArtifacts(messages)
-  if (!activeCompact) {
-    return messages.filter((message) => {
-      if (isUiOnlyRequestMessage(message)) return false
-      if (!isCompactArtifactMessage(message)) return true
-      return false
-    })
-  }
-
-  if (activeCompact.boundaryIndex < 0) {
-    const summaryMessage = messages[activeCompact.summaryIndex]
-    if (summaryMessage?.meta?.compactSummary?.summarizerFailed === true) {
-      return messages.filter(
-        (message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message)
-      )
-    }
-    // Orphan summary (boundary row lost). Never fall back to the full history —
-    // truncate at the summary so the request stays within the compacted view.
-    console.warn('[ChatStore] Compact boundary missing; truncating request at summary', {
-      summaryId: activeCompact.summaryId
-    })
-    const tail = messages
-      .slice(activeCompact.summaryIndex + 1)
-      .filter((message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message))
-    return summaryMessage ? [summaryMessage, ...tail] : tail
-  }
-
-  const activeSummary = activeCompact.summaryId
-    ? messages.find((message) => message.id === activeCompact.summaryId)
-    : undefined
-  if (activeSummary?.meta?.compactSummary?.summarizerFailed === true) {
-    // Older builds persisted a destructive placeholder when summarization failed.
-    // Ignore that boundary for model requests so the intact transcript in SQLite
-    // becomes eligible for a fresh compression attempt instead of making the loss
-    // of context permanent.
-    return messages.filter(
-      (message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message)
-    )
-  }
-
-  const compactMessages: UnifiedMessage[] = []
-  const seenIds = new Set<string>()
-  const boundaryMessage = activeCompact.boundaryId
-    ? messages.find((message) => message.id === activeCompact.boundaryId)
-    : undefined
-  const summaryMessage = activeCompact.summaryId
-    ? messages.find((message) => message.id === activeCompact.summaryId)
-    : undefined
-
-  appendCompactRequestMessage(compactMessages, seenIds, boundaryMessage, activeCompact)
-  appendCompactRequestMessage(compactMessages, seenIds, summaryMessage, activeCompact)
-
-  const preservedMessages = collectCompactPreservedMessages(
-    messages,
-    boundaryMessage,
-    activeCompact
-  )
-  for (const message of preservedMessages) {
-    appendCompactRequestMessage(compactMessages, seenIds, message, activeCompact)
-  }
-
-  // The summary may sort before the boundary after sort-order normalization;
-  // everything at or before either artifact is covered by the summary.
-  const trailingStartIndex = Math.max(activeCompact.summaryIndex, activeCompact.boundaryIndex) + 1
-
-  for (const message of messages.slice(Math.max(0, trailingStartIndex))) {
-    if (seenIds.has(message.id)) continue
-    appendCompactRequestMessage(compactMessages, seenIds, message, activeCompact)
-  }
-
-  return compactMessages
 }
 
 function mergeResidentTailWithFetchedPrefix(

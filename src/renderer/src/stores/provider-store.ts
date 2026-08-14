@@ -1765,7 +1765,7 @@ export const useProviderStore = create<ProviderStore>()(
       getActiveModelThinkingConfig: () => {
         const model = get().getActiveModelConfig()
         const provider = get().providers.find((item) => item.id === get().activeProviderId)
-        return resolveModelThinkingConfig(model, provider?.builtinId)
+        return resolveModelThinkingConfig(model ?? undefined, provider?.builtinId)
       },
 
       _markMigrated: () => set({ _migrated: true })

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.10] - 2026-08-14
+
+### Added
+
+- Added GLM-5.3 on BigModel (official and coding-plan presets) and Routin AI as the flagship model, with 1M context, thinking that cannot be disabled, and `reasoning_effort` limited to `low` / `high` / `max`.
+
+### Changed
+
+- Applied the shared compact request view in Main session assembly and Native Worker so hosted `session-open` sends only the compact fence (boundary + summary + preserved tail) instead of reloading every pre-compression turn, and reopens the hosted session when that fence changes.
+
+### Fixed
+
+- Fixed CI `npm ci` failing after 1.3.9 by syncing the lockfile for the new `shiki` dependency.
+- Fixed typecheck failures from an unused `cn` import and a null vs undefined thinking-config mismatch.
+
 ## [1.3.9] - 2026-08-14
 
 ### Added

@@ -13,7 +13,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v12: add grok / grok-4.6 and Grok Imagine Image 2.0
   // v13: DeepSeek V4 支持 reasoning_effort（low/high/max）
   // v14: default main model → grok-4.6（快速模型默认在 provider-store 中为 deepseek-v4-flash）
-  version: 14,
+  // v15: add GLM-5.3（思考不可关闭，reasoning_effort 仅 low/high/max）
+  version: 15,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -221,6 +222,26 @@ export const routinAiPreset: BuiltinProviderPreset = {
         bodyParams: { thinking: { type: 'enabled' } },
         disabledBodyParams: { thinking: { type: 'disabled' } },
         forceTemperature: 1
+      }
+    },
+    {
+      id: 'glm-5.3',
+      name: 'GLM 5.3',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.694,
+      outputPrice: 2.778,
+      cacheHitPrice: 0.069,
+      supportsThinking: true,
+      // GLM-5.3 不再支持关闭思考；API 仅接受 reasoning_effort=low/high/max（默认 max）。
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'max'
       }
     },
     {

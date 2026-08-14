@@ -6,17 +6,36 @@ const glmThinkingConfig = (): ThinkingConfig => ({
   disabledBodyParams: { thinking: { type: 'disabled' } }
 })
 
+/** GLM-5.3 强制思考，且 API 仅接受 reasoning_effort=low/high/max（默认 max）。 */
+const glm53ThinkingConfig = (): ThinkingConfig => ({
+  bodyParams: { thinking: { type: 'enabled' } },
+  reasoningEffortLevels: ['low', 'high', 'max'],
+  defaultReasoningEffort: 'max'
+})
+
 export const bigmodelCodingPreset: BuiltinProviderPreset = {
   builtinId: 'bigmodel-coding',
-  version: 1,
+  // v2: add GLM-5.3 as the coding-plan flagship (5.2/5.1 calls are routed to 5.3).
+  version: 2,
   name: '智谱AI（套餐）',
   type: 'anthropic',
   defaultBaseUrl: 'https://open.bigmodel.cn/api/anthropic',
   homepage: 'https://bigmodel.cn/glm-coding',
   apiKeyUrl: 'https://bigmodel.cn/usercenter/apikeys',
   defaultEnabled: false,
-  defaultModel: 'glm-5.2',
+  defaultModel: 'glm-5.3',
   defaultModels: [
+    {
+      id: 'glm-5.3',
+      name: 'GLM-5.3',
+      icon: 'bigmodel',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: glm53ThinkingConfig()
+    },
     {
       id: 'glm-5.2',
       name: 'GLM-5.2',
@@ -77,16 +96,29 @@ export const bigmodelCodingPreset: BuiltinProviderPreset = {
 
 export const bigmodelPreset: BuiltinProviderPreset = {
   builtinId: 'bigmodel',
-  version: 1,
+  // v2: add GLM-5.3 as the official flagship (1M context, thinking cannot be disabled).
+  version: 2,
   name: '智谱AI（官方）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
   homepage: 'https://bigmodel.cn',
   apiKeyUrl: 'https://bigmodel.cn/usercenter/apikeys',
-  defaultModel: 'glm-5.2',
+  defaultModel: 'glm-5.3',
   deprecatedModelIds: ['glm-z1-airx', 'glm-z1-air', 'glm-z1-flash'],
   defaultModels: [
     // GLM-5 series
+    {
+      id: 'glm-5.3',
+      name: 'GLM-5.3',
+      icon: 'bigmodel',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: glm53ThinkingConfig()
+    },
     {
       id: 'glm-5.2',
       name: 'GLM-5.2',

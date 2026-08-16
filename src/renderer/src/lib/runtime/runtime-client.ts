@@ -13,6 +13,28 @@ let liveBuffer: RuntimeEventEnvelope[] = []
 let pendingPatches: RuntimeEventEnvelope[] = []
 let rafId: number | null = null
 let visibilityListener: (() => void) | null = null
+let reattachTimer: ReturnType<typeof setTimeout> | null = null
+let reattachDelayMs = 0
+
+const REATTACH_MIN_DELAY_MS = 250
+const REATTACH_MAX_DELAY_MS = 5_000
+
+// Re-attach with capped exponential backoff. attachRuntime used to re-invoke
+// itself directly whenever a revision gap survived an attach; a persistent gap
+// (or an attach failure storm) then spun attach -> gap -> attach with no delay.
+// The backoff resets after a clean attach.
+function scheduleReattach(): void {
+  if (!installed || reattachTimer !== null) return
+  const delay = reattachDelayMs
+  reattachDelayMs = Math.min(
+    Math.max(reattachDelayMs * 2, REATTACH_MIN_DELAY_MS),
+    REATTACH_MAX_DELAY_MS
+  )
+  reattachTimer = setTimeout(() => {
+    reattachTimer = null
+    void attachRuntime()
+  }, delay)
+}
 
 function runtimeApi(): typeof window.api.runtime {
   return window.api.runtime
@@ -64,10 +86,13 @@ function applyAttachResult(result: AttachRuntimeResult, buffered: RuntimeEventEn
       envelope.gatewayEpoch === result.gatewayEpoch && envelope.projectionRevision > knownRevision
   )
   if (hasGap(pending, knownRevision)) {
-    void attachRuntime()
+    // Direct attachRuntime() here was a no-op (attaching is still true at this
+    // point); scheduling also applies the retry backoff.
+    scheduleReattach()
     return
   }
   if (pending.length > 0) store.applyEnvelopes(pending)
+  reattachDelayMs = 0
 }
 
 async function attachRuntime(): Promise<void> {
@@ -89,6 +114,7 @@ async function attachRuntime(): Promise<void> {
       '[runtime-client] attach failed',
       error instanceof Error ? error.message : String(error)
     )
+    scheduleReattach()
   } finally {
     attaching = false
     if (liveBuffer.length > 0) {
@@ -96,7 +122,7 @@ async function attachRuntime(): Promise<void> {
       liveBuffer = []
       const knownRevision = useRuntimeProjectionStore.getState().snapshot.projectionRevision
       if (hasGap(extra, knownRevision)) {
-        void attachRuntime()
+        scheduleReattach()
       } else {
         useRuntimeProjectionStore.getState().applyEnvelopes(extra)
       }
@@ -178,5 +204,10 @@ export async function installRuntimeClient(): Promise<() => void> {
     visibilityListener = null
     liveBuffer = []
     drainPending()
+    if (reattachTimer !== null) {
+      clearTimeout(reattachTimer)
+      reattachTimer = null
+    }
+    reattachDelayMs = 0
   }
 }

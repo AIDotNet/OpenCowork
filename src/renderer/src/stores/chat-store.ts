@@ -874,6 +874,9 @@ async function dbInsertCompactArtifacts(
   return resolvedResult
 }
 
+// Stable empty array for selector-safe reads (see getSessionMessages).
+const EMPTY_MESSAGES: UnifiedMessage[] = []
+
 // --- Debounced message persistence for streaming ---
 
 const _pendingFlush = new Map<string, ReturnType<typeof setTimeout>>()
@@ -6487,7 +6490,11 @@ export const useChatStore = create<ChatStore>()(
 
     getSessionMessages: (sessionId) => {
       const session = getSessionByIdFromState(get(), sessionId)
-      return session?.messages ?? []
+      // Must be referentially stable for a missing session: components call this
+      // inside zustand selectors, and a fresh `[]` per read makes React's
+      // useSyncExternalStore re-render in an unbounded loop (renderer pegged at
+      // 100% CPU). See issue #155.
+      return session?.messages ?? EMPTY_MESSAGES
     },
 
     recoverFromRendererOom: async (sessionId) => {

@@ -12,6 +12,7 @@ import {
   type OpenCoworkConfiguration
 } from './provider-catalog.js'
 import { createCliCapabilitySnapshot } from './capability-snapshot.js'
+import { resolveEffectiveModelContextLength } from '../lib/gpt-context.js'
 
 export interface WorkerToolDefinition {
   name: string
@@ -655,7 +656,15 @@ function clampCompressionThreshold(value: unknown): number {
 }
 
 function resolveCompressionContextLength(model: JsonRecord): number {
-  const configured = Math.max(0, Math.floor(numberValue(model.contextLength, 0)))
+  const effective = resolveEffectiveModelContextLength({
+    id: stringValue(model.id),
+    category: stringValue(model.category),
+    contextLength: numberValue(model.contextLength, 0) || undefined,
+    enableLongContext: model.enableLongContext === true,
+    longContextLength: numberValue(model.longContextLength, 0) || undefined,
+    supportsLongContext: model.supportsLongContext === true ? true : undefined
+  })
+  const configured = Math.max(0, Math.floor(effective ?? numberValue(model.contextLength, 0)))
   if (configured <= DEFAULT_CONTEXT_COMPRESSION_LIMIT) return configured
   return model.enableExtendedContextCompression === false
     ? DEFAULT_CONTEXT_COMPRESSION_LIMIT

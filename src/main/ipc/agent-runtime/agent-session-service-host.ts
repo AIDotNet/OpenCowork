@@ -2,12 +2,15 @@ import { getNativeWorker } from '../../lib/native-worker'
 import { readPersistedProviderStore } from '../../lib/ai-provider-store'
 import {
   buildProviderConfigById,
+  getCompressionProviderConfig,
   getFastProviderConfig,
+  resolveModelCompressionProfile,
   type PersistedProvidersState
 } from '../../lib/provider-run-config'
 import { getSession } from '../../db/sessions-dao'
 import { getMessages } from '../../db/messages-dao'
 import { getSshConnection } from '../../db/ssh-dao'
+import { getNativeSshConnectionPayload } from '../ssh-connection-payload'
 import {
   decodePersistedStoreState,
   readPermissionPolicySnapshot,
@@ -18,9 +21,16 @@ import { buildVolatilePromptTurnContext } from '../../../shared/agent-system-pro
 import { AgentSessionService } from './agent-session-service'
 import {
   parsePersistedMessageContent,
-  parsePersistedMessageMeta
+  parsePersistedMessageMeta,
+  parsePersistedMessageUsage
 } from '../../../shared/compact-request-view'
-import { assembleSessionContext, type SessionRecord } from './run-context-assembler'
+import {
+  assembleSessionContext,
+  type AssembleSessionIntent,
+  type AssembledSessionContext,
+  type SessionRecord
+} from './run-context-assembler'
+import { readSessionCompaction, resolveSessionCompaction } from './session-compaction'
 import { loadHostedMemoryContext } from './session-memory-context'
 import {
   loadHostedActiveTeam,
@@ -140,104 +150,127 @@ async function listHostedSessionTools(projectId: string | null): Promise<Session
 
 let service: AgentSessionService | null = null
 
+/**
+ * Production hosted-session assembly: session/messages from the desktop DB, tool
+ * catalog, system prompt, memory and prompt-context sections. Shared by the
+ * interactive runtime service and headless callers (channel auto-reply).
+ */
+export async function assembleHostedSessionContext(
+  intent: AssembleSessionIntent
+): Promise<AssembledSessionContext> {
+  const settings = readPersistedSettingsState()
+  const runSettings = readSessionRunSettings(settings)
+  const row = intent.sessionId ? await getSession(intent.sessionId) : null
+  const projectId = row?.project_id ?? null
+  const workingFolder = row?.working_folder ?? null
+  const sshConnectionId = row?.ssh_connection_id ?? null
+  const [skills, memoryContext, promptSections] = await Promise.all([
+    loadHostedSkills(),
+    loadHostedMemoryContext({
+      workingFolder,
+      sshConnectionId,
+      memoryUseMemories: runSettings.memoryUseMemories,
+      memorySummaryBudgetTokens: runSettings.memorySummaryBudgetTokens
+    }),
+    loadHostedPromptContextSections(projectId)
+  ])
+  const volatileTexts = buildVolatilePromptTurnContext({
+    memoryContext,
+    skills,
+    mcpSection: promptSections.mcpSection,
+    channelSection: promptSections.channelSection
+  })
+  return assembleSessionContext(
+    {
+      ...intent,
+      requestContextTexts: [...volatileTexts, ...(intent.requestContextTexts ?? [])]
+    },
+    {
+      getSession: async (sessionId) => {
+        const row = await getSession(sessionId)
+        if (!row) return null
+        return {
+          id: row.id,
+          mode: row.mode,
+          workingFolder: row.working_folder,
+          sshConnectionId: row.ssh_connection_id,
+          projectId: row.project_id,
+          providerId: row.provider_id,
+          modelId: row.model_id
+        } satisfies SessionRecord
+      },
+      getMessages: async (sessionId) => {
+        const rows = await getMessages(sessionId)
+        return rows.map((row) => {
+          const meta = parsePersistedMessageMeta(row.meta)
+          const usage = parsePersistedMessageUsage(row.usage)
+          return {
+            id: row.id,
+            role: row.role,
+            content: parsePersistedMessageContent(row.content),
+            createdAt: row.created_at,
+            sortOrder: row.sort_order,
+            ...(meta ? { meta } : {}),
+            ...(usage ? { usage } : {})
+          }
+        })
+      },
+      getCompaction: (sessionId, transcript) => resolveSessionCompaction(sessionId, transcript),
+      resolveProvider: resolveProviderFromStore,
+      readPermissionPolicy: () => readPermissionPolicySnapshot() ?? null,
+      listTools: ({ projectId }) => listHostedSessionTools(projectId),
+      readRunSettings: () => readSessionRunSettings(),
+      resolveSystemPrompt: async ({
+        sessionId,
+        mode,
+        workingFolder,
+        sshConnectionId,
+        toolNames
+      }) => {
+        const settings = readPersistedSettingsState()
+        const [sshConnection, activeTeam] = await Promise.all([
+          loadSshPromptConnection(sshConnectionId),
+          loadHostedActiveTeam(sessionId)
+        ])
+        return buildHostedSessionSystemPrompt({
+          mode,
+          workingFolder,
+          sshConnectionId,
+          toolNames,
+          language: typeof settings.language === 'string' ? settings.language : 'en',
+          userRules: typeof settings.systemPrompt === 'string' ? settings.systemPrompt : undefined,
+          sshConnection,
+          activeTeam
+        })
+      },
+      resolveSubAgentProvider: () => {
+        const config = getFastProviderConfig(
+          loadPersistedProvidersState(),
+          readPersistedSettingsState()
+        )
+        return config ? { ...config } : null
+      },
+      resolveCompressionModel: (providerId, modelId) =>
+        resolveModelCompressionProfile(loadPersistedProvidersState(), providerId, modelId),
+      resolveCompressionProvider: () => {
+        const config = getCompressionProviderConfig(
+          loadPersistedProvidersState(),
+          readPersistedSettingsState()
+        )
+        return config ? { ...config } : null
+      },
+      resolveSshConnection: (connectionId) => getNativeSshConnectionPayload(connectionId)
+    }
+  )
+}
+
 export function getAgentSessionService(): AgentSessionService {
   if (!service) {
     service = new AgentSessionService({
       isRunning: () => getNativeWorker().isRunning,
       request: (method, params, timeoutMs) => getNativeWorker().request(method, params, timeoutMs),
-      assemble: async (intent) => {
-        const settings = readPersistedSettingsState()
-        const runSettings = readSessionRunSettings(settings)
-        const row = intent.sessionId ? await getSession(intent.sessionId) : null
-        const projectId = row?.project_id ?? null
-        const workingFolder = row?.working_folder ?? null
-        const sshConnectionId = row?.ssh_connection_id ?? null
-        const [skills, memoryContext, promptSections] = await Promise.all([
-          loadHostedSkills(),
-          loadHostedMemoryContext({
-            workingFolder,
-            sshConnectionId,
-            memoryUseMemories: runSettings.memoryUseMemories,
-            memorySummaryBudgetTokens: runSettings.memorySummaryBudgetTokens
-          }),
-          loadHostedPromptContextSections(projectId)
-        ])
-        const volatileTexts = buildVolatilePromptTurnContext({
-          memoryContext,
-          skills,
-          mcpSection: promptSections.mcpSection,
-          channelSection: promptSections.channelSection
-        })
-        return assembleSessionContext(
-          {
-            ...intent,
-            requestContextTexts: [...volatileTexts, ...(intent.requestContextTexts ?? [])]
-          },
-          {
-          getSession: async (sessionId) => {
-            const row = await getSession(sessionId)
-            if (!row) return null
-            return {
-              id: row.id,
-              mode: row.mode,
-              workingFolder: row.working_folder,
-              sshConnectionId: row.ssh_connection_id,
-              projectId: row.project_id,
-              providerId: row.provider_id,
-              modelId: row.model_id
-            } satisfies SessionRecord
-          },
-          getMessages: async (sessionId) => {
-            const rows = await getMessages(sessionId)
-            return rows.map((row) => {
-              const meta = parsePersistedMessageMeta(row.meta)
-              return {
-                id: row.id,
-                role: row.role,
-                content: parsePersistedMessageContent(row.content),
-                createdAt: row.created_at,
-                ...(meta ? { meta } : {})
-              }
-            })
-          },
-          resolveProvider: resolveProviderFromStore,
-          readPermissionPolicy: () => readPermissionPolicySnapshot() ?? null,
-          listTools: ({ projectId }) => listHostedSessionTools(projectId),
-          readRunSettings: () => readSessionRunSettings(),
-          resolveSystemPrompt: async ({
-            sessionId,
-            mode,
-            workingFolder,
-            sshConnectionId,
-            toolNames
-          }) => {
-            const settings = readPersistedSettingsState()
-            const [sshConnection, activeTeam] = await Promise.all([
-              loadSshPromptConnection(sshConnectionId),
-              loadHostedActiveTeam(sessionId)
-            ])
-            return buildHostedSessionSystemPrompt({
-              mode,
-              workingFolder,
-              sshConnectionId,
-              toolNames,
-              language: typeof settings.language === 'string' ? settings.language : 'en',
-              userRules:
-                typeof settings.systemPrompt === 'string' ? settings.systemPrompt : undefined,
-              sshConnection,
-              activeTeam
-            })
-          },
-          resolveSubAgentProvider: () => {
-            const config = getFastProviderConfig(
-              loadPersistedProvidersState(),
-              readPersistedSettingsState()
-            )
-            return config ? { ...config } : null
-          }
-          }
-        )
-      }
+      assemble: assembleHostedSessionContext,
+      readCompaction: readSessionCompaction
     })
   }
   return service

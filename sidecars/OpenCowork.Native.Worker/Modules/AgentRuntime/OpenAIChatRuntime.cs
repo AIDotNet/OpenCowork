@@ -578,7 +578,7 @@ internal static class OpenAIChatRuntime
                     .Select(message => message.Clone())
                     .ToList();
                 var summarized = compressed.Result.MessagesSummarized ??
-                    Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 2));
+                    Math.Max(0, originalCount - Math.Max(0, compressed.Messages.Length - 1));
                 var postCompactHook = await AgentRuntimeHooks.RunCompactAsync(
                     parameters,
                     state,
@@ -597,11 +597,18 @@ internal static class OpenAIChatRuntime
                     context,
                     new AgentRuntimeStreamEvent(
                         "context_compressed",
+                        // The host keeps this row out of the cut: it is the turn that was
+                        // streaming when compression ran and it keeps producing output.
+                        AssistantMessageId: state.AssistantMessageId,
                         OriginalCount: originalCount,
                         NewCount: compressed.Messages.Length,
                         KeptMessageCount: summarized,
                         SummarizerFailed: compressed.Result.SummarizerFailed,
-                        CompactArtifacts: ExtractCompactArtifacts(compressed.Messages)));
+                        CompactSummaryMessage: FindSummaryMessage(
+                            compressed.Messages,
+                            compressed.Result.SummaryMessageId),
+                        CompactedMessageIds: compressed.Result.CompactedMessageIds,
+                        PreTokens: preTokens));
                 WorkerLog.Info(
                     $"agent context compression ok runId={state.RunId} original={originalCount} " +
                     $"compressed={compressed.Messages.Length} summarized={summarized}");
@@ -696,22 +703,15 @@ internal static class OpenAIChatRuntime
             .StartsWith("[Context Memory Compressed Summary", StringComparison.Ordinal);
     }
 
-    private static JsonElement[] ExtractCompactArtifacts(IReadOnlyList<JsonElement> messages)
+    private static JsonElement? FindSummaryMessage(
+        IReadOnlyList<JsonElement> messages,
+        string? summaryMessageId)
     {
-        var artifacts = new List<JsonElement>(2);
-        var boundary = messages.FirstOrDefault(IsCompactBoundaryMessage);
-        if (boundary.ValueKind != JsonValueKind.Undefined)
-        {
-            artifacts.Add(boundary.Clone());
-        }
-
-        var summary = messages.FirstOrDefault(IsCompactSummaryLikeMessage);
-        if (summary.ValueKind != JsonValueKind.Undefined)
-        {
-            artifacts.Add(summary.Clone());
-        }
-
-        return artifacts.ToArray();
+        var summary = string.IsNullOrEmpty(summaryMessageId)
+            ? messages.FirstOrDefault(IsCompactSummaryLikeMessage)
+            : messages.FirstOrDefault(message =>
+                string.Equals(GetWireMessageId(message), summaryMessageId, StringComparison.Ordinal));
+        return summary.ValueKind == JsonValueKind.Undefined ? null : summary.Clone();
     }
 
     private static bool IsCompactBoundaryMessage(JsonElement message)
@@ -822,6 +822,7 @@ internal static class OpenAIChatRuntime
         var startedAt = Stopwatch.GetTimestamp();
         long? firstTokenMs = null;
         var estimatedOutputTokens = 0;
+        var reasoningStreamed = false;
         AgentRuntimeTokenUsage? finalUsage = null;
         var finalStopReason = "stop";
         var assistantText = new StringBuilder();
@@ -874,6 +875,7 @@ internal static class OpenAIChatRuntime
                         startedAt,
                         value => firstTokenMs ??= value,
                         value => estimatedOutputTokens += value,
+                        () => reasoningStreamed = true,
                         value => finalUsage = value,
                         value => finalStopReason = value);
                     dataBuilder.Clear();
@@ -919,6 +921,7 @@ internal static class OpenAIChatRuntime
                 startedAt,
                 value => firstTokenMs ??= value,
                 value => estimatedOutputTokens += value,
+                () => reasoningStreamed = true,
                 value => finalUsage = value,
                 value => finalStopReason = value);
         }
@@ -935,6 +938,7 @@ internal static class OpenAIChatRuntime
                 startedAt,
                 value => firstTokenMs ??= value,
                 value => estimatedOutputTokens += value,
+                () => reasoningStreamed = true,
                 value => finalUsage = value,
                 value => finalStopReason = value);
         }
@@ -952,7 +956,13 @@ internal static class OpenAIChatRuntime
                 Timing: new AgentRuntimeRequestTiming(
                     totalMs,
                     firstTokenMs,
-                    ComputeTps(finalUsage?.OutputTokens ?? estimatedOutputTokens, firstTokenMs, totalMs))));
+                    AgentRuntimeThroughput.ComputeTps(
+                        finalUsage,
+                        estimatedOutputTokens,
+                        reasoningStreamed,
+                        usageIncludesReasoning: true,
+                        firstTokenMs,
+                        totalMs))));
 
         var assistantToolUses = toolCalls
             .Select(call => new AgentRuntimeChatToolUse(call.Id, call.Name, call.Input, call.ExtraContent))
@@ -974,6 +984,7 @@ internal static class OpenAIChatRuntime
         long startedAt,
         Action<long> markFirstTokenMs,
         Action<int> addEstimatedOutputTokens,
+        Action markReasoningStreamed,
         Action<AgentRuntimeTokenUsage> setUsage,
         Action<string> setStopReason)
     {
@@ -1003,6 +1014,8 @@ internal static class OpenAIChatRuntime
             if (!string.IsNullOrEmpty(reasoning))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
+                markReasoningStreamed();
+                addEstimatedOutputTokens(EstimateTokenCount(reasoning));
                 await AgentRuntimeTools.EmitAsync(
                     state,
                     context,
@@ -1026,7 +1039,14 @@ internal static class OpenAIChatRuntime
             {
                 foreach (var fragment in toolCalls.EnumerateArray())
                 {
-                    await ProcessToolCallFragmentAsync(fragment, toolBuffers, state, context);
+                    await ProcessToolCallFragmentAsync(
+                        fragment,
+                        toolBuffers,
+                        state,
+                        context,
+                        startedAt,
+                        markFirstTokenMs,
+                        addEstimatedOutputTokens);
                 }
             }
         }
@@ -1063,6 +1083,7 @@ internal static class OpenAIChatRuntime
         long startedAt,
         Action<long> markFirstTokenMs,
         Action<int> addEstimatedOutputTokens,
+        Action markReasoningStreamed,
         Action<AgentRuntimeTokenUsage> setUsage,
         Action<string> setStopReason)
     {
@@ -1088,6 +1109,7 @@ internal static class OpenAIChatRuntime
             if (!string.IsNullOrEmpty(reasoning))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
+                markReasoningStreamed();
                 await AgentRuntimeTools.EmitAsync(
                     state,
                     context,
@@ -1126,8 +1148,15 @@ internal static class OpenAIChatRuntime
         JsonElement fragment,
         Dictionary<int, ToolCallBuffer> toolBuffers,
         AgentRuntimeTools.AgentRuntimeRunState state,
-        WorkerRequestContext context)
+        WorkerRequestContext context,
+        long startedAt,
+        Action<long> markFirstTokenMs,
+        Action<int> addEstimatedOutputTokens)
     {
+        // Tool-call fragments are generated output too: without this, tool-only
+        // responses never get a first-token mark and report no TTFT/TPS at all.
+        markFirstTokenMs(ElapsedMs(startedAt));
+
         var index = JsonHelpers.GetInt(fragment, "index", toolBuffers.Count);
         if (!toolBuffers.TryGetValue(index, out var buffer))
         {
@@ -1149,6 +1178,7 @@ internal static class OpenAIChatRuntime
             }
             if (JsonHelpers.GetString(function, "arguments") is { } argumentsDelta)
             {
+                addEstimatedOutputTokens(EstimateTokenCount(argumentsDelta));
                 buffer.Arguments.Append(argumentsDelta);
             }
         }
@@ -3177,83 +3207,46 @@ internal static class OpenAIChatRuntime
 
         var maxMessages = Math.Clamp(JsonHelpers.GetInt(contextSource, "maxMessages", 160), 1, 1000);
         using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-        using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = "SELECT COUNT(*) FROM messages WHERE session_id = $sessionId";
-        countCommand.Parameters.AddWithValue("$sessionId", sessionId);
-        var count = Convert.ToInt32(countCommand.ExecuteScalar() ?? 0);
+        var compaction = DbMessageTools.ReadCompaction(connection, null, sessionId);
+        var visibility = BuildContextVisibilityFilter(compaction);
+
+        var count = CountVisibleContextMessages(connection, sessionId, visibility);
         if (count <= 0)
         {
             return new List<JsonElement>();
         }
 
-        var headLimit = count > maxMessages
+        // Long uncompacted sessions still keep a slice of their opening turns so the
+        // original task does not fall out of the window. A compacted session needs no
+        // such sampling: the summary is the opening turns.
+        var headLimit = count > maxMessages && compaction is null
             ? Math.Min(ContextSourceHeadMessageLimit, Math.Max(1, maxMessages / 4))
             : 0;
         var tailLimit = Math.Min(Math.Max(1, maxMessages - headLimit), count);
-        var offset = Math.Max(0, count - tailLimit);
         var rows = new List<ContextSourceMessageRow>();
 
         if (headLimit > 0)
         {
-            using var headCommand = connection.CreateCommand();
-            headCommand.CommandText = """
-                SELECT id, role, content, meta, created_at, usage, sort_order
-                  FROM messages
-                 WHERE session_id = $sessionId
-                 ORDER BY sort_order ASC, created_at ASC
-                 LIMIT $limit OFFSET 0
-                """;
-            headCommand.Parameters.AddWithValue("$sessionId", sessionId);
-            headCommand.Parameters.AddWithValue("$limit", headLimit);
-            using var headReader = headCommand.ExecuteReader();
-            while (headReader.Read())
-            {
-                rows.Add(ReadContextSourceMessageRow(headReader));
-            }
+            ReadVisibleContextRows(connection, sessionId, visibility, headLimit, 0, rows);
         }
-
-        using (var artifactCommand = connection.CreateCommand())
+        ReadVisibleContextRows(
+            connection,
+            sessionId,
+            visibility,
+            tailLimit,
+            Math.Max(headLimit, count - tailLimit),
+            rows);
+        if (compaction is null)
         {
-            artifactCommand.CommandText = """
-                SELECT id, role, content, meta, created_at, usage, sort_order
-                  FROM messages
-                 WHERE session_id = $sessionId
-                   AND (
-                     meta LIKE '%compactBoundary%' OR
-                     meta LIKE '%compactSummary%' OR
-                     content LIKE '%[Context Memory Compressed Summary]%'
-                   )
-                 ORDER BY sort_order ASC, created_at ASC
-                """;
-            artifactCommand.Parameters.AddWithValue("$sessionId", sessionId);
-            using var artifactReader = artifactCommand.ExecuteReader();
-            while (artifactReader.Read())
-            {
-                rows.Add(ReadContextSourceMessageRow(artifactReader));
-            }
-        }
-
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, role, content, meta, created_at, usage, sort_order
-              FROM messages
-             WHERE session_id = $sessionId
-             ORDER BY sort_order ASC, created_at ASC
-             LIMIT $limit OFFSET $offset
-            """;
-        command.Parameters.AddWithValue("$sessionId", sessionId);
-        command.Parameters.AddWithValue("$limit", tailLimit);
-        command.Parameters.AddWithValue("$offset", offset);
-
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            rows.Add(ReadContextSourceMessageRow(reader));
+            // A session compacted by an older build has no recorded cut, so its
+            // marker rows are ordinary history and can sit outside the window.
+            // ApplyCompactRequestView below can only compact what it can see.
+            ReadLegacyCompactArtifactRows(connection, sessionId, rows);
         }
 
         var result = new List<JsonElement>();
         var seenIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var row in rows.OrderBy(row => row.SortOrder).ThenBy(row => row.CreatedAt))
+        foreach (var row in rows.OrderBy(row => row.OrderKey).ThenBy(row => row.CreatedAt))
         {
             if (!seenIds.Add(row.Id))
             {
@@ -3261,16 +3254,147 @@ internal static class OpenAIChatRuntime
             }
             result.Add(row.Message.Clone());
         }
+
+        if (compaction is not null)
+        {
+            WorkerLog.Info(
+                $"context source compaction cut sessionId={sessionId} generation={compaction.Generation} " +
+                $"through={compaction.ThroughSortOrder} visible={count} loaded={result.Count}");
+            return result;
+        }
         return ApplyCompactRequestView(result);
+    }
+
+    /// <summary>
+    /// SQL for the model-visible slice of a session. Without a compaction record
+    /// that is the whole session; with one it is the summary, everything written
+    /// after the recorded cut, and the rows the cut explicitly spares.
+    ///
+    /// `OrderKey` forces the summary ahead of the spared rows, which by definition
+    /// started before the cut, so the model reads the condensed history first.
+    /// </summary>
+    private static ContextVisibilityFilter BuildContextVisibilityFilter(SessionCompactionRow? compaction)
+    {
+        if (compaction is null)
+        {
+            return new ContextVisibilityFilter(string.Empty, "sort_order", Array.Empty<SqlParameterValue>());
+        }
+
+        var parameterValues = new List<SqlParameterValue>
+        {
+            new("$compactThrough", compaction.ThroughSortOrder),
+            new("$compactSummaryId", compaction.SummaryMessageId)
+        };
+        var keepPredicate = new StringBuilder();
+        for (var index = 0; index < compaction.KeepMessageIds.Count; index++)
+        {
+            keepPredicate.Append(index == 0 ? " OR id IN (" : ", ");
+            keepPredicate.Append("$compactKeep").Append(index);
+            parameterValues.Add(new($"$compactKeep{index}", compaction.KeepMessageIds[index]));
+        }
+        if (compaction.KeepMessageIds.Count > 0)
+        {
+            keepPredicate.Append(')');
+        }
+
+        return new ContextVisibilityFilter(
+            $" AND (sort_order > $compactThrough OR id = $compactSummaryId{keepPredicate})",
+            "CASE WHEN id = $compactSummaryId THEN -1 ELSE sort_order END",
+            parameterValues);
+    }
+
+    private static int CountVisibleContextMessages(
+        SqliteConnection connection,
+        string sessionId,
+        ContextVisibilityFilter visibility)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            $"SELECT COUNT(*) FROM messages WHERE session_id = $sessionId{visibility.Predicate}";
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        visibility.Apply(command);
+        return Convert.ToInt32(command.ExecuteScalar() ?? 0);
+    }
+
+    private static void ReadVisibleContextRows(
+        SqliteConnection connection,
+        string sessionId,
+        ContextVisibilityFilter visibility,
+        int limit,
+        int offset,
+        List<ContextSourceMessageRow> rows)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT id, role, content, meta, created_at, usage, sort_order, {visibility.OrderKey} AS order_key
+              FROM messages
+             WHERE session_id = $sessionId{visibility.Predicate}
+             ORDER BY order_key ASC, created_at ASC
+             LIMIT $limit OFFSET $offset
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
+        visibility.Apply(command);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(ReadContextSourceMessageRow(reader));
+        }
+    }
+
+    private static void ReadLegacyCompactArtifactRows(
+        SqliteConnection connection,
+        string sessionId,
+        List<ContextSourceMessageRow> rows)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, role, content, meta, created_at, usage, sort_order, sort_order AS order_key
+              FROM messages
+             WHERE session_id = $sessionId
+               AND (
+                 meta LIKE '%compactBoundary%' OR
+                 meta LIKE '%compactSummary%' OR
+                 content LIKE '%[Context Memory Compressed Summary]%'
+               )
+             ORDER BY sort_order ASC, created_at ASC
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(ReadContextSourceMessageRow(reader));
+        }
+    }
+
+    private sealed record SqlParameterValue(string Name, object Value);
+
+    private sealed record ContextVisibilityFilter(
+        string Predicate,
+        string OrderKey,
+        IReadOnlyList<SqlParameterValue> Parameters)
+    {
+        public void Apply(SqliteCommand command)
+        {
+            foreach (var parameter in Parameters)
+            {
+                command.Parameters.AddWithValue(parameter.Name, parameter.Value);
+            }
+        }
     }
 
     private static ContextSourceMessageRow ReadContextSourceMessageRow(SqliteDataReader reader)
     {
         var id = reader.GetString(0);
         var createdAt = reader.GetInt64(4);
+        var sortOrder = reader.GetInt32(6);
         return new ContextSourceMessageRow(
             id,
-            reader.GetInt32(6),
+            sortOrder,
+            reader.FieldCount > 7 && !reader.IsDBNull(7) ? reader.GetInt64(7) : sortOrder,
             createdAt,
             BuildWireMessageElement(
                 id,
@@ -4364,7 +4488,7 @@ internal static class OpenAIChatRuntime
 
     private static int EstimateTokenCount(string text)
     {
-        return string.IsNullOrWhiteSpace(text) ? 0 : Math.Max(1, text.Length / 4);
+        return AgentRuntimeThroughput.EstimateTokens(text);
     }
 
     private static long ElapsedMs(long startedAt)
@@ -4375,16 +4499,6 @@ internal static class OpenAIChatRuntime
     private static long NowMs()
     {
         return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-    }
-
-    private static double? ComputeTps(int outputTokens, long? firstTokenMs, long completedMs)
-    {
-        if (!firstTokenMs.HasValue || outputTokens <= 0)
-        {
-            return null;
-        }
-        var durationMs = completedMs - firstTokenMs.Value;
-        return durationMs <= 0 ? null : outputTokens / (durationMs / 1000.0);
     }
 
     private sealed class ToolCallBuffer
@@ -4415,6 +4529,7 @@ internal static class OpenAIChatRuntime
     private sealed record ContextSourceMessageRow(
         string Id,
         int SortOrder,
+        long OrderKey,
         long CreatedAt,
         JsonElement Message);
 

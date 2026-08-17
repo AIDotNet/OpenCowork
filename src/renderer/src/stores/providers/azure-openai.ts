@@ -2,7 +2,8 @@ import type { BuiltinProviderPreset } from './types'
 
 export const azureOpenaiPreset: BuiltinProviderPreset = {
   builtinId: 'azure-openai',
-  version: 1,
+  // v2: GPT models default to the 272K short-context tier with an opt-in 1M window
+  version: 2,
   name: 'Azure OpenAI',
   type: 'openai-chat',
   defaultBaseUrl: '',

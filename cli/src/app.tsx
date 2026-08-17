@@ -511,7 +511,11 @@ export function CliApp({
       const height = transcriptWindow.heights[index] ?? 0
       if (row > cursor && row <= cursor + height) {
         const target = transcriptWindow.messages[index]
-        if (target && target.kind === 'tool' && (target.detail || target.summary || target.subAgent?.report)) {
+        if (
+          target &&
+          target.kind === 'tool' &&
+          (target.detail || target.summary || target.subAgent?.report)
+        ) {
           toggleMessageExpanded(target.id)
         }
         return
@@ -766,7 +770,13 @@ export function CliApp({
         return {
           ...current,
           activeResponseCharacters: 0,
+          activeResponseStartedAt: undefined,
           completedOutputTokens: current.completedOutputTokens + outputTokens,
+          generationMs:
+            current.generationMs +
+            (current.activeResponseStartedAt !== undefined
+              ? Math.max(0, Date.now() - current.activeResponseStartedAt)
+              : 0),
           phase: current.phase === 'requesting' ? 'responding' : current.phase,
           requestTokens:
             reportedRequestTokens !== undefined && reportedRequestTokens > 0
@@ -830,6 +840,7 @@ export function CliApp({
           ? {
               ...current,
               activeResponseCharacters: current.activeResponseCharacters + event.text.length,
+              activeResponseStartedAt: current.activeResponseStartedAt ?? Date.now(),
               firstResponseAt: current.firstResponseAt ?? Date.now(),
               phase: 'responding'
             }
@@ -851,6 +862,7 @@ export function CliApp({
           ? {
               ...current,
               activeResponseCharacters: current.activeResponseCharacters + event.thinking.length,
+              activeResponseStartedAt: current.activeResponseStartedAt ?? Date.now(),
               firstResponseAt: current.firstResponseAt ?? Date.now(),
               phase: 'thinking'
             }
@@ -868,12 +880,23 @@ export function CliApp({
     if (event.type === 'assistant.done') {
       if (!event.preserveResponseCharacters) {
         setTurnStatus((current) => {
-          if (!current || current.activeResponseCharacters <= 0) return current
+          if (
+            !current ||
+            (current.activeResponseCharacters <= 0 && current.activeResponseStartedAt === undefined)
+          ) {
+            return current
+          }
           return {
             ...current,
             activeResponseCharacters: 0,
+            activeResponseStartedAt: undefined,
             completedOutputTokens:
-              current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4)
+              current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4),
+            generationMs:
+              current.generationMs +
+              (current.activeResponseStartedAt !== undefined
+                ? Math.max(0, Date.now() - current.activeResponseStartedAt)
+                : 0)
           }
         })
       }
@@ -1082,6 +1105,7 @@ export function CliApp({
     setTurnStatus({
       activeResponseCharacters: 0,
       completedOutputTokens: 0,
+      generationMs: 0,
       id: `turn-${startedAt}`,
       phase: 'requesting',
       requestTokens,
@@ -2097,8 +2121,7 @@ export function CliApp({
       {!fullscreen && committedMessages.length > 0 ? (
         <Static items={groupTranscriptMessages(committedMessages)} key={transcriptEpoch}>
           {(block) => {
-            const blockMessages =
-              block.kind === 'subAgentGroup' ? block.messages : [block.message]
+            const blockMessages = block.kind === 'subAgentGroup' ? block.messages : [block.message]
             return (
               <Transcript
                 key={blockMessages[0]?.id ?? 'block'}

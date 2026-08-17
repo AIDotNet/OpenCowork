@@ -299,28 +299,10 @@ internal static partial class AgentRuntimeContextCompression
         int originalCount,
         int preTokens)
     {
-        var boundaryMessage = CreateBoundaryMessage(
-            trigger,
-            preTokens,
-            messagesToCompress.Count,
-            messagesToPreserve,
-            out var summaryId,
-            out var boundaryCreatedAt);
-        var summaryMessage = CreateSummaryMessage(
-            summaryId,
-            summary,
-            messagesToCompress.Count,
-            messagesToPreserve.Count > 0,
-            summarizerFailed: false,
-            // Keep the summary strictly after the boundary so createdAt-based
-            // reordering can never flip the pair.
-            boundaryCreatedAt + 1);
+        var summaryId = $"oc_{Guid.NewGuid():N}";
+        var summaryMessage = CreateSummaryMessage(summaryId, summary);
 
-        var compressedMessages = new List<JsonElement>(2 + messagesToPreserve.Count)
-        {
-            boundaryMessage,
-            summaryMessage
-        };
+        var compressedMessages = new List<JsonElement>(1 + messagesToPreserve.Count) { summaryMessage };
         compressedMessages.AddRange(messagesToPreserve);
         return new AgentRuntimeContextCompressionResponse(
             compressedMessages.ToArray(),
@@ -328,7 +310,23 @@ internal static partial class AgentRuntimeContextCompression
                 true,
                 originalCount,
                 compressedMessages.Count,
-                messagesToCompress.Count));
+                messagesToCompress.Count,
+                SummaryMessageId: summaryId,
+                CompactedMessageIds: CollectMessageIds(messagesToCompress)));
+    }
+
+    /// <summary>
+    /// Ids the host can match against its transcript. Messages the loop created
+    /// itself carry ids the host never stored; reporting them anyway is harmless
+    /// because the host resolves the cut from whichever ids it recognizes.
+    /// </summary>
+    private static string[] CollectMessageIds(IReadOnlyList<JsonElement> messages)
+    {
+        return messages
+            .Select(message => JsonHelpers.GetString(message, "id"))
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id!)
+            .ToArray();
     }
 
     private static AgentRuntimeContextCompressionResponse BuildCompressionFailureResult(
@@ -786,84 +784,21 @@ internal static partial class AgentRuntimeContextCompression
         return result;
     }
 
-    private static JsonElement CreateBoundaryMessage(
-        string trigger,
-        int preTokens,
-        int messagesSummarized,
-        IReadOnlyList<JsonElement> preservedMessages,
-        out string summaryId,
-        out long createdAt)
-    {
-        var generatedSummaryId = $"oc_{Guid.NewGuid():N}";
-        summaryId = generatedSummaryId;
-        var boundaryId = $"oc_{Guid.NewGuid():N}";
-        var boundaryCreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        createdAt = boundaryCreatedAt;
-        var headId = preservedMessages.Count > 0 ? JsonHelpers.GetString(preservedMessages[0], "id") : null;
-        var tailId = preservedMessages.Count > 0
-            ? JsonHelpers.GetString(preservedMessages[^1], "id")
-            : null;
-        return CreateObjectElement(writer =>
-        {
-            writer.WriteString("id", boundaryId);
-            writer.WriteString("role", "system");
-            writer.WriteString("content", "Conversation compacted");
-            writer.WriteNumber("createdAt", boundaryCreatedAt);
-            writer.WritePropertyName("meta");
-            writer.WriteStartObject();
-            writer.WritePropertyName("compactBoundary");
-            writer.WriteStartObject();
-            writer.WriteString("trigger", trigger);
-            writer.WriteNumber("preTokens", preTokens);
-            writer.WriteNumber("messagesSummarized", messagesSummarized);
-            // Pair the boundary with its summary by id so request-view building
-            // survives any later reordering of the two rows.
-            writer.WriteString("summaryId", generatedSummaryId);
-            if (!string.IsNullOrWhiteSpace(headId) && !string.IsNullOrWhiteSpace(tailId))
-            {
-                writer.WritePropertyName("preservedSegment");
-                writer.WriteStartObject();
-                writer.WriteString("headId", headId);
-                writer.WriteString("anchorId", generatedSummaryId);
-                writer.WriteString("tailId", tailId);
-                writer.WriteEndObject();
-            }
-            writer.WriteEndObject();
-            writer.WriteEndObject();
-        });
-    }
-
-    private static JsonElement CreateSummaryMessage(
-        string id,
-        string summary,
-        int messagesSummarized,
-        bool recentMessagesPreserved,
-        bool summarizerFailed,
-        long? createdAt = null)
+    /// <summary>
+    /// The summary is an ordinary user message carrying nothing but the summary
+    /// text — no marker role, no meta type, no lead-in describing that a
+    /// compression happened. The compaction record identifies it by id, so
+    /// nothing downstream has to recognize it by shape, and the UI draws the
+    /// compaction divider from that record rather than from the message body.
+    /// </summary>
+    private static JsonElement CreateSummaryMessage(string id, string summary)
     {
         return CreateObjectElement(writer =>
         {
             writer.WriteString("id", id);
             writer.WriteString("role", "user");
-            writer.WriteString(
-                "content",
-                "[Context Memory Compressed Summary]\n\n" +
-                $"The following summary covers {messagesSummarized} earlier messages. " +
-                "Continue from this summary plus any messages that appear after the compression point.\n\n" +
-                summary);
-            writer.WriteNumber("createdAt", createdAt ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            writer.WritePropertyName("meta");
-            writer.WriteStartObject();
-            writer.WritePropertyName("compactSummary");
-            writer.WriteStartObject();
-            writer.WriteNumber("messagesSummarized", messagesSummarized);
-            writer.WriteBoolean("recentMessagesPreserved", recentMessagesPreserved);
-            if (summarizerFailed)
-            {
-                writer.WriteBoolean("summarizerFailed", true);
-            }
-            writer.WriteEndObject();
-            writer.WriteEndObject();
+            writer.WriteString("content", summary.Trim());
+            writer.WriteNumber("createdAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         });
     }
 

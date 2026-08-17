@@ -2,6 +2,7 @@
 // o200k model catalog, even though this estimator is intentionally cl100k-based.
 import { encode } from 'gpt-tokenizer/encoding/cl100k_base'
 import type { TokenUsage, AIModelConfig, ProviderType } from './api/types'
+import { resolveModelPrices } from './model-pricing'
 
 /**
  * Format a token count into a compact, human-readable string.
@@ -130,16 +131,33 @@ export function getBillableTotalTokens(
   return getBillableInputTokens(usage, requestType) + (usage.outputTokens ?? 0)
 }
 
+/**
+ * Whole billed input side of a request (billable input + cache read + cache write).
+ * This is the size tier-priced models bracket on.
+ */
+export function getPromptTokens(
+  usage: TokenUsage,
+  requestType?: ProviderType | AIModelConfig['type']
+): number {
+  return (
+    getBillableInputTokens(usage, requestType) +
+    Math.max(0, usage.cacheReadTokens ?? 0) +
+    getCacheCreationTokens(usage)
+  )
+}
+
 export function resolveCacheCreationCost(
   usage: TokenUsage,
-  model: AIModelConfig | null | undefined
+  model: AIModelConfig | null | undefined,
+  at?: Date
 ): { price: number | null; cost: number | null } {
+  const prices = resolveModelPrices(model, at, getPromptTokens(usage, model?.type))
   const totalCacheCreationTokens = getCacheCreationTokens(usage)
 
   if (totalCacheCreationTokens <= 0) {
     return {
       price:
-        model?.cacheCreationPrice ?? (model?.inputPrice != null ? model.inputPrice * 1.25 : null),
+        prices.cacheCreationPrice ?? (prices.inputPrice != null ? prices.inputPrice * 1.25 : null),
       cost: 0
     }
   }
@@ -147,8 +165,8 @@ export function resolveCacheCreationCost(
   const { fiveMinuteTokens: cacheCreation5mTokens, oneHourTokens: cacheCreation1hTokens } =
     getCacheCreationSplit(usage)
   const cacheCreation5mPrice =
-    model?.cacheCreationPrice ?? (model?.inputPrice != null ? model.inputPrice * 1.25 : null)
-  const cacheCreation1hPrice = model?.inputPrice != null ? model.inputPrice * 2 : null
+    prices.cacheCreationPrice ?? (prices.inputPrice != null ? prices.inputPrice * 1.25 : null)
+  const cacheCreation1hPrice = prices.inputPrice != null ? prices.inputPrice * 2 : null
 
   if (cacheCreation5mPrice == null || (cacheCreation1hTokens > 0 && cacheCreation1hPrice == null)) {
     return { price: null, cost: null }
@@ -175,14 +193,16 @@ export interface TokenCostBreakdown {
 
 export function calculateCostBreakdown(
   usage: TokenUsage,
-  model: AIModelConfig | null | undefined
+  model: AIModelConfig | null | undefined,
+  at?: Date
 ): TokenCostBreakdown {
-  const inputPrice = model?.inputPrice ?? null
-  const outputPrice = model?.outputPrice ?? null
+  const prices = resolveModelPrices(model, at, getPromptTokens(usage, model?.type))
+  const inputPrice = prices.inputPrice
+  const outputPrice = prices.outputPrice
   const cacheCreationTokens = getCacheCreationTokens(usage)
   const billableInput = getBillableInputTokens(usage, model?.type)
-  const cacheReadPrice = model?.cacheHitPrice ?? (inputPrice != null ? inputPrice * 0.1 : null)
-  const { cost: cacheCreationCost } = resolveCacheCreationCost(usage, model)
+  const cacheReadPrice = prices.cacheHitPrice ?? (inputPrice != null ? inputPrice * 0.1 : null)
+  const { cost: cacheCreationCost } = resolveCacheCreationCost(usage, model, at)
 
   const inputCost = inputPrice == null ? null : (billableInput * inputPrice) / 1_000_000
   const outputCost =
@@ -212,12 +232,14 @@ export function calculateCostBreakdown(
  */
 export function calculateCost(
   usage: TokenUsage,
-  model: AIModelConfig | null | undefined
+  model: AIModelConfig | null | undefined,
+  at?: Date
 ): number | null {
-  if (!model || model.inputPrice == null || model.outputPrice == null) return null
+  const prices = resolveModelPrices(model, at, getPromptTokens(usage, model?.type))
+  if (!model || prices.inputPrice == null || prices.outputPrice == null) return null
 
   const cacheCreationTokens = getCacheCreationTokens(usage)
-  const { totalCost, cacheCreationCost } = calculateCostBreakdown(usage, model)
+  const { totalCost, cacheCreationCost } = calculateCostBreakdown(usage, model, at)
   if (cacheCreationTokens > 0 && cacheCreationCost == null) return null
   return totalCost
 }

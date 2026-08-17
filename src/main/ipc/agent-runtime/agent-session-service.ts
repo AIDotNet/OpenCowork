@@ -12,8 +12,17 @@ import { assistantMessageIdForRun } from '../../../shared/runtime-projection/red
 import type {
   AssembleSessionIntent,
   AssembledSessionContext,
+  AssembledWireMessage,
   RunContextAssemblerDeps
 } from './run-context-assembler'
+import { hostedSessionPrefixIdentity } from './run-context-assembler'
+import {
+  applyCompactWatermark,
+  compactWatermarkFence,
+  deriveCompactWatermarkFromTranscript,
+  type CompactWatermark,
+  type WatermarkMessage
+} from '../../../shared/compact-watermark'
 import {
   listUnpinnedToolNames,
   buildVolatilePromptTurnContext
@@ -29,6 +38,12 @@ export type AgentSessionServiceDeps = {
   request: (method: string, params?: unknown, timeoutMs?: number) => Promise<unknown>
   assemble: (intent: AssembleSessionIntent) => Promise<AssembledSessionContext>
   nextRunId?: () => string
+  /**
+   * Recorded compaction cut, used to re-apply the cut to renderer-assembled run
+   * payloads. Main owns the cut, so it enforces it here rather than trusting
+   * whatever view the caller happened to build.
+   */
+  readCompaction?: (sessionId: string) => Promise<CompactWatermark | null>
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -76,6 +91,9 @@ function acceptedRun(sessionId: string, runId: string, assistantMessageId: strin
   }
 }
 
+// `connection` is re-sent every turn on purpose: the Worker keeps hosted sessions on
+// disk across restarts, so pinning SSH credentials to the open template would both
+// persist them and keep using stale ones after the user edits the connection.
 const SESSION_SEND_TURN_KEYS = [
   'requestContextTexts',
   'planMode',
@@ -83,7 +101,13 @@ const SESSION_SEND_TURN_KEYS = [
   'planExecution',
   'planModeAllowedTools',
   'commandMetadata',
-  'attachmentIds'
+  'slashCommand',
+  'systemCommand',
+  'attachmentIds',
+  'connection',
+  // Per-turn: a reused hosted session keeps the open-time template, so Dev Mode
+  // toggled after session-open would otherwise never reach PrepareBodyFile.
+  'includeFullDebugBody'
 ] as const
 
 export class AgentSessionService {
@@ -112,7 +136,7 @@ export class AgentSessionService {
         await this.deps.request(
           'agent/session-open',
           {
-            ...assembled.openTemplate,
+            ...omitPinnedCommandFields(assembled.openTemplate),
             messages: [...assembled.historyMessages, ...assembled.turnMessages]
           },
           30_000
@@ -137,6 +161,62 @@ export class AgentSessionService {
       })
       return { ok: false, sessionId: params.sessionId, messageCount: 0 }
     }
+  }
+
+  /**
+   * Route a renderer-assembled `agent:run` payload through hosted session-open +
+   * session-send. Returns null when the payload is not a session-scoped turn
+   * (caller should keep the legacy `agent/run` path).
+   */
+  async startAssembledRun(
+    params: Record<string, unknown>,
+    options?: { runId?: string }
+  ): Promise<StartRunResult | null> {
+    if (!this.deps.isRunning()) return null
+    const sessionId = typeof params.sessionId === 'string' ? params.sessionId.trim() : ''
+    if (!sessionId || !isRecord(params.provider)) return null
+    if (params.providerTurnOnly === true || params.goalRunSource === 'continue') return null
+    if (Array.isArray(params.liveOverlayMessages) && params.liveOverlayMessages.length > 0) {
+      return null
+    }
+
+    const messages = Array.isArray(params.messages) ? params.messages : []
+    const { history, turn } = splitAssembledTurnMessages(messages)
+    if (turn.length === 0) return null
+
+    // A session compacted by an older build has no record; its cut is derived
+    // from the marker rows the caller still carries so the enforcement below
+    // covers legacy sessions too.
+    const compaction =
+      (await this.deps.readCompaction?.(sessionId)) ??
+      deriveCompactWatermarkFromTranscript(history as WatermarkMessage[])
+
+    // Re-apply the recorded cut. The caller assembled this payload from its own
+    // view of the transcript; if that view predates the last compaction, sending
+    // it as-is is exactly how summarized turns get back into the context window.
+    const cutHistory = applyCompactWatermark(history as WatermarkMessage[], compaction)
+    if (cutHistory.length !== history.length) {
+      console.log('[agent-session-service] Re-applied compaction cut to assembled run', {
+        sessionId,
+        before: history.length,
+        after: cutHistory.length,
+        throughSortOrder: compaction?.throughSortOrder ?? null
+      })
+    }
+
+    const { messages: _messages, runId: _runId, ...template } = params
+    const assembled: AssembledSessionContext = {
+      openTemplate: { ...template, messages: cutHistory },
+      historyMessages: cutHistory as AssembledWireMessage[],
+      turnMessages: turn as AssembledWireMessage[],
+      prefixIdentity: prefixIdentityFromAssembledParams(params, compaction)
+    }
+
+    if (!this.canReuseOpenSession(sessionId, assembled.prefixIdentity)) {
+      const opened = await this.openWithTemplate(assembled)
+      if (!opened) return rejectedRun(sessionId, 'unknown', options?.runId ?? '')
+    }
+    return await this.sendTurnMessages(sessionId, assembled, true, options?.runId)
   }
 
   async startRun(params: StartRunParams): Promise<StartRunResult> {
@@ -244,14 +324,16 @@ export class AgentSessionService {
       await this.deps.request(
         'agent/session-open',
         {
-          ...assembled.openTemplate,
+          ...omitPinnedCommandFields(assembled.openTemplate),
           messages: assembled.historyMessages
         },
         30_000
       )
     )
     const sessionId =
-      typeof result.sessionId === 'string' ? result.sessionId : String(assembled.openTemplate.sessionId ?? '')
+      typeof result.sessionId === 'string'
+        ? result.sessionId
+        : String(assembled.openTemplate.sessionId ?? '')
     if (result.ok === true && sessionId) {
       this.rememberOpenPrefix(sessionId, assembled)
       return true
@@ -263,9 +345,10 @@ export class AgentSessionService {
   private async sendTurnMessages(
     sessionId: string,
     assembled: AssembledSessionContext,
-    retryOnEvict: boolean
+    retryOnEvict: boolean,
+    runIdOverride?: string
   ): Promise<StartRunResult> {
-    const requestedRunId = this.deps.nextRunId?.().trim() || undefined
+    const requestedRunId = runIdOverride?.trim() || this.deps.nextRunId?.().trim() || undefined
     const payload: Record<string, unknown> = {
       sessionId,
       messages: assembled.turnMessages
@@ -294,7 +377,7 @@ export class AgentSessionService {
         this.openPrefix.delete(sessionId)
         const reopened = await this.openWithTemplate(assembled)
         if (!reopened) return rejectedRun(sessionId, 'session_evicted', requestedRunId ?? '')
-        return await this.sendTurnMessages(sessionId, assembled, false)
+        return await this.sendTurnMessages(sessionId, assembled, false, requestedRunId)
       }
       console.warn('[agent-session-service] session-send failed', {
         sessionId,
@@ -304,6 +387,69 @@ export class AgentSessionService {
       return rejectedRun(sessionId, errorCode ?? 'unknown', requestedRunId ?? '')
     }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function splitAssembledTurnMessages(messages: unknown[]): {
+  history: Record<string, unknown>[]
+  turn: Record<string, unknown>[]
+} {
+  const list = messages.filter(isRecord)
+  let end = list.length
+  while (end > 0 && isEmptyAssistant(list[end - 1]!)) end -= 1
+  let start = end
+  while (start > 0 && isUserContentTurn(list[start - 1]!)) start -= 1
+  if (start >= end) {
+    return { history: list.slice(0, end), turn: [] }
+  }
+  return { history: list.slice(0, start), turn: list.slice(start, end) }
+}
+
+function isEmptyAssistant(message: Record<string, unknown>): boolean {
+  if (message.role !== 'assistant') return false
+  const content = message.content
+  if (typeof content === 'string') return content.trim().length === 0
+  if (Array.isArray(content)) return content.length === 0
+  return true
+}
+
+function isUserContentTurn(message: Record<string, unknown>): boolean {
+  if (message.role !== 'user') return false
+  const content = message.content
+  if (!Array.isArray(content)) return true
+  return content.some((block) => {
+    if (!isRecord(block)) return true
+    return block.type !== 'tool_result'
+  })
+}
+
+function prefixIdentityFromAssembledParams(
+  params: Record<string, unknown>,
+  compaction: CompactWatermark | null
+): string {
+  const provider = isRecord(params.provider) ? params.provider : {}
+  const snapshot = isRecord(params.capabilitySnapshot) ? params.capabilitySnapshot : {}
+  const mode =
+    readTrimmed(params.sessionPromptMode) ||
+    readTrimmed(snapshot.mode) ||
+    readTrimmed(params.sessionMode) ||
+    ''
+  return hostedSessionPrefixIdentity({
+    sessionId: readTrimmed(params.sessionId),
+    mode,
+    providerId: readTrimmed(provider.providerId),
+    modelId: readTrimmed(provider.model),
+    workingFolder: typeof params.workingFolder === 'string' ? params.workingFolder : null,
+    sshConnectionId: typeof params.sshConnectionId === 'string' ? params.sshConnectionId : null,
+    compactFence: compactWatermarkFence(compaction)
+  })
+}
+
+function readTrimmed(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
 }
 
 function toAssembleIntent(params: StartRunParams): AssembleSessionIntent {
@@ -316,6 +462,13 @@ function toAssembleIntent(params: StartRunParams): AssembleSessionIntent {
     attachmentIds: params.attachmentIds,
     commandMetadata: params.commandMetadata
   }
+}
+
+function omitPinnedCommandFields(
+  template: Record<string, unknown>
+): Record<string, unknown> {
+  const { slashCommand: _slashCommand, systemCommand: _systemCommand, ...rest } = template
+  return rest
 }
 
 function copySessionSendTurnFields(

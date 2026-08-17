@@ -10,6 +10,8 @@ internal static class RuntimeJobCoordinator
     private static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan EventRetention = TimeSpan.FromHours(24);
     private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromHours(1);
+    private static readonly TimeSpan HostedSessionRetention = TimeSpan.FromDays(14);
+    private const int HostedSessionMaxRows = 256;
     private static readonly int MaxConcurrentJobs = Math.Clamp(Environment.ProcessorCount, 4, 12);
     private const int MaxUnackedEventBatches = 32;
     private const long MaxUnackedEventBytes = 4L * 1024 * 1024;
@@ -262,6 +264,9 @@ internal static class RuntimeJobCoordinator
                     $"runtime jobs marked interrupted hostId={hostId} count={interrupted}");
             }
             RuntimeJobStore.CleanupEvents(now - (long)EventRetention.TotalMilliseconds);
+            RuntimeJobStore.CleanupHostedSessions(
+                now - (long)HostedSessionRetention.TotalMilliseconds,
+                HostedSessionMaxRows);
             schedulerTask = Task.Run(() => SchedulerLoopAsync(Lifetime.Token), CancellationToken.None);
         }
     }

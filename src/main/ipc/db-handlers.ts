@@ -29,7 +29,6 @@ import {
   DB_MESSAGES_CLEAR_MSGPACK_CHANNEL,
   DB_MESSAGES_COUNT_MSGPACK_CHANNEL,
   DB_MESSAGES_DELETE_MSGPACK_CHANNEL,
-  DB_MESSAGES_INSERT_ARTIFACTS_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_LOCATOR_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL,
@@ -83,9 +82,16 @@ import {
   USAGE_EVENTS_LIST_MSGPACK_CHANNEL,
   USAGE_EVENTS_OVERVIEW_MSGPACK_CHANNEL,
   USAGE_EVENTS_TIMELINE_MSGPACK_CHANNEL,
+  DB_SESSION_COMPACTION_COMMIT_MSGPACK_CHANNEL,
+  DB_SESSION_COMPACTION_GET_MSGPACK_CHANNEL,
   decodeMessagePackPayload,
   encodeMessagePackPayload
 } from '../../shared/messagepack/binary-ipc'
+import {
+  readSessionCompaction,
+  recordSessionCompaction,
+  type RecordSessionCompactionInput
+} from './agent-runtime/session-compaction'
 
 const CHAT_SESSION_UPDATED = 'chat:session-updated'
 const CHAT_SESSION_DELETED = 'chat:session-deleted'
@@ -538,14 +544,20 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
     return await addMessagesBatch(decodeMessagePackPayload<messagesDao.MessageInput[]>(bytes))
   })
 
+  ipcMain.handle(DB_SESSION_COMPACTION_GET_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{ sessionId: string }>(bytes)
+    return encodeMessagePackPayload(await readSessionCompaction(args.sessionId))
+  })
+
+  // Manual `/compact` is a plain request/response call, so it produces no
+  // `context_compressed` stream frame for the durable consumer to record. The
+  // renderer reports the result here so a manual compaction cuts the context
+  // exactly like an automatic one.
   ipcMain.handle(
-    DB_MESSAGES_INSERT_ARTIFACTS_MSGPACK_CHANNEL,
+    DB_SESSION_COMPACTION_COMMIT_MSGPACK_CHANNEL,
     async (_event, bytes: Uint8Array) => {
-      const args =
-        decodeMessagePackPayload<Parameters<typeof messagesDao.insertMessageArtifacts>[0]>(bytes)
-      const result = await messagesDao.insertMessageArtifacts(args)
-      await emitSessionUpdated(args.sessionId, 'messages-artifacts-inserted')
-      return result
+      const args = decodeMessagePackPayload<RecordSessionCompactionInput>(bytes)
+      return encodeMessagePackPayload(await recordSessionCompaction(args))
     }
   )
 

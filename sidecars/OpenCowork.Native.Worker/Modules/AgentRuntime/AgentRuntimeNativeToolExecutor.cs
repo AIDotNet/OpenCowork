@@ -203,9 +203,12 @@ internal static class AgentRuntimeNativeToolExecutor
             return false;
         }
 
+        // An SSH-bound run must never silently fall back to the local filesystem, and a
+        // missing connection payload is a host wiring problem rather than an unknown tool.
+        // Claim the call either way so the SSH executor can report an actionable error.
         if (AgentRuntimeSshToolExecutor.ShouldRoute(parameters))
         {
-            return AgentRuntimeSshToolExecutor.CanExecute(toolName, parameters);
+            return AgentRuntimeSshToolExecutor.IsSshTool(toolName);
         }
 
         return true;

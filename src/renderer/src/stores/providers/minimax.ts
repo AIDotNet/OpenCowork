@@ -122,7 +122,8 @@ export const minimaxCodingPreset: BuiltinProviderPreset = {
 
 export const minimaxPreset: BuiltinProviderPreset = {
   builtinId: 'minimax',
-  version: 1,
+  // v2: M3 carries its documented >512k long-context pricing tier
+  version: 2,
   name: 'MiniMax（官方）',
   type: 'anthropic',
   defaultBaseUrl: 'https://api.minimaxi.com/anthropic',
@@ -148,7 +149,16 @@ export const minimaxPreset: BuiltinProviderPreset = {
       },
       inputPrice: 0.29,
       outputPrice: 1.17,
-      cacheHitPrice: 0.06
+      cacheHitPrice: 0.06,
+      // Long-context tier: prompts above 512k tokens bill at 2× the standard rate.
+      pricingTiers: [
+        {
+          minPromptTokens: 512_001,
+          inputPrice: 0.58,
+          outputPrice: 2.34,
+          cacheHitPrice: 0.12
+        }
+      ]
     },
     {
       id: 'MiniMax-M2.7',

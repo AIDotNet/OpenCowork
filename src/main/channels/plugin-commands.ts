@@ -615,11 +615,13 @@ async function handleStats(ctx: CommandContext, args: string): Promise<CommandRe
 
     if (stats.totalDurationMs > 0) {
       const totalSec = stats.totalDurationMs / 1000
-      const tps = totalSec > 0 ? totalTokens / totalSec : 0
+      // Throughput counts generated (output) tokens only — input tokens are
+      // prompt context, not something the model produced per second.
+      const tps = totalSec > 0 ? stats.totalOutput / totalSec : 0
       lines.push(
         `⏱️ Total Time: ${totalSec < 60 ? `${totalSec.toFixed(1)}s` : `${(totalSec / 60).toFixed(1)}min`}`
       )
-      lines.push(`⚡ TPS: ${tps.toFixed(1)}`)
+      lines.push(`⚡ Output TPS: ${tps.toFixed(1)}`)
     }
 
     // Session time range

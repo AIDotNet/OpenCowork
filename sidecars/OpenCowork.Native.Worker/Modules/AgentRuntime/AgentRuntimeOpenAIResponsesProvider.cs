@@ -184,7 +184,13 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 Timing: new AgentRuntimeRequestTiming(
                     totalMs,
                     parseState.FirstTokenMs,
-                    ComputeTps(parseState.Usage?.OutputTokens ?? parseState.EstimatedOutputTokens, parseState.FirstTokenMs, totalMs)),
+                    AgentRuntimeThroughput.ComputeTps(
+                        parseState.Usage,
+                        parseState.EstimatedOutputTokens,
+                        parseState.ReasoningStreamedLive,
+                        usageIncludesReasoning: true,
+                        parseState.FirstTokenMs,
+                        totalMs)),
                 ProviderResponseId: parseState.ProviderResponseId));
 
         return new AgentRuntimeProviderTurnResult(

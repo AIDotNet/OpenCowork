@@ -1,3 +1,4 @@
+import { resolveEffectiveModelContextLength } from '../../shared/gpt-context'
 import { resolveApiUserAgent } from './api-user-agent'
 
 export type ProviderType =
@@ -89,6 +90,11 @@ export type AIModelConfig = {
   enabled?: boolean
   type?: ProviderType
   category?: string
+  contextLength?: number
+  enableExtendedContextCompression?: boolean
+  enableLongContext?: boolean
+  longContextLength?: number
+  supportsLongContext?: boolean
   maxOutputTokens?: number
   thinkingConfig?: ThinkingConfig
   requestOverrides?: RequestOverrides
@@ -359,6 +365,65 @@ export function buildProviderConfigById(
     maxTokens: getEffectiveMaxTokens(settings, model),
     temperature: Number(settings.temperature ?? 0.7)
   }
+}
+
+export function resolveModelCompressionProfile(
+  state: PersistedProvidersState,
+  providerId: string,
+  modelId: string
+): {
+  id?: string
+  category?: string
+  contextLength?: number
+  enableExtendedContextCompression?: boolean
+  enableLongContext?: boolean
+  longContextLength?: number
+  supportsLongContext?: boolean
+  maxOutputTokens?: number
+} | null {
+  if (!providerId || !modelId) return null
+  const provider = state.providers.find((item) => item.id === providerId)
+  const model = provider?.models.find((item) => item.id === modelId)
+  if (!model) return null
+  const contextLength = resolveEffectiveModelContextLength(model)
+  return {
+    id: model.id,
+    ...(model.category ? { category: model.category } : {}),
+    ...(typeof contextLength === 'number' && contextLength > 0 ? { contextLength } : {}),
+    ...(typeof model.enableExtendedContextCompression === 'boolean'
+      ? { enableExtendedContextCompression: model.enableExtendedContextCompression }
+      : {}),
+    ...(typeof model.enableLongContext === 'boolean'
+      ? { enableLongContext: model.enableLongContext }
+      : {}),
+    ...(typeof model.longContextLength === 'number' && model.longContextLength > 0
+      ? { longContextLength: model.longContextLength }
+      : {}),
+    ...(typeof model.supportsLongContext === 'boolean'
+      ? { supportsLongContext: model.supportsLongContext }
+      : {}),
+    ...(typeof model.maxOutputTokens === 'number' && model.maxOutputTokens > 0
+      ? { maxOutputTokens: model.maxOutputTokens }
+      : {})
+  }
+}
+
+export function getCompressionProviderConfig(
+  state: PersistedProvidersState,
+  settings: Record<string, unknown>
+): ProviderRunConfig | null {
+  const binding = settings.contextCompressionModel
+  if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return null
+  const record = binding as Record<string, unknown>
+  const providerId = typeof record.providerId === 'string' ? record.providerId.trim() : ''
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : ''
+  if (!providerId || !modelId) return null
+  const provider = state.providers.find((item) => item.id === providerId)
+  const model = provider?.models.find((item) => item.id === modelId)
+  if (!provider || model?.enabled !== true || (model.category ?? 'chat') !== 'chat') {
+    return null
+  }
+  return buildProviderConfigById(state, settings, providerId, modelId)
 }
 
 export function getFastProviderConfig(

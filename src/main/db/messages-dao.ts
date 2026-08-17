@@ -1,4 +1,7 @@
 import { getNativeWorker } from '../lib/native-worker'
+import type { CompactWatermark } from '../../shared/compact-watermark'
+
+export type CompactWatermarkRow = CompactWatermark & { sessionId: string }
 
 export interface MessageRow {
   id: string
@@ -103,11 +106,16 @@ export interface MessageContentResult {
   error?: string | null
 }
 
-export interface MessageInsertArtifactsResult {
+export interface SessionCompactionResult {
   success: boolean
-  inserted: number
-  start: number
-  end: number
+  compaction?: CompactWatermarkRow | null
+  error?: string | null
+}
+
+export interface SessionCompactionCommitResult {
+  success: boolean
+  compaction?: CompactWatermarkRow | null
+  summarySortOrder: number
   total: number
   error?: string | null
 }
@@ -221,27 +229,43 @@ export function getMessagesWindowAround(args: {
   return getNativeWorker().request<MessageWindowResult>('db/messages-window-around', args, 120_000)
 }
 
-export async function insertMessageArtifacts(args: {
+export function getSessionCompactionRow(sessionId: string): Promise<SessionCompactionResult> {
+  return getNativeWorker().request<SessionCompactionResult>(
+    'db/session-compaction-get',
+    { sessionId },
+    120_000
+  )
+}
+
+/**
+ * Persists the compaction summary and the cut it represents in one transaction.
+ * Callers must treat a rejection as "the session is not compacted yet" and keep
+ * sending the full history rather than assume a cut that was never written.
+ */
+export async function commitSessionCompaction(args: {
   sessionId: string
-  insertSortOrder: number
-  insertBeforeMessageId?: string | null
-  messages: Array<{
+  /** The Worker assigns the summary's position, so no sortOrder is passed in. */
+  summaryMessage: {
     id: string
     role: string
     content: string
     meta?: string | null
     createdAt: number
-    usage?: string | null
-    sortOrder: number
-  }>
-}): Promise<MessageInsertArtifactsResult> {
-  const result = await getNativeWorker().request<MessageInsertArtifactsResult>(
-    'db/messages-insert-artifacts',
+  }
+  compactedMessageIds: string[]
+  keepMessageIds: string[]
+  compactedMessageCount: number
+  trigger: 'auto' | 'manual'
+  preTokens: number
+  createdAt: number
+}): Promise<SessionCompactionCommitResult> {
+  const result = await getNativeWorker().request<SessionCompactionCommitResult>(
+    'db/session-compaction-commit',
     args,
     120_000
   )
   if (!result.success) {
-    throw new Error(result.error || 'Native message artifact insert failed')
+    throw new Error(result.error || 'Native session compaction commit failed')
   }
   return result
 }

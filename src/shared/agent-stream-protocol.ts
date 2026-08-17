@@ -268,9 +268,20 @@ export type AgentStreamEvent =
       type: 'context_compressed'
       originalCount: number
       newCount: number
-      /** Number of older messages that were summarized (kept visible in UI under the new model). */
+      /** Number of earlier messages folded into the summary. */
       keptMessageCount?: number
-      compactArtifacts?: MessageWire[]
+      summarizerFailed?: boolean
+      /** Context tokens measured when compression was triggered. */
+      preTokens?: number
+      /** Plain user message carrying the summary text, for the host to persist. */
+      compactSummaryMessage?: MessageWire
+      /** Messages the summary replaced, so the host can record the compaction cut. */
+      compactedMessageIds?: string[]
+      /**
+       * The turn that was streaming when compression ran. It is inside the
+       * compacted range but keeps producing output, so the cut must spare it.
+       */
+      assistantMessageId?: string
       messages?: MessageWire[]
     }
   // Sub-agent events

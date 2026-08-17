@@ -35,7 +35,9 @@ const projection = run(process.execPath, [
   'scripts/test/session-mode-tools.test.ts',
   'scripts/test/hosted-session-run.test.ts',
   'scripts/test/session-scope.test.ts',
-  'scripts/test/compact-request-view.test.ts'
+  'scripts/test/compact-request-view.test.ts',
+  'scripts/test/compact-watermark.test.ts',
+  'scripts/test/system-command.test.ts'
 ])
 if (projection.status !== 0) {
   process.stderr.write(projection.stderr || projection.stdout || '')
@@ -71,5 +73,5 @@ if (clean.status !== 0) {
 }
 
 console.log(
-  '[verify:runtime-projection] Passed: snapshot/patches parity, overflow snapshot, expired attach, batched reduction, overlay merge, durable ACK-after-projection, UI capability pending map, hosted session reopen-on-evict, assembler tools/capability snapshot, cron hosted-session extras, shared system prompt parity, worker-native catalog families, host MCP/plugin/browser catalog, hosted team coordinator prompt, worker-allocated assistant message id, interactive hosted startRun path, renderer-runtime ratchet.'
+  '[verify:runtime-projection] Passed: snapshot/patches parity, overflow snapshot, expired attach, batched reduction, overlay merge, durable ACK-after-projection, UI capability pending map, hosted session reopen-on-evict, assembler tools/capability snapshot, cron hosted-session extras, shared system prompt parity, worker-native catalog families, host MCP/plugin/browser catalog, hosted team coordinator prompt, worker-allocated assistant message id, interactive hosted startRun path, compaction cut/fence/legacy derivation, renderer-runtime ratchet.'
 )

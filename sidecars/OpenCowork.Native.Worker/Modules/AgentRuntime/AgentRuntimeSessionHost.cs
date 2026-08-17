@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using OpenCowork.Contracts.Generated;
 
@@ -10,12 +11,21 @@ using OpenCowork.Contracts.Generated;
 /// turn instead of rebuilding and re-sending the whole run request. agent/run stays
 /// unchanged; session-send composes a full run request from stored state and executes it
 /// through the same job path, streams, approvals, and cancellation as agent/run.
+///
+/// Sessions are durable: open and turn-completion snapshot the template plus canonical
+/// history into runtime_hosted_sessions, and session-send transparently restores a session
+/// after a worker restart or memory eviction instead of failing with session_evicted.
 /// </summary>
 internal static class AgentRuntimeSessionHost
 {
     private const int MaxHostedSessions = 64;
+    // Oversized histories are not persisted (the host can always reopen from its own
+    // transcript); cap keeps snapshot writes and restores predictable.
+    private const int MaxPersistedMessagesChars = 8 * 1024 * 1024;
     // session-send may only overlay per-turn context. tools and provider.systemPrompt
     // stay pinned on the session-open template so prompt-cache prefixes stay stable.
+    // `connection` is overridable so the host can hand over freshly read SSH credentials
+    // on every turn; see SecretTemplateNames for why it is never written to disk.
     private static readonly HashSet<string> SendOverrideNames = new(StringComparer.Ordinal)
     {
         "requestContextTexts",
@@ -24,7 +34,18 @@ internal static class AgentRuntimeSessionHost
         "planExecution",
         "planModeAllowedTools",
         "commandMetadata",
-        "attachmentIds"
+        "slashCommand",
+        "systemCommand",
+        "attachmentIds",
+        "connection",
+        "includeFullDebugBody"
+    };
+    // SSH credentials (password / key passphrase) live in the template only for the
+    // lifetime of the process. Snapshots stay on disk indefinitely and would otherwise
+    // leak plaintext secrets and resurrect rotated ones after a restart.
+    private static readonly HashSet<string> SecretTemplateNames = new(StringComparer.Ordinal)
+    {
+        "connection"
     };
     private static readonly JsonWriterOptions WriterOptions = new() { SkipValidation = true };
     private static readonly ConcurrentDictionary<string, HostedSession> Sessions =
@@ -69,6 +90,7 @@ internal static class AgentRuntimeSessionHost
 
         Sessions[sessionId] = session;
         EvictStaleSessions();
+        PersistSession(session);
         WorkerLog.Info(
             $"agent session opened sessionId={sessionId} messages={session.Messages.Count}");
         return WorkerResponse.Json(
@@ -86,7 +108,12 @@ internal static class AgentRuntimeSessionHost
         WorkerRequestContext context)
     {
         var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim();
-        if (string.IsNullOrEmpty(sessionId) || !Sessions.TryGetValue(sessionId, out var session))
+        HostedSession? session = null;
+        if (!string.IsNullOrEmpty(sessionId) && !Sessions.TryGetValue(sessionId, out session))
+        {
+            session = TryRestoreSession(sessionId);
+        }
+        if (string.IsNullOrEmpty(sessionId) || session is null)
         {
             throw new InvalidOperationException(
                 $"agent session is not open: {sessionId ?? "(missing sessionId)"}. " +
@@ -123,6 +150,18 @@ internal static class AgentRuntimeSessionHost
     {
         var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
         var closed = sessionId.Length > 0 && Sessions.TryRemove(sessionId, out _);
+        if (sessionId.Length > 0)
+        {
+            try
+            {
+                RuntimeJobStore.DeleteHostedSession(sessionId);
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Warn(
+                    $"agent session snapshot delete failed sessionId={sessionId} error={ex.Message}");
+            }
+        }
         if (closed)
         {
             WorkerLog.Info($"agent session closed sessionId={sessionId}");
@@ -156,11 +195,126 @@ internal static class AgentRuntimeSessionHost
             }
             session.LastUsedAt = NowMs();
         }
+        PersistSession(session);
     }
 
     public static void Clear()
     {
         Sessions.Clear();
+    }
+
+    /// <summary>
+    /// Best-effort durable snapshot of a hosted session (template + canonical history).
+    /// Oversized histories drop the snapshot instead of persisting a stale/partial one,
+    /// so restore either yields a faithful session or fails into the reopen path.
+    /// </summary>
+    private static void PersistSession(HostedSession session)
+    {
+        string templateJson;
+        string messagesJson;
+        lock (session.SyncRoot)
+        {
+            templateJson = SerializeTemplateWithoutSecrets(session.Template);
+            messagesJson = SerializeMessages(session.Messages);
+        }
+        try
+        {
+            if (messagesJson.Length > MaxPersistedMessagesChars)
+            {
+                RuntimeJobStore.DeleteHostedSession(session.SessionId);
+                WorkerLog.Warn(
+                    $"agent session snapshot skipped (history too large) sessionId={session.SessionId} chars={messagesJson.Length}");
+                return;
+            }
+            RuntimeJobStore.UpsertHostedSession(
+                session.SessionId,
+                templateJson,
+                messagesJson,
+                NowMs());
+        }
+        catch (Exception ex)
+        {
+            WorkerLog.Warn(
+                $"agent session snapshot failed sessionId={session.SessionId} error={ex.Message}");
+        }
+    }
+
+    /// <summary>Restores a hosted session from its durable snapshot after restart/eviction.</summary>
+    private static HostedSession? TryRestoreSession(string sessionId)
+    {
+        try
+        {
+            var snapshot = RuntimeJobStore.TryLoadHostedSession(sessionId);
+            if (snapshot is null)
+            {
+                return null;
+            }
+
+            using var templateDocument = JsonDocument.Parse(snapshot.Value.TemplateJson);
+            var session = new HostedSession
+            {
+                SessionId = sessionId,
+                Template = templateDocument.RootElement.Clone(),
+                LastUsedAt = NowMs()
+            };
+            using var messagesDocument = JsonDocument.Parse(snapshot.Value.MessagesJson);
+            if (messagesDocument.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var message in messagesDocument.RootElement.EnumerateArray())
+                {
+                    session.Messages.Add(message.Clone());
+                }
+            }
+
+            var resolved = Sessions.GetOrAdd(sessionId, session);
+            if (ReferenceEquals(resolved, session))
+            {
+                EvictStaleSessions();
+                WorkerLog.Info(
+                    $"agent session restored sessionId={sessionId} messages={session.Messages.Count}");
+            }
+            return resolved;
+        }
+        catch (Exception ex)
+        {
+            WorkerLog.Warn(
+                $"agent session restore failed sessionId={sessionId} error={ex.Message}");
+            return null;
+        }
+    }
+
+    private static string SerializeTemplateWithoutSecrets(JsonElement template)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            writer.WriteStartObject();
+            foreach (var property in template.EnumerateObject())
+            {
+                if (SecretTemplateNames.Contains(property.Name))
+                {
+                    continue;
+                }
+                property.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
+    }
+
+    private static string SerializeMessages(List<JsonElement> messages)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            writer.WriteStartArray();
+            foreach (var message in messages)
+            {
+                message.WriteTo(writer);
+            }
+            writer.WriteEndArray();
+        }
+        return Encoding.UTF8.GetString(buffer.WrittenSpan);
     }
 
     /// <summary>Everything from session-open except per-turn fields becomes the template.</summary>
@@ -170,7 +324,10 @@ internal static class AgentRuntimeSessionHost
         {
             foreach (var property in parameters.EnumerateObject())
             {
-                if (property.NameEquals("messages") || property.NameEquals("runId"))
+                if (property.NameEquals("messages") ||
+                    property.NameEquals("runId") ||
+                    property.NameEquals("slashCommand") ||
+                    property.NameEquals("systemCommand"))
                 {
                     continue;
                 }
@@ -240,7 +397,8 @@ internal static class AgentRuntimeSessionHost
         foreach (var sessionId in stale)
         {
             Sessions.TryRemove(sessionId, out _);
-            WorkerLog.Info($"agent session evicted sessionId={sessionId} errorCode=session_evicted");
+            // Durable snapshot stays on disk, so the next session-send restores it.
+            WorkerLog.Info($"agent session evicted from memory sessionId={sessionId} (restorable)");
         }
     }
 

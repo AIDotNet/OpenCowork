@@ -115,9 +115,14 @@ export type InteractiveAgentEvent =
       type: 'context_compressed'
       originalCount: number
       newCount: number
-      /** Number of older messages that were summarized (kept visible in UI under the new model). */
+      /** Number of earlier messages folded into the summary. */
       keptMessageCount?: number
-      compactArtifacts?: AgentLoopMessage[]
+      /** Context tokens measured when compression was triggered. */
+      preTokens?: number
+      /** Plain user message carrying the summary text, for the host to persist. */
+      compactSummaryMessage?: AgentLoopMessage
+      /** Messages the summary replaced, so the host can record the compaction cut. */
+      compactedMessageIds?: string[]
       messages?: AgentLoopMessage[]
     }
   | {

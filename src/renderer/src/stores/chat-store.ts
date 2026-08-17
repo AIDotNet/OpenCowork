@@ -20,7 +20,6 @@ import {
   DB_MESSAGES_ADD_BATCH_MSGPACK_CHANNEL,
   DB_MESSAGES_CLEAR_MSGPACK_CHANNEL,
   DB_MESSAGES_DELETE_MSGPACK_CHANNEL,
-  DB_MESSAGES_INSERT_ARTIFACTS_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_MSGPACK_CHANNEL,
   DB_MESSAGES_LIST_PAGE_MSGPACK_CHANNEL,
   DB_MESSAGES_CONTENT_MSGPACK_CHANNEL,
@@ -63,12 +62,11 @@ import {
   summarizeToolInputForHistory,
   sanitizeMessagesForToolReplay
 } from '../lib/tools/tool-input-sanitizer'
-import { applyLatestCompactRequestView } from '../../../shared/compact-request-view'
 import {
-  isCompactArtifactMessage,
-  isCompactSummaryLikeMessage,
-  resolveActiveCompactArtifacts
-} from '../lib/agent/context-compression'
+  applyCompactWatermark,
+  deriveCompactWatermarkFromTranscript
+} from '../../../shared/compact-watermark'
+import { readSessionCompaction } from '../lib/agent/session-compaction-client'
 
 export type SessionMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
 export type SessionModelSelectionMode = 'inherit' | 'auto' | 'manual'
@@ -126,6 +124,17 @@ interface SessionPageState {
   error?: string | null
 }
 
+/**
+ * View of the recorded compaction cut: which message carries the summary, and
+ * how many earlier messages it stands for. The transcript draws its compaction
+ * divider from this rather than from anything in the message body, so the
+ * summary itself stays plain user content.
+ */
+export interface SessionCompactSummary {
+  messageId: string
+  compactedMessageCount: number
+}
+
 export interface Session {
   id: string
   title: string
@@ -134,6 +143,8 @@ export interface Session {
   messages: UnifiedMessage[]
   messageCount: number
   messagesLoaded: boolean
+  /** Null until read; absent means "not looked up yet for this session". */
+  compactSummary?: SessionCompactSummary | null
   loadedRangeStart: number
   loadedRangeEnd: number
   /** Whether rows outside either side of the resident renderer window exist. */
@@ -819,61 +830,6 @@ function dbListMessagesWindowAround(args: {
   )
 }
 
-async function dbInsertCompactArtifacts(
-  sessionId: string,
-  artifacts: UnifiedMessage[],
-  options: {
-    insertBeforeMessageId?: string | null
-    insertSortOrder: number
-  }
-): Promise<MessageInsertArtifactsResult> {
-  const generation = getMessageWriteGeneration(sessionId)
-  let result: MessageInsertArtifactsResult | null = null
-  const artifactIds = artifacts.map((artifact) => artifact.id)
-
-  if (options.insertBeforeMessageId) {
-    flushPendingMessageUpsert(sessionId, options.insertBeforeMessageId)
-  }
-  for (const artifactId of artifactIds) {
-    clearPendingMessageUpsert(sessionId, artifactId)
-  }
-
-  const pending = enqueueSessionMessageWrite(
-    sessionId,
-    async () => {
-      result = await invokeMessagePack<MessageInsertArtifactsResult>(
-        DB_MESSAGES_INSERT_ARTIFACTS_MSGPACK_CHANNEL,
-        {
-          sessionId,
-          insertBeforeMessageId: options.insertBeforeMessageId ?? null,
-          insertSortOrder: Math.max(0, Math.floor(options.insertSortOrder)),
-          messages: artifacts.map((msg, index) => ({
-            id: msg.id,
-            role: msg.role,
-            content: JSON.stringify(sanitizeMessageContentForPersistence(msg.content)),
-            meta: msg.meta ? JSON.stringify(msg.meta) : null,
-            createdAt: msg.createdAt,
-            usage: msg.usage ? JSON.stringify(msg.usage) : null,
-            sortOrder: Math.max(0, Math.floor(options.insertSortOrder)) + index
-          }))
-        }
-      )
-    },
-    generation
-  )
-  trackPendingMessageWrite(artifactIds, pending)
-  await pending
-
-  const resolvedResult = result as MessageInsertArtifactsResult | null
-  if (!resolvedResult) {
-    throw new Error('Compact artifact insert was skipped by a newer message rewrite')
-  }
-  if (!resolvedResult.success) {
-    throw new Error(resolvedResult.error || 'Compact artifact insert failed')
-  }
-  return resolvedResult
-}
-
 // Stable empty array for selector-safe reads (see getSessionMessages).
 const EMPTY_MESSAGES: UnifiedMessage[] = []
 
@@ -1427,15 +1383,17 @@ interface ChatStore {
   loadMessageContent: (sessionId: string, messageId: string) => Promise<boolean>
   loadSessionMessages: (sessionId: string, force?: boolean) => Promise<void>
   loadWindowSessionMessages: (sessionId: string, offset: number, limit: number) => Promise<void>
-  insertCompactArtifacts: (
+  /**
+   * Mirror the compaction summary into the resident window so the transcript
+   * shows where compression happened. Persistence and the cut belong to Main.
+   */
+  adoptCompactionSummary: (
     sessionId: string,
-    artifacts: UnifiedMessage[],
-    options?: {
-      insertBeforeMessageId?: string | null
-      insertSortOrder?: number | null
-      insertAtEnd?: boolean
-    }
-  ) => Promise<boolean>
+    summary: UnifiedMessage,
+    compactedMessageCount?: number
+  ) => void
+  /** Pull the recorded cut so the transcript can mark the compaction point. */
+  refreshSessionCompactSummary: (sessionId: string) => Promise<void>
   getSessionMessagesForRequest: (
     sessionId: string,
     options?: {
@@ -1684,15 +1642,6 @@ interface MessageWindowResult {
   end: number
   total: number
   anchorSortOrder: number
-  error?: string | null
-}
-
-interface MessageInsertArtifactsResult {
-  success: boolean
-  inserted: number
-  start: number
-  end: number
-  total: number
   error?: string | null
 }
 
@@ -2314,7 +2263,8 @@ function normalizeRequestContextMaxMessages(value?: number | null): number | nul
 
 function clampRequestContext(
   messages: UnifiedMessage[],
-  maxMessagesArg?: number | null
+  maxMessagesArg?: number | null,
+  pinnedMessageIds?: ReadonlySet<string>
 ): UnifiedMessage[] {
   const maxMessages = normalizeRequestContextMaxMessages(maxMessagesArg)
   if (maxMessages === null || messages.length <= maxMessages) return messages
@@ -2325,12 +2275,18 @@ function clampRequestContext(
     boundary = Math.max(1, boundary - 1)
   }
 
-  return messages.slice(boundary)
+  const tail = messages.slice(boundary)
+  if (!pinnedMessageIds?.size) return tail
+  // The compaction summary stands in for everything before the cut, so trimming
+  // it away would drop the whole earlier conversation instead of shortening it.
+  const dropped = messages.slice(0, boundary).filter((message) => pinnedMessageIds.has(message.id))
+  return dropped.length > 0 ? [...dropped, ...tail] : tail
 }
 
 function clampWindowedRequestContext(
   messages: UnifiedMessage[],
-  maxMessagesArg?: number | null
+  maxMessagesArg?: number | null,
+  pinnedMessageIds?: ReadonlySet<string>
 ): UnifiedMessage[] {
   const maxMessages = normalizeRequestContextMaxMessages(maxMessagesArg)
   if (maxMessages === null || messages.length <= maxMessages) return messages
@@ -2343,9 +2299,11 @@ function clampWindowedRequestContext(
   for (const message of messages.slice(0, headCount)) {
     selectedIds.add(message.id)
   }
-  for (const message of messages) {
-    if (isCompactArtifactMessage(message)) {
-      selectedIds.add(message.id)
+  // The compaction summary stands in for everything before the cut, so trimming
+  // it away would drop the whole earlier conversation instead of shortening it.
+  if (pinnedMessageIds) {
+    for (const message of messages) {
+      if (pinnedMessageIds.has(message.id)) selectedIds.add(message.id)
     }
   }
 
@@ -2360,10 +2318,15 @@ function clampWindowedRequestContext(
 function mergeResidentTailWithFetchedPrefix(
   residentMessages: UnifiedMessage[],
   fetchedMessages: UnifiedMessage[],
-  maxMessagesArg?: number | null
+  maxMessagesArg?: number | null,
+  pinnedMessageIds?: ReadonlySet<string>
 ): UnifiedMessage[] {
-  if (residentMessages.length === 0) return clampRequestContext(fetchedMessages, maxMessagesArg)
-  if (fetchedMessages.length === 0) return clampRequestContext(residentMessages, maxMessagesArg)
+  if (residentMessages.length === 0) {
+    return clampRequestContext(fetchedMessages, maxMessagesArg, pinnedMessageIds)
+  }
+  if (fetchedMessages.length === 0) {
+    return clampRequestContext(residentMessages, maxMessagesArg, pinnedMessageIds)
+  }
 
   const merged = [...fetchedMessages]
   const seenIds = new Set(fetchedMessages.map((message) => message.id))
@@ -2373,14 +2336,15 @@ function mergeResidentTailWithFetchedPrefix(
     seenIds.add(message.id)
   }
 
-  return clampRequestContext(merged, maxMessagesArg)
+  return clampRequestContext(merged, maxMessagesArg, pinnedMessageIds)
 }
 
 function mergeRequestContextRowsWithResident(
   session: Session,
   fetchedRows: MessageRow[],
   knownCount: number,
-  maxMessagesArg?: number | null
+  maxMessagesArg?: number | null,
+  pinnedMessageIds?: ReadonlySet<string>
 ): UnifiedMessage[] {
   const maxMessages = normalizeRequestContextMaxMessages(maxMessagesArg)
   const residentMessages = session.messages
@@ -2430,7 +2394,7 @@ function mergeRequestContextRowsWithResident(
     const shouldIncludeResident =
       maxMessages === null ||
       hasPendingLocalMessageWrite(resident.id) ||
-      isCompactArtifactMessage(resident) ||
+      pinnedMessageIds?.has(resident.id) === true ||
       logicalIndex >= requestTailFloor
     if (!shouldIncludeResident) return
 
@@ -2445,12 +2409,13 @@ function mergeRequestContextRowsWithResident(
     .sort((left, right) => left.index - right.index || left.sequence - right.sequence)
     .map((entry) => entry.message)
 
-  return clampWindowedRequestContext(messages, maxMessages)
+  return clampWindowedRequestContext(messages, maxMessages, pinnedMessageIds)
 }
 
 async function loadRequestContextMessages(
   session: Session,
-  maxMessagesArg?: number | null
+  maxMessagesArg?: number | null,
+  pinnedMessageIds?: ReadonlySet<string>
 ): Promise<UnifiedMessage[]> {
   const knownCount = session.messageCount ?? session.messages.length
   if (knownCount <= 0) return []
@@ -2464,7 +2429,12 @@ async function loadRequestContextMessages(
       offset: 0
     })
     const fetchedMessages = msgRows.map(rowToMessage)
-    return mergeResidentTailWithFetchedPrefix(residentMessages, fetchedMessages, maxMessages)
+    return mergeResidentTailWithFetchedPrefix(
+      residentMessages,
+      fetchedMessages,
+      maxMessages,
+      pinnedMessageIds
+    )
   }
 
   try {
@@ -2474,7 +2444,13 @@ async function loadRequestContextMessages(
       headLimit: REQUEST_CONTEXT_HEAD_MESSAGES
     })
     if (requestRows.length > 0) {
-      return mergeRequestContextRowsWithResident(session, requestRows, knownCount, maxMessages)
+      return mergeRequestContextRowsWithResident(
+        session,
+        requestRows,
+        knownCount,
+        maxMessages,
+        pinnedMessageIds
+      )
     }
   } catch (error) {
     console.warn('[ChatStore] Failed to load request context window:', error)
@@ -2486,7 +2462,7 @@ async function loadRequestContextMessages(
     session.loadedRangeStart === 0 &&
     session.loadedRangeEnd >= knownCount
   ) {
-    return clampWindowedRequestContext(residentMessages, maxMessages)
+    return clampWindowedRequestContext(residentMessages, maxMessages, pinnedMessageIds)
   }
 
   const residentTailStart =
@@ -2514,12 +2490,12 @@ async function loadRequestContextMessages(
   const tailOffset = Math.max(0, knownCount - tailCount)
 
   if (session.messagesLoaded && residentMessages.length > 0 && residentTailStart <= tailOffset) {
-    return clampRequestContext(residentMessages, maxMessages)
+    return clampRequestContext(residentMessages, maxMessages, pinnedMessageIds)
   }
 
   const fetchLimit = Math.max(0, residentTailStart - tailOffset)
   if (fetchLimit <= 0) {
-    return clampRequestContext(residentMessages, maxMessages)
+    return clampRequestContext(residentMessages, maxMessages, pinnedMessageIds)
   }
 
   const msgRows = await dbListMessagesPage({
@@ -2528,7 +2504,12 @@ async function loadRequestContextMessages(
     offset: tailOffset
   })
   const fetchedMessages = msgRows.map(rowToMessage)
-  return mergeResidentTailWithFetchedPrefix(residentMessages, fetchedMessages, maxMessages)
+  return mergeResidentTailWithFetchedPrefix(
+    residentMessages,
+    fetchedMessages,
+    maxMessages,
+    pinnedMessageIds
+  )
 }
 
 /**
@@ -3851,125 +3832,61 @@ export const useChatStore = create<ChatStore>()(
       return request
     },
 
-    insertCompactArtifacts: async (sessionId, artifacts, options) => {
-      const artifactMessages = artifacts.filter(isCompactArtifactMessage)
-      if (artifactMessages.length === 0) return false
-
-      const session = get().sessions.find((s) => s.id === sessionId)
-      if (!session) return false
-      invalidateMessageWindowGeneration(sessionId)
-
-      const insertBeforeMessageId = options?.insertBeforeMessageId ?? null
-      const insertBeforeIndex = insertBeforeMessageId
-        ? session.messages.findIndex((message) => message.id === insertBeforeMessageId)
-        : -1
-      const fallbackInsertSortOrder =
-        typeof options?.insertSortOrder === 'number' && Number.isFinite(options.insertSortOrder)
-          ? options.insertSortOrder
-          : options?.insertAtEnd
-            ? session.messageCount
-            : insertBeforeIndex >= 0
-              ? session.loadedRangeStart + insertBeforeIndex
-              : session.loadedRangeEnd
-
-      let result: MessageInsertArtifactsResult
-      try {
-        result = await dbInsertCompactArtifacts(sessionId, artifactMessages, {
-          insertBeforeMessageId,
-          insertSortOrder: fallbackInsertSortOrder
-        })
-      } catch (err) {
-        console.error('[ChatStore] Failed to insert compact artifacts:', err)
-        return false
-      }
-
-      const now = Date.now()
-      const removedArtifactIds: string[] = []
-      const insertedArtifactIds = artifactMessages.map((artifact) => artifact.id)
-
+    adoptCompactionSummary: (sessionId, summary, compactedMessageCount = 0) => {
+      // Display only. Main writes the row and records the cut in the same
+      // transaction, so writing it again here would create a second, competing
+      // position for the same message.
       set((state) => {
         const target = state.sessions.find((s) => s.id === sessionId)
         if (!target) return
+        // The divider is keyed off the recorded cut, so mark it even when the row
+        // is already resident (a replayed frame, or a reload that raced the run).
+        target.compactSummary = { messageId: summary.id, compactedMessageCount }
+        if (target.messages.some((message) => message.id === summary.id)) return
 
-        const oldMessageCount = target.messageCount
-        const wasLoadedAtTail = target.loadedRangeEnd >= oldMessageCount
-        const residentWithoutArtifacts: UnifiedMessage[] = []
-
-        for (const message of target.messages) {
-          if (isCompactArtifactMessage(message)) {
-            removedArtifactIds.push(message.id)
-            continue
-          }
-          residentWithoutArtifacts.push(message)
+        const message: UnifiedMessage = {
+          ...summary,
+          contentState: 'full',
+          contentBytes: estimateMessageWeight(summary)
         }
-
-        let residentInsertIndex = -1
-        if (insertBeforeMessageId) {
-          residentInsertIndex = residentWithoutArtifacts.findIndex(
-            (message) => message.id === insertBeforeMessageId
-          )
-        }
-        if (
-          residentInsertIndex < 0 &&
-          result.start >= target.loadedRangeStart &&
-          result.start <= target.loadedRangeEnd
-        ) {
-          residentInsertIndex = Math.min(
-            residentWithoutArtifacts.length,
-            Math.max(0, result.start - target.loadedRangeStart)
-          )
-        }
-        if (
-          residentInsertIndex < 0 &&
-          (options?.insertAtEnd ||
-            wasLoadedAtTail ||
-            result.end >= result.total - MESSAGE_WINDOW_TAIL_PRESERVE)
-        ) {
-          residentInsertIndex = residentWithoutArtifacts.length
-        }
-
-        const revisedArtifacts = artifactMessages.map((artifact, index) => ({
-          ...artifact,
-          sortOrder: result.start + index,
-          contentState: 'full' as const,
-          contentBytes: estimateMessageWeight(artifact),
-          _revision: (artifact._revision ?? 0) + 1
-        }))
-        target.messages =
-          residentInsertIndex >= 0
-            ? [
-                ...residentWithoutArtifacts.slice(0, residentInsertIndex),
-                ...revisedArtifacts,
-                ...residentWithoutArtifacts.slice(residentInsertIndex)
-              ]
-            : residentWithoutArtifacts
-        target.messagesLoaded = target.messages.length > 0 || result.total === 0
-        target.messageCount = result.total
-        if (wasLoadedAtTail || residentInsertIndex === residentWithoutArtifacts.length) {
-          target.loadedRangeEnd = result.total
-          target.loadedRangeStart = Math.max(0, result.total - target.messages.length)
-          trimSessionMessageWindow(target, 'tail')
-        } else {
-          target.loadedRangeStart = Math.min(target.loadedRangeStart, result.total)
-          target.loadedRangeEnd = Math.min(
-            result.total,
-            target.loadedRangeStart + target.messages.length
-          )
-          trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
-        }
+        target.messages = [...target.messages, message]
+        target.messagesLoaded = true
+        target.messageCount = Math.max(target.messageCount + 1, target.messages.length)
+        target.loadedRangeEnd = target.messageCount
+        target.loadedRangeStart = Math.max(0, target.messageCount - target.messages.length)
+        target.lastKnownMessageCount = target.messageCount
         syncSessionMessageWindowFlags(target)
-        target.lastKnownMessageCount = result.total
-        target.updatedAt = now
+        target.updatedAt = Date.now()
       })
+      // The window bookkeeping now disagrees with the database (Main appended the
+      // row and may have renumbered nothing else), so the next windowed load must
+      // re-read rather than trust cached offsets.
+      invalidateMessageWindowGeneration(sessionId)
+    },
 
-      const touchedArtifactIds = [...new Set([...removedArtifactIds, ...insertedArtifactIds])]
-      clearPendingMessageFlushes(touchedArtifactIds)
-      for (const messageId of touchedArtifactIds) {
-        clearPendingMessageUpsert(sessionId, messageId)
-        _streamingDirtyMessageIds.delete(messageId)
-      }
-      dbUpdateSession(sessionId, { updatedAt: now })
-      return true
+    refreshSessionCompactSummary: async (sessionId) => {
+      const compaction = await readSessionCompaction(sessionId)
+      set((state) => {
+        const target = state.sessions.find((s) => s.id === sessionId)
+        if (!target) return
+        const next = compaction
+          ? {
+              messageId: compaction.summaryMessageId,
+              compactedMessageCount: compaction.compactedMessageCount
+            }
+          : null
+        const current = target.compactSummary
+        if (
+          current === next ||
+          (current &&
+            next &&
+            current.messageId === next.messageId &&
+            current.compactedMessageCount === next.compactedMessageCount)
+        ) {
+          return
+        }
+        target.compactSummary = next
+      })
     },
 
     loadSessionMessages: async (sessionId, force = false) => {
@@ -4093,20 +4010,37 @@ export const useChatStore = create<ChatStore>()(
       const includeTrailingAssistantPlaceholder =
         options?.includeTrailingAssistantPlaceholder ?? true
 
-      let messages = await loadRequestContextMessages(session, options?.requestContextMaxMessages)
+      // The cut is read before loading so the summary and the rows it spares can
+      // be pinned through request-context trimming; losing the summary to a window
+      // limit would silently drop everything it stands for.
+      const recordedCompaction = await readSessionCompaction(sessionId)
+      const pinnedMessageIds = recordedCompaction
+        ? new Set([recordedCompaction.summaryMessageId, ...recordedCompaction.keepMessageIds])
+        : undefined
+
+      let messages = await loadRequestContextMessages(
+        session,
+        options?.requestContextMaxMessages,
+        pinnedMessageIds
+      )
       messages = movePendingQuotedMessagesToRequestTail(messages)
       const initialShape = countToolReplayBlocks(messages)
       const preCompactSanitized = sanitizeToolBlocksForResend(messages)
       const preCompactCount = preCompactSanitized.messages.length
-      messages = applyLatestCompactRequestView(preCompactSanitized.messages)
+      // Sessions compacted before the cut was recorded still carry the old marker
+      // rows; deriving their cut keeps them compacted instead of replaying the
+      // whole summarized history once more.
+      const compaction =
+        recordedCompaction ?? deriveCompactWatermarkFromTranscript(preCompactSanitized.messages)
+      messages = applyCompactWatermark(preCompactSanitized.messages, compaction)
       if (messages.length !== preCompactCount) {
-        const activeCompact = resolveActiveCompactArtifacts(messages)
-        console.log('[ChatStore] Applied compact request view', {
+        console.log('[ChatStore] Applied compaction cut', {
           sessionId,
           before: preCompactCount,
           after: messages.length,
-          boundaryId: activeCompact?.boundaryId ?? null,
-          summaryId: activeCompact?.summaryId ?? null
+          derived: !recordedCompaction,
+          generation: compaction?.generation ?? 0,
+          throughSortOrder: compaction?.throughSortOrder ?? null
         })
       }
       const postCompactSanitized = sanitizeToolBlocksForResend(messages)
@@ -5534,7 +5468,7 @@ export const useChatStore = create<ChatStore>()(
         source = get().sessions.find((s) => s.id === sessionId)
         summary = source?.messages.find((message) => message.id === summaryMessageId)
       }
-      if (!source || !summary || !isCompactSummaryLikeMessage(summary)) return null
+      if (!source || !summary) return null
       const sourceSession = source
 
       const newId = nanoid()
@@ -5542,15 +5476,11 @@ export const useChatStore = create<ChatStore>()(
       const [clonedSummary] = cloneMessagesForNewSession([summary])
       if (!clonedSummary) return null
       clonedSummary.createdAt = now
-      if (clonedSummary.meta?.compactSummary) {
-        // The clone is the whole context of the new session: nothing is preserved
-        // after it and the display anchor from the source session does not exist.
-        const { displayAnchor: _displayAnchor, ...compactSummary } =
-          clonedSummary.meta.compactSummary
-        clonedSummary.meta = {
-          ...clonedSummary.meta,
-          compactSummary: { ...compactSummary, recentMessagesPreserved: false }
-        }
+      // The clone is the entire context of the new session, so it starts with no
+      // compaction of its own: the summary is just its first user message.
+      if (clonedSummary.meta) {
+        const { compactSummary: _compactSummary, ...meta } = clonedSummary.meta
+        clonedSummary.meta = meta
       }
 
       const clonedMessages = [clonedSummary]
@@ -5947,8 +5877,7 @@ export const useChatStore = create<ChatStore>()(
             state.streamingMessageId = streamingMessageId
           }
         }
-        state.messageLocatorVersions[sessionId] =
-          (state.messageLocatorVersions[sessionId] ?? 0) + 1
+        state.messageLocatorVersions[sessionId] = (state.messageLocatorVersions[sessionId] ?? 0) + 1
 
         releaseDormantSessionMemory(state)
       })

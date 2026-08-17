@@ -1,4 +1,10 @@
+import { clampCompressionThreshold } from '../../../shared/context-compression-config'
 import { readPersistedSettingsState } from '../settings-handlers'
+
+export type ContextCompressionModelBinding = {
+  providerId: string
+  modelId: string
+}
 
 export type SessionRunSettings = {
   autoApprove: boolean
@@ -12,6 +18,11 @@ export type SessionRunSettings = {
   codegraphFullToolSurface: boolean
   memoryUseMemories: boolean
   memorySummaryBudgetTokens: number
+  contextCompressionEnabled: boolean
+  contextCompressionThreshold: number
+  contextCompressionModel: ContextCompressionModelBinding | null
+  /** When true, the Worker keeps the last request JSON for Request Debug. */
+  devMode: boolean
   settingsRevision: string
 }
 
@@ -22,6 +33,15 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return fallback
   return Math.min(max, Math.max(min, Math.floor(parsed)))
+}
+
+function readCompressionModel(value: unknown): ContextCompressionModelBinding | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const providerId = typeof record.providerId === 'string' ? record.providerId.trim() : ''
+  const modelId = typeof record.modelId === 'string' ? record.modelId.trim() : ''
+  if (!providerId || !modelId) return null
+  return { providerId, modelId }
 }
 
 export function readSessionRunSettings(
@@ -63,6 +83,14 @@ export function readSessionRunSettings(
     memoryUseMemories: settings.memoryUseMemories !== false,
     memorySummaryBudgetTokens:
       Number.isFinite(summaryBudget) && summaryBudget > 0 ? Math.floor(summaryBudget) : 12_000,
+    contextCompressionEnabled: settings.contextCompressionEnabled !== false,
+    contextCompressionThreshold: clampCompressionThreshold(
+      typeof settings.contextCompressionThreshold === 'number'
+        ? settings.contextCompressionThreshold
+        : null
+    ),
+    contextCompressionModel: readCompressionModel(settings.contextCompressionModel),
+    devMode: settings.devMode === true,
     settingsRevision: 'main-persisted'
   }
 }

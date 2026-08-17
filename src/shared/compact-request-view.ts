@@ -1,10 +1,17 @@
 /**
- * Build the model-visible conversation after context compression.
+ * Legacy compaction artifacts.
  *
- * The UI/DB keep the full transcript. Request assembly must send only:
- *   compact boundary + summary + optional preserved tail + messages after the mark.
- * Without this cut, hosted session-open reloads every pre-compression message and
- * the next turn immediately refills the context window.
+ * Compression used to write two specially-typed marker messages (a `system`
+ * compact boundary and a `user` summary tagged with `meta.compactSummary`) and
+ * rebuild the model-visible conversation from where those markers happened to
+ * sit in the transcript. New compactions emit a plain user message and record
+ * the cut in the durable watermark instead — see
+ * [compact-watermark.ts](./compact-watermark.ts).
+ *
+ * This module survives for sessions compacted by older builds: the predicates
+ * below let `deriveCompactWatermarkFromTranscript` translate an existing marker
+ * pair into a watermark once, and `isUiOnlyRequestMessage` still filters the
+ * renderer-only status rows that must never reach a provider.
  */
 
 export const LEGACY_COMPACT_SUMMARY_PREFIX = '[Context Memory Compressed Summary'
@@ -20,6 +27,7 @@ export type CompactRequestMeta = {
   }
   compactSummary?: {
     summarizerFailed?: boolean
+    messagesSummarized?: number
   }
   compressionStatus?: unknown
 }
@@ -58,6 +66,18 @@ export function parsePersistedMessageMeta(raw?: string | null): CompactRequestMe
   try {
     const parsed = JSON.parse(raw) as unknown
     return isRecord(parsed) ? (parsed as CompactRequestMeta) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export function parsePersistedMessageUsage(
+  raw?: string | null
+): Record<string, unknown> | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return isRecord(parsed) ? parsed : undefined
   } catch {
     return undefined
   }
@@ -242,7 +262,9 @@ function collectCompactPreservedMessages<T extends CompactRequestMessage>(
 }
 
 function passThroughWithoutArtifacts<T extends CompactRequestMessage>(messages: readonly T[]): T[] {
-  return messages.filter((message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message))
+  return messages.filter(
+    (message) => !isUiOnlyRequestMessage(message) && !isCompactArtifactMessage(message)
+  )
 }
 
 /**

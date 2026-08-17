@@ -567,6 +567,35 @@ export interface ChannelAuth {
 
 export type ModelCategory = 'chat' | 'speech' | 'embedding' | 'image' | 'video'
 
+/** Inclusive start / exclusive end UTC hour, e.g. 1–4 means 01:00–03:59 UTC. */
+export interface ModelPeakHourWindow {
+  startHour: number
+  endHour: number
+}
+
+export interface ModelPricingSchedule {
+  peakHoursUtc: ModelPeakHourWindow[]
+}
+
+/**
+ * A higher pricing bracket for models billed by prompt size (e.g. MiniMax M3 doubles
+ * above 512K, OpenAI switches to long-context rates above 272K). It applies when a
+ * request's prompt tokens (billable input + cache read + cache write) reach
+ * `minPromptTokens`; any price left unset falls back to the model's base rate.
+ */
+export interface ModelPricingTier {
+  /** Inclusive prompt-token lower bound where this bracket takes over. */
+  minPromptTokens: number
+  /** Price per million input tokens (USD) inside this bracket */
+  inputPrice?: number
+  /** Price per million output tokens (USD) inside this bracket */
+  outputPrice?: number
+  /** Price per million cache creation/write tokens (USD) inside this bracket */
+  cacheCreationPrice?: number
+  /** Price per million cache hit/read tokens (USD) inside this bracket */
+  cacheHitPrice?: number
+}
+
 export interface AIModelConfig {
   id: string
   name: string
@@ -580,15 +609,40 @@ export interface AIModelConfig {
   contextLength?: number
   /** Allow context compression to use the model's full configured context length when it exceeds 200K */
   enableExtendedContextCompression?: boolean
+  /** GPT models: physical 1M window used when `enableLongContext` is on. */
+  longContextLength?: number
+  /** GPT models: whether this model supports the 272K / 1M context split. */
+  supportsLongContext?: boolean
+  /**
+   * GPT models: use the 1M long-context window. Off by default so sessions stay
+   * in the 272K short-context pricing tier.
+   */
+  enableLongContext?: boolean
   maxOutputTokens?: number
-  /** Price per million input tokens (USD) */
+  /** Price per million input tokens (USD). Peak rate when off-peak prices are set. */
   inputPrice?: number
-  /** Price per million output tokens (USD) */
+  /** Price per million output tokens (USD). Peak rate when off-peak prices are set. */
   outputPrice?: number
-  /** Price per million tokens for cache creation/write (USD) */
+  /** Price per million tokens for cache creation/write (USD). Peak rate when off-peak prices are set. */
   cacheCreationPrice?: number
-  /** Price per million tokens for cache hit/read (USD) */
+  /** Price per million tokens for cache hit/read (USD). Peak rate when off-peak prices are set. */
   cacheHitPrice?: number
+  /** Off-peak price per million input tokens (USD) */
+  offPeakInputPrice?: number
+  /** Off-peak price per million output tokens (USD) */
+  offPeakOutputPrice?: number
+  /** Off-peak price per million tokens for cache creation/write (USD) */
+  offPeakCacheCreationPrice?: number
+  /** Off-peak price per million tokens for cache hit/read (USD) */
+  offPeakCacheHitPrice?: number
+  /** Peak-hour windows for time-of-day pricing. Used when any off-peak price is set. */
+  pricingSchedule?: ModelPricingSchedule
+  /**
+   * Tiered (stepped) pricing brackets keyed by prompt size, ascending. The fields above
+   * are the base bracket; each tier overrides them once a request reaches its
+   * `minPromptTokens`. Applied on top of the resolved peak/off-peak rate.
+   */
+  pricingTiers?: ModelPricingTier[]
   /** GitHub Copilot premium request multiplier */
   premiumRequestMultiplier?: number
   /** Plans that commonly expose this model in Copilot */

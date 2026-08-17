@@ -72,7 +72,7 @@ OpenCowork 把智能体放在**工作旁边**：
 
 ### 运行时
 
-- **Electron + .NET Native Worker** — React 19 界面、窄 Preload 桥、Electron 主进程作为宿主网关，加上按平台编译的 **.NET 10 Native AOT** Worker，由它拥有 Agent 循环。
+- **Electron + .NET Native Worker** — React 19 界面、窄 Preload 桥、Electron 主进程作为宿主网关，加上按平台编译的 **.NET 11 Native AOT** Worker，由它拥有 Agent 循环。
 - **Worker 是循环权威** — 模型流式调用、工具执行、审批、取消、SQLite、CodeGraph 索引都在 Worker 内。主进程监管进程；渲染进程负责呈现。
 - **SSH** — 通过集成的 xterm.js 终端透明操作远程主机。
 
@@ -128,7 +128,7 @@ OpenCowork 把智能体放在**工作旁边**：
 </p>
 
 ```
-渲染进程 (React 19)  ←→  Preload  ←→  主进程（宿主网关）  ←→  Native Worker (.NET 10 AOT)
+渲染进程 (React 19)  ←→  Preload  ←→  主进程（宿主网关）  ←→  Native Worker (.NET 11 AOT)
      UI、审批呈现、              窗口、IPC、                 Agent 循环、
      会话体验                    通讯插件、MCP、SSH、         工具、SQLite、
                                  Cron、Worker 监管            CodeGraph、任务
@@ -176,7 +176,7 @@ cowork --language zh
 
 ## 快速开始
 
-**从源码跑桌面端：** Node.js ≥ 18，npm ≥ 9，以及带 Native AOT 工作负载的 [.NET SDK 10](https://dotnet.microsoft.com/download)（`dotnet` 在 `PATH` 中）。请带 submodule 克隆 —— 没有 `sidecars/codegraph` 时 Native Worker 无法构建。
+**从源码跑桌面端：** Node.js ≥ 18，npm ≥ 9，以及 [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) Preview 7 或更高版本所需的 Native AOT 依赖（`dotnet` 在 `PATH` 中）。请带 submodule 克隆 —— 没有 `sidecars/codegraph` 时 Native Worker 无法构建。
 
 ```bash
 git clone --recurse-submodules https://github.com/AIDotNet/OpenCowork.git
@@ -185,7 +185,7 @@ npm install
 npm run dev
 ```
 
-安装包见 [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest)（Windows 安装包 / 免安装 zip、macOS、Linux）。
+安装包见 [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest)（Windows 安装包 / 免安装 zip、macOS 14 或更高版本、Linux）。
 
 | 命令                      | 说明 |
 | ------------------------- | ---- |

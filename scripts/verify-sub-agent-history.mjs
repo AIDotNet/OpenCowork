@@ -14,7 +14,7 @@ const defaultWorkerDll = path.join(
   'OpenCowork.Native.Worker',
   'bin',
   'Debug',
-  'net10.0',
+  'net11.0',
   'OpenCowork.Native.Worker.dll'
 )
 const workerPath = process.env.OPEN_COWORK_VERIFY_WORKER || defaultWorkerDll

@@ -111,21 +111,18 @@ import {
 import { loadCommandSnapshot } from '@renderer/lib/commands/command-loader'
 import {
   parseSlashCommandInput,
+  serializeSystemCommandTag,
   type SystemCommandSnapshot
 } from '@renderer/lib/commands/system-command'
 import { parseSelectFileText } from '@renderer/lib/select-file-tags'
 import { type AgentEvent, type ToolCallState } from '@renderer/lib/agent/types'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
-  isCompactBoundaryMessage,
-  isCompactSummaryLikeMessage,
-  isCompactSummaryMessage,
-  mergeCompressedMessagesKeepHistory,
-  mergeLoopEndMessagesKeepHistory,
   resolveCompressionContextLength,
   resolveCompressionReservedOutputBudget,
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
+import { commitSessionCompaction } from '@renderer/lib/agent/session-compaction-client'
 import { applyRecentVisualContext } from '@renderer/lib/agent/visual-context'
 import {
   liveToolInputSignature,
@@ -157,7 +154,11 @@ import {
 import type { CompressionConfig } from '@renderer/lib/agent/context-compression'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useAppPluginStore } from '@renderer/stores/app-plugin-store'
-import { confirm } from '@renderer/components/ui/confirm-dialog'
+import {
+  applyPlanExecutionModel,
+  confirmPlanExecution,
+  type PlanExecutionModelSelection
+} from '@renderer/components/chat/PlanExecuteDialog'
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -389,11 +390,13 @@ function updateMessageWithSync(
 
 function buildUserMessageContent(
   text: string,
-  images?: ImageAttachment[]
+  images?: ImageAttachment[],
+  command?: SystemCommandSnapshot | null
 ): UnifiedMessage['content'] {
+  const persistedText = command ? serializeSystemCommandTag(command, text) : text
   const textBlocks: Array<Extract<ContentBlock, { type: 'text' }>> = []
-  if (text) {
-    textBlocks.push({ type: 'text', text })
+  if (persistedText) {
+    textBlocks.push({ type: 'text', text: persistedText })
   }
 
   if (images && images.length > 0) {
@@ -910,143 +913,6 @@ async function buildSelectedFileReadContext(args: {
       : undefined
 
   return { meta, contextText }
-}
-
-async function mergeCompressedMessagesIntoSession(args: {
-  sessionId: string
-  compressedMessages: UnifiedMessage[]
-  currentMessages?: UnifiedMessage[]
-  insertAtEnd?: boolean
-  insertBeforeIds?: readonly string[]
-  fallbackInsertBeforeIds?: readonly string[]
-}): Promise<boolean> {
-  const chatStore = useChatStore.getState()
-  const currentMessages =
-    args.currentMessages ?? (await chatStore.getFullSessionMessagesForMutation(args.sessionId))
-  const merged = mergeCompressedMessagesKeepHistory(currentMessages, args.compressedMessages, {
-    insertAtEnd: args.insertAtEnd,
-    insertBeforeIds: args.insertBeforeIds,
-    fallbackInsertBeforeIds: args.fallbackInsertBeforeIds
-  })
-
-  if (!merged) return false
-
-  useChatStore.getState().replaceSessionMessages(args.sessionId, merged)
-  return true
-}
-
-function hasMeaningfulAssistantContent(message: UnifiedMessage | undefined): boolean {
-  if (!message || message.role !== 'assistant') return false
-  if (typeof message.content === 'string') return message.content.trim().length > 0
-  if (!Array.isArray(message.content)) return false
-
-  return message.content.some((block) => {
-    switch (block.type) {
-      case 'text':
-        return block.text.trim().length > 0
-      case 'thinking':
-        return block.thinking.trim().length > 0 || !!block.encryptedContent
-      case 'tool_use':
-      case 'image':
-      case 'image_error':
-      case 'agent_error':
-        return true
-      default:
-        return false
-    }
-  })
-}
-
-function shouldInsertCompressedMessagesBeforeAssistant(
-  currentMessages: UnifiedMessage[],
-  assistantMsgId: string
-): boolean {
-  const assistantIndex = currentMessages.findIndex((message) => message.id === assistantMsgId)
-  if (assistantIndex < 0) return false
-
-  const assistantMessage = currentMessages[assistantIndex]
-  if (assistantMessage?.role !== 'assistant') return false
-  if (hasMeaningfulAssistantContent(assistantMessage)) return false
-
-  // During the first iteration the assistant message already exists as an empty
-  // placeholder. Anchor the compact summary ahead of that placeholder so it
-  // lands after the triggering turn instead of sticking to the visual bottom.
-  for (let index = assistantIndex + 1; index < currentMessages.length; index += 1) {
-    if (currentMessages[index]?.role !== 'system') {
-      return false
-    }
-  }
-
-  return true
-}
-
-function getAssistantContentBlockCount(message: UnifiedMessage | undefined): number {
-  if (!message || message.role !== 'assistant') return 0
-  if (typeof message.content === 'string') return message.content.trim().length > 0 ? 1 : 0
-  if (!Array.isArray(message.content)) return 0
-  return message.content.length
-}
-
-function getLastToolUseId(message: UnifiedMessage | undefined): string | undefined {
-  if (!message || !Array.isArray(message.content)) return undefined
-
-  for (let index = message.content.length - 1; index >= 0; index -= 1) {
-    const block = message.content[index]
-    if (block.type === 'tool_use' && block.id) return block.id
-  }
-
-  return undefined
-}
-
-function attachLiveCompactSummaryDisplayAnchor(
-  compressedMessages: UnifiedMessage[],
-  assistantMessage: UnifiedMessage | undefined,
-  assistantMsgId: string
-): { messages: UnifiedMessage[]; anchored: boolean } {
-  if (!assistantMessage || !Array.isArray(assistantMessage.content)) {
-    return { messages: compressedMessages, anchored: false }
-  }
-
-  const afterContentBlockCount = getAssistantContentBlockCount(assistantMessage)
-  if (afterContentBlockCount <= 0) {
-    return { messages: compressedMessages, anchored: false }
-  }
-
-  const afterToolUseId = getLastToolUseId(assistantMessage)
-  let anchored = false
-  const messages = compressedMessages.map((message) => {
-    if (!isCompactSummaryMessage(message)) return message
-    const compactSummary = message.meta?.compactSummary
-    if (!compactSummary) return message
-
-    anchored = true
-    return {
-      ...message,
-      meta: {
-        ...(message.meta ?? {}),
-        compactSummary: {
-          ...compactSummary,
-          displayAnchor: {
-            assistantMessageId: assistantMsgId,
-            afterContentBlockCount,
-            ...(afterToolUseId ? { afterToolUseId } : {})
-          }
-        }
-      }
-    }
-  })
-
-  return { messages, anchored }
-}
-
-function extractCompactArtifactMessages(messages?: UnifiedMessage[] | null): UnifiedMessage[] {
-  if (!messages || messages.length === 0) return []
-
-  const boundaryMessage = messages.find((message) => isCompactBoundaryMessage(message))
-  const summaryMessage =
-    messages.find((message) => isCompactSummaryMessage(message)) ??
-    messages.find((message) => isCompactSummaryLikeMessage(message))
-  return [boundaryMessage, summaryMessage].filter((message): message is UnifiedMessage => !!message)
 }
 
 function getTaskProgressSnapshot(sessionId: string): string {
@@ -2191,11 +2057,11 @@ export function quotePendingSessionMessageIntoConversation(
   // Render the quoted message optimistically. The actual agent request is still
   // dispatched through the hidden queue entry below, so the current run can
   // finish its response before the quoted turn starts.
-  const userMessageText = trimmedText || (target.command ? `/${target.command.name}` : '')
+  const userMessageText = trimmedText
   const userMsg: UnifiedMessage = {
     id: nanoid(),
     role: 'user',
-    content: buildUserMessageContent(userMessageText, target.images),
+    content: buildUserMessageContent(userMessageText, target.images, target.command),
     createdAt: Date.now(),
     source: 'quoted',
     ...(shouldSettleQuotedOrdering ? { meta: { quotedPending: true } } : {})
@@ -3021,35 +2887,6 @@ function ensurePlanAwaitingReview(planId: string): Plan | null {
   }
 
   return plan
-}
-
-async function confirmPlanExecution(options?: { newSession?: boolean }): Promise<boolean> {
-  const newSession = options?.newSession === true
-
-  return confirm({
-    title: i18n.t(
-      newSession ? 'plan.confirmExecuteInNewSessionTitle' : 'plan.confirmExecuteTitle',
-      {
-        ns: 'cowork',
-        defaultValue: newSession
-          ? 'Execute approved plan in a new session?'
-          : 'Execute approved plan?'
-      }
-    ),
-    description: i18n.t(
-      newSession ? 'plan.confirmExecuteInNewSessionDesc' : 'plan.confirmExecuteDesc',
-      {
-        ns: 'cowork',
-        defaultValue: newSession
-          ? 'This will create a new session and start implementation from the approved plan.'
-          : 'This will start implementation in the current session.'
-      }
-    ),
-    confirmLabel: i18n.t(newSession ? 'plan.executeInNewSession' : 'plan.confirmExecute', {
-      ns: 'cowork',
-      defaultValue: newSession ? 'New Session Execute' : 'Confirm Execute'
-    })
-  })
 }
 
 /** Set up the persistent teammate listener. Called once; idempotent. */
@@ -4594,12 +4431,9 @@ export function useChatActions(): {
           // A quoted message is visible before this hook/API preflight finishes.
           // Keep the transcript in sync if the hook rewrites the prompt.
           if (preRenderedUserMessageId && hookAdjustedPrompt !== null) {
-            const preRenderedText =
-              hookAdjustedPrompt ||
-              resolvedCommand.userText ||
-              (resolvedCommand.command ? `/${resolvedCommand.command.name}` : '')
+            const preRenderedText = hookAdjustedPrompt || resolvedCommand.userText || ''
             updateMessageWithSync(sessionId, preRenderedUserMessageId, {
-              content: buildUserMessageContent(preRenderedText, images)
+              content: buildUserMessageContent(preRenderedText, images, resolvedCommand.command)
             })
           }
         }
@@ -4626,28 +4460,18 @@ export function useChatActions(): {
         // Add user message (multi-modal when images attached)
         let expectedUserRequestMessage: UnifiedMessage | null = preRenderedUserMessage
         if (shouldAppendUserMessage) {
-          let userContent: string | ContentBlock[]
-          const textBlocks: Array<Extract<ContentBlock, { type: 'text' }>> = []
           const hasImages = Boolean(images && images.length > 0)
-          const textForUserBlock =
+          const remainingText =
             hookAdjustedPrompt ||
             resolvedCommand.userText ||
-            (resolvedCommand.command ? `/${resolvedCommand.command.name}` : '') ||
             (isQueuedInsertion && hasImages && !resolvedCommand.command
               ? QUEUED_IMAGE_ONLY_TEXT
               : '')
-
-          if (textForUserBlock) {
-            textBlocks.push({ type: 'text', text: textForUserBlock })
-          }
-
-          if (hasImages) {
-            userContent = [...textBlocks, ...(images ?? []).map(imageAttachmentToContentBlock)]
-          } else if (textBlocks.length === 1 && textBlocks[0]?.type === 'text') {
-            userContent = textBlocks[0].text
-          } else {
-            userContent = textBlocks
-          }
+          const userContent = buildUserMessageContent(
+            remainingText,
+            images,
+            resolvedCommand.command
+          )
 
           const userMsg: UnifiedMessage = {
             id: nanoid(),
@@ -5486,7 +5310,30 @@ export function useChatActions(): {
                       providerId: hostedProviderId,
                       modelId: hostedModelId,
                       attachmentIds: [],
-                      commandMetadata: { goalRunSource: 'user_turn' }
+                      commandMetadata: {
+                        goalRunSource: 'user_turn',
+                        ...(requestSystemCommandContext
+                          ? {
+                              systemCommand: {
+                                name: requestSystemCommandContext.name,
+                                content: requestSystemCommandContext.content
+                              }
+                            }
+                          : {}),
+                        ...(requestSlashCommandContext
+                          ? {
+                              slashCommand: {
+                                commandName: requestSlashCommandContext.commandName,
+                                ...(requestSlashCommandContext.rawArguments !== undefined
+                                  ? { rawArguments: requestSlashCommandContext.rawArguments }
+                                  : {}),
+                                ...(requestSlashCommandContext.parsedArguments
+                                  ? { parsedArguments: requestSlashCommandContext.parsedArguments }
+                                  : {})
+                              }
+                            }
+                          : {})
+                      }
                     })
                     if (!result.accepted || !result.runId.trim()) {
                       throw await agentBridge.createDiagnosticError(
@@ -6333,33 +6180,11 @@ export function useChatActions(): {
                     preRunTaskSnapshot,
                     verificationPassIndex: 0
                   })
-                  if (
-                    event.messages &&
-                    event.messages.length > 0 &&
-                    (event.reason === 'completed' || event.reason === 'max_iterations')
-                  ) {
-                    flushRuntimeForegroundMutations()
-                    const currentMessages =
-                      useChatStore.getState().sessions.find((item) => item.id === sessionId)
-                        ?.messages ?? []
-                    // The agent loop only emits messages on loop_end when compression
-                    // ran during this run. The agent carries the reduced view
-                    // ([boundary, summary, ...newTurns]) but the
-                    // renderer holds the full transcript with old messages intact —
-                    // splice the agent's tail over the renderer's tail instead of
-                    // overwriting the prefix.
-                    const merged = mergeLoopEndMessagesKeepHistory(currentMessages, event.messages)
-                    if (merged) {
-                      chatStore.replaceSessionMessages(sessionId!, merged)
-                    } else if (currentMessages.length === 0) {
-                      // Fresh session that never displayed the older history (e.g.
-                      // resumed after a crash) — adopt the agent's reduced view.
-                      chatStore.replaceSessionMessages(sessionId!, event.messages)
-                    }
-                    // Otherwise: merge couldn't anchor (boundary id missing from the
-                    // renderer view). Skip the replace rather than wipe the older
-                    // messages from the UI and DB.
-                  }
+                  // The loop only emits `messages` on loop_end when compression ran,
+                  // and that payload is its own reduced view. The renderer already
+                  // holds every turn it streamed, and Main owns the compaction cut,
+                  // so splicing the loop's view over the transcript would only risk
+                  // dropping rows that are still needed.
                   break
                 }
 
@@ -6416,62 +6241,24 @@ export function useChatActions(): {
 
                 case 'context_compressed':
                   {
-                    const compressedMessages = extractCompactArtifactMessages(
-                      event.compactArtifacts ?? event.messages
-                    )
-
                     streamDeltaBuffer.flushNow()
                     flushRuntimeForegroundMutations()
-                    if (compressedMessages.length === 0 || !sessionId) {
-                      break
-                    }
+                    const summary = event.compactSummaryMessage
+                    if (!summary?.id || !sessionId) break
 
-                    const chatStore = useChatStore.getState()
-                    const currentMessages = chatStore.getSessionMessages(sessionId)
-                    const currentSession = chatStore.sessions.find((item) => item.id === sessionId)
-                    const assistantMessage = currentMessages.find(
-                      (message) => message.id === assistantMsgId
+                    // Main persists the summary and records the compaction cut from
+                    // the same event. The renderer only mirrors it into the resident
+                    // window so the transcript shows the compression point without
+                    // waiting for a reload — no positions to guess, no second writer.
+                    useChatStore.getState().adoptCompactionSummary(
+                      sessionId,
+                      {
+                        ...summary,
+                        role: 'user',
+                        createdAt: summary.createdAt || Date.now()
+                      },
+                      event.keptMessageCount ?? 0
                     )
-                    const anchored = attachLiveCompactSummaryDisplayAnchor(
-                      compressedMessages,
-                      assistantMessage,
-                      assistantMsgId
-                    )
-                    const insertBeforeAssistant = shouldInsertCompressedMessagesBeforeAssistant(
-                      currentMessages,
-                      assistantMsgId
-                    )
-
-                    // Display compression where it happened in wall-clock time.
-                    // During multi-iteration runs, the renderer appends every
-                    // iteration to one live assistant message while the loop-local
-                    // transcript has separate assistant turns. Insert the compact
-                    // artifacts before the live assistant so request reconstruction
-                    // keeps the continuing output after the summary, and store a
-                    // display anchor so MessageList can render the card inline at
-                    // the content boundary instead of as a sticky tail row.
-                    const shouldInsertBeforeAssistant = insertBeforeAssistant || anchored.anchored
-                    const assistantIndex = currentMessages.findIndex(
-                      (message) => message.id === assistantMsgId
-                    )
-                    const insertSortOrder =
-                      shouldInsertBeforeAssistant && assistantIndex >= 0 && currentSession
-                        ? currentSession.loadedRangeStart + assistantIndex
-                        : (currentSession?.messageCount ?? currentMessages.length)
-                    const inserted = await useChatStore
-                      .getState()
-                      .insertCompactArtifacts(sessionId, anchored.messages, {
-                        ...(shouldInsertBeforeAssistant
-                          ? { insertBeforeMessageId: assistantMsgId }
-                          : { insertAtEnd: true }),
-                        insertSortOrder
-                      })
-                    if (!inserted) {
-                      console.warn('[Context Compression] Failed to insert compact artifacts', {
-                        sessionId,
-                        compressedCount: compressedMessages.length
-                      })
-                    }
                   }
                   break
 
@@ -7026,15 +6813,43 @@ export function useChatActions(): {
         })
         return 'skipped'
       }
-      const merged = await mergeCompressedMessagesIntoSession({
-        sessionId,
-        compressedMessages: compressed,
-        insertAtEnd: true
-      })
-      if (!merged) {
-        toast.error('Compression failed', { description: 'Could not merge compressed context' })
+      const summary = compressed.find((message) => message.id === result.summaryMessageId)
+      if (!summary) {
+        toast.error('Compression failed', { description: 'Compression returned no summary' })
         return 'failed'
       }
+
+      // Committing the cut is what makes the compaction real: the summary row and
+      // the recorded boundary are written together, so a failure here leaves the
+      // session fully uncompacted rather than half-applied.
+      const committed = await commitSessionCompaction({
+        sessionId,
+        summaryMessage: {
+          id: summary.id,
+          role: summary.role,
+          content: summary.content,
+          createdAt: summary.createdAt
+        },
+        compactedMessageIds: result.compactedMessageIds ?? [],
+        keepMessageIds: [],
+        compactedMessageCount: result.messagesSummarized ?? 0,
+        trigger: 'manual',
+        preTokens
+      })
+      if (!committed) {
+        toast.error('Compression failed', { description: 'Could not record the compaction' })
+        return 'failed'
+      }
+
+      useChatStore.getState().adoptCompactionSummary(
+        sessionId,
+        {
+          ...summary,
+          role: 'user',
+          createdAt: summary.createdAt || Date.now()
+        },
+        committed.compactedMessageCount
+      )
       return 'compressed'
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -7065,13 +6880,14 @@ export async function sendImplementPlan(planId: string): Promise<void> {
   const plan = ensurePlanAwaitingReview(planId)
   if (!plan) return
 
-  const confirmed = await confirmPlanExecution()
-  if (!confirmed) return
+  const modelSelection = await confirmPlanExecution({ sessionId: plan.sessionId })
+  if (!modelSelection) return
 
   const latestPlan = ensurePlanAwaitingReview(planId)
   if (!latestPlan) return
 
   const chatStore = useChatStore.getState()
+  applyPlanExecutionModel(latestPlan.sessionId, modelSelection)
   const uiStore = useUIStore.getState()
   const session = chatStore.sessions.find((item) => item.id === latestPlan.sessionId)
   const isAcpSession =
@@ -7143,8 +6959,11 @@ export async function sendImplementPlanInNewSession(planId: string): Promise<voi
     return
   }
 
-  const confirmed = await confirmPlanExecution({ newSession: true })
-  if (!confirmed) return
+  const modelSelection = await confirmPlanExecution({
+    sessionId: plan.sessionId,
+    newSession: true
+  })
+  if (!modelSelection) return
 
   const latestPlan = ensurePlanAwaitingReview(planId)
   if (!latestPlan?.filePath) return
@@ -7165,14 +6984,7 @@ export async function sendImplementPlanInNewSession(planId: string): Promise<voi
     chatStore.setWorkingFolder(newSessionId, sourceSession.workingFolder)
   }
   chatStore.setSshConnectionId(newSessionId, sourceSshConnectionId ?? null)
-
-  if (sourceSession.modelSelectionMode === 'auto') {
-    chatStore.setSessionModelAuto(newSessionId)
-  } else if (sourceSession.providerId && sourceSession.modelId) {
-    chatStore.setSessionModelManual(newSessionId, sourceSession.providerId, sourceSession.modelId)
-  } else if (sourceSession.modelSelectionMode === 'inherit') {
-    chatStore.setSessionModelInherit(newSessionId)
-  }
+  applyPlanExecutionModel(newSessionId, modelSelection)
 
   try {
     const result = await ipcClient.invoke(

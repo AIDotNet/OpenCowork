@@ -133,6 +133,8 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             var thinking = JsonHelpers.GetString(delta, "thinking") ?? string.Empty;
             if (thinking.Length > 0)
             {
+                parseState.ReasoningStreamed = true;
+                parseState.EstimatedOutputTokens += EstimateTokenCount(thinking);
                 await AgentRuntimeTools.EmitAsync(
                     state,
                     context,
@@ -156,6 +158,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             }
             if (JsonHelpers.GetString(delta, "partial_json") is { } partialJson)
             {
+                parseState.EstimatedOutputTokens += EstimateTokenCount(partialJson);
                 buffer.Arguments.Append(partialJson);
             }
             if (AgentRuntimeToolArgumentStreaming.TryGetInputForDelta(

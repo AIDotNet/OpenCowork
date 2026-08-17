@@ -9,15 +9,23 @@ import {
   Settings2,
   MonitorSmartphone,
   Loader2,
-  Globe2
+  Globe2,
+  Expand,
+  Zap,
+  Cable,
+  Timer,
+  Image as ImageIcon
 } from 'lucide-react'
 import {
   isProviderAvailableForModelSelection,
   useProviderStore,
   modelSupportsVision,
   modelSupportsBuiltinSearch,
+  modelSupportsGptLongContext,
   modelSupportsResponsesWebsocket,
   modelSupportsResponsesImageGeneration,
+  isGptLongContextEnabled,
+  resolveEffectiveModelContextLength,
   resolveModelThinkingConfig
 } from '@renderer/stores/provider-store'
 import {
@@ -47,6 +55,11 @@ import type {
   ReasoningEffortLevel,
   ThinkingConfig
 } from '@renderer/lib/api/types'
+import {
+  hasOffPeakPricing,
+  resolveModelPricingBrackets,
+  type ModelPricingBracket
+} from '@renderer/lib/model-pricing'
 import { isResponsesImageGenerationEnabled } from '@renderer/lib/api/responses-image-generation'
 import { resolveSessionModelSelection } from '@renderer/lib/session-model-resolution'
 import { ReasoningEffortSlider } from './ReasoningEffortSlider'
@@ -73,7 +86,15 @@ function formatTokenCount(value?: number): string {
 
 function formatPrice(value?: number): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
-  return `$${value.toFixed(2)}/M tokens`
+  const digits = value < 0.01 ? 4 : value < 0.1 ? 3 : 2
+  const text =
+    value < 0.1
+      ? value
+          .toFixed(digits)
+          .replace(/(\.\d*?)0+$/, '$1')
+          .replace(/\.$/, '')
+      : value.toFixed(2)
+  return `$${text}/M tokens`
 }
 
 function readAnthropicThinkingBudget(model?: AIModelConfig): number | null {
@@ -137,39 +158,243 @@ function PillToggle({
   enabled,
   onClick,
   label,
-  description,
-  compact = false,
-  activeClassName = 'bg-violet-500 border-violet-500'
+  description
 }: {
   enabled: boolean
   onClick: () => void
   label: string
   description?: string
-  compact?: boolean
-  activeClassName?: string
 }): React.JSX.Element {
   return (
     <button
       type="button"
-      title={compact ? label : undefined}
       className={cn(
-        'flex items-center justify-between rounded-md text-xs transition-colors',
-        compact ? 'min-w-0 flex-1 gap-1.5 px-2 py-2' : 'w-full gap-3 px-2.5 py-2',
+        'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-xs transition-colors',
         enabled ? 'bg-muted/50 text-foreground' : 'text-foreground/75 hover:bg-muted/45'
       )}
       onClick={onClick}
     >
       <span className="flex min-w-0 flex-col text-left">
-        <span className={cn('font-medium', compact && 'truncate')}>{label}</span>
-        {description && !compact && (
-          <span className="text-[10px] text-muted-foreground">{description}</span>
-        )}
+        <span className="font-medium">{label}</span>
+        {description && <span className="text-[10px] text-muted-foreground">{description}</span>}
       </span>
       <span
         className={cn(
-          'shrink-0 rounded-full border-2 transition-colors',
-          compact ? 'size-3.5' : 'ml-3 size-4',
-          enabled ? activeClassName : 'border-muted-foreground/30'
+          'ml-3 size-4 shrink-0 rounded-full border-2 transition-colors',
+          enabled ? 'border-violet-500 bg-violet-500' : 'border-muted-foreground/30'
+        )}
+      />
+    </button>
+  )
+}
+
+type CapabilityTone = 'teal' | 'orange' | 'sky' | 'amber' | 'emerald'
+
+const CAPABILITY_TONE: Record<CapabilityTone, { icon: string; track: string; chip: string }> = {
+  teal: {
+    icon: 'bg-teal-500/15 text-teal-600 dark:text-teal-300',
+    track: 'bg-teal-500',
+    chip: 'border-teal-500/40 bg-teal-500/10 text-teal-700 dark:text-teal-300'
+  },
+  orange: {
+    icon: 'bg-orange-500/15 text-orange-600 dark:text-orange-300',
+    track: 'bg-orange-500',
+    chip: 'border-orange-500/40 bg-orange-500/10 text-orange-700 dark:text-orange-300'
+  },
+  sky: {
+    icon: 'bg-sky-500/15 text-sky-600 dark:text-sky-300',
+    track: 'bg-sky-500',
+    chip: 'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300'
+  },
+  amber: {
+    icon: 'bg-amber-500/15 text-amber-600 dark:text-amber-300',
+    track: 'bg-amber-500',
+    chip: 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+  },
+  emerald: {
+    icon: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300',
+    track: 'bg-emerald-500',
+    chip: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+  }
+}
+
+/** Grouped list container — one visual card so capabilities read as a single set. */
+function CapabilityCard({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/50 bg-muted/20 dark:bg-white/[0.02]">
+      {children}
+    </div>
+  )
+}
+
+function CapabilityIcon({
+  tone,
+  enabled,
+  children
+}: {
+  tone: CapabilityTone
+  enabled: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <span
+      className={cn(
+        'flex size-6 shrink-0 items-center justify-center rounded-md transition-colors',
+        enabled ? CAPABILITY_TONE[tone].icon : 'bg-muted/70 text-muted-foreground/70'
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** Toggle row: icon · label + state description · switch. */
+function CapabilityRow({
+  tone,
+  icon,
+  label,
+  description,
+  enabled,
+  onClick
+}: {
+  tone: CapabilityTone
+  icon: React.ReactNode
+  label: string
+  description?: string
+  enabled: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      title={description ? `${label} · ${description}` : label}
+      className="flex w-full items-center gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-muted/40 dark:hover:bg-white/[0.04]"
+      onClick={onClick}
+    >
+      <CapabilityIcon tone={tone} enabled={enabled}>
+        {icon}
+      </CapabilityIcon>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium text-foreground">{label}</span>
+        {description && (
+          <span className="mt-px block truncate text-[10px] leading-4 text-muted-foreground">
+            {description}
+          </span>
+        )}
+      </span>
+      <span
+        aria-hidden
+        className={cn(
+          'flex h-[18px] w-8 shrink-0 items-center rounded-full transition-colors duration-200 motion-reduce:transition-none',
+          enabled ? CAPABILITY_TONE[tone].track : 'bg-muted-foreground/25'
+        )}
+      >
+        <span
+          className={cn(
+            'size-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 motion-reduce:transition-none',
+            enabled ? 'translate-x-[16px]' : 'translate-x-0.5'
+          )}
+        />
+      </span>
+    </button>
+  )
+}
+
+/** Row with a discrete choice instead of on/off. */
+function CapabilityChoiceRow<T extends string>({
+  tone,
+  icon,
+  label,
+  description,
+  options,
+  value,
+  onChange
+}: {
+  tone: CapabilityTone
+  icon: React.ReactNode
+  label: string
+  description?: string
+  options: readonly T[]
+  value: T
+  onChange: (value: T) => void
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2.5 px-2.5 py-2">
+      <CapabilityIcon tone={tone} enabled>
+        {icon}
+      </CapabilityIcon>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium text-foreground">{label}</span>
+        {description && (
+          <span className="mt-px block truncate text-[10px] leading-4 text-muted-foreground">
+            {description}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-0.5 rounded-md bg-muted/60 p-0.5 dark:bg-white/[0.05]">
+        {options.map((option) => {
+          const active = option === value
+          return (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={active}
+              className={cn(
+                'rounded-[5px] px-2 py-1 text-[11px] font-medium transition-colors',
+                active
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+              onClick={() => onChange(option)}
+            >
+              {option}
+            </button>
+          )
+        })}
+      </span>
+    </div>
+  )
+}
+
+/** Compact flag toggle — wraps naturally, so a lone flag never looks orphaned. */
+function CapabilityChip({
+  tone,
+  icon,
+  label,
+  hint,
+  enabled,
+  onClick
+}: {
+  tone: CapabilityTone
+  icon: React.ReactNode
+  label: string
+  hint?: string
+  enabled: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      title={hint ? `${label} · ${hint}` : label}
+      className={cn(
+        'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+        enabled
+          ? CAPABILITY_TONE[tone].chip
+          : 'border-border/60 text-muted-foreground hover:border-border hover:text-foreground'
+      )}
+      onClick={onClick}
+    >
+      <span className={cn('shrink-0', !enabled && 'opacity-70')}>{icon}</span>
+      <span className="truncate">{label}</span>
+      <span
+        aria-hidden
+        className={cn(
+          'size-1.5 shrink-0 rounded-full transition-colors',
+          enabled ? 'bg-current' : 'bg-muted-foreground/30'
         )}
       />
     </button>
@@ -187,7 +412,7 @@ function ModelCapabilityTags({
   t: (key: string) => string
   showContext?: boolean
 }): React.JSX.Element {
-  const ctx = formatContextLength(model.contextLength)
+  const ctx = formatContextLength(resolveEffectiveModelContextLength(model))
   return (
     <div className="flex items-center gap-1 flex-wrap">
       {modelSupportsVision(model, providerType) && (
@@ -217,6 +442,59 @@ function ModelCapabilityTags({
   )
 }
 
+interface PriceRow {
+  label: string
+  value: string
+}
+
+/** Human range for a bracket, e.g. "< 512K" / "512K – 1M" / "≥ 512K". */
+function formatBracketRange(bracket: ModelPricingBracket): string {
+  const floor = formatContextLength(bracket.minPromptTokens)
+  const ceiling = formatContextLength(bracket.maxPromptTokens ?? undefined)
+  if (bracket.minPromptTokens <= 0) return ceiling ? `< ${ceiling}` : '—'
+  if (!ceiling) return `≥ ${floor}`
+  return `${floor} – ${ceiling}`
+}
+
+function buildBracketPriceRows(
+  bracket: ModelPricingBracket,
+  tSettings: (key: string, opts?: Record<string, unknown>) => string
+): PriceRow[] {
+  return [
+    {
+      label: tSettings('provider.inputPrice'),
+      value: formatPrice(bracket.inputPrice ?? undefined)
+    },
+    {
+      label: tSettings('provider.outputPrice'),
+      value: formatPrice(bracket.outputPrice ?? undefined)
+    },
+    {
+      label: tSettings('provider.cacheCreationPrice'),
+      value: formatPrice(bracket.cacheCreationPrice ?? undefined)
+    },
+    {
+      label: tSettings('provider.cacheHitPrice'),
+      value: formatPrice(bracket.cacheHitPrice ?? undefined)
+    }
+  ].filter((row) => row.value !== '-')
+}
+
+function PriceRowGrid({ rows }: { rows: PriceRow[] }): React.JSX.Element {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+      {rows.map((row) => (
+        <div key={row.label} className="flex min-w-0 items-center justify-between gap-2">
+          <span className="truncate text-[10px] text-muted-foreground">{row.label}</span>
+          <span className="shrink-0 text-[10px] font-semibold text-foreground/85">
+            {row.value.replace('/M tokens', '')}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ModelHoverDetails({
   model,
   tSettings
@@ -227,7 +505,7 @@ function ModelHoverDetails({
   const contextRows = [
     {
       label: tSettings('provider.contextLength'),
-      value: formatTokenCount(model.contextLength)
+      value: formatTokenCount(resolveEffectiveModelContextLength(model))
     },
     {
       label: tSettings('provider.maxOutputTokens'),
@@ -235,17 +513,62 @@ function ModelHoverDetails({
     }
   ].filter((row) => row.value !== '-')
 
-  const priceRows = [
-    { label: tSettings('provider.inputPrice'), value: formatPrice(model.inputPrice) },
-    { label: tSettings('provider.outputPrice'), value: formatPrice(model.outputPrice) },
-    {
-      label: tSettings('provider.cacheCreationPrice'),
-      value: formatPrice(model.cacheCreationPrice)
-    },
-    { label: tSettings('provider.cacheHitPrice'), value: formatPrice(model.cacheHitPrice) }
-  ].filter((row) => row.value !== '-')
+  // Tier-priced models show the whole ladder instead of a single rate set.
+  const pricingBrackets = resolveModelPricingBrackets(model)
+    .map((bracket) => ({ bracket, rows: buildBracketPriceRows(bracket, tSettings) }))
+    .filter((entry) => entry.rows.length > 0)
 
-  if (contextRows.length === 0 && priceRows.length === 0) return null
+  const priceRows = (
+    pricingBrackets.length > 0
+      ? []
+      : hasOffPeakPricing(model)
+        ? [
+            {
+              label: `${tSettings('provider.inputPrice')} · ${tSettings('provider.peakPricing')}`,
+              value: formatPrice(model.inputPrice)
+            },
+            {
+              label: `${tSettings('provider.inputPrice')} · ${tSettings('provider.offPeakPricing')}`,
+              value: formatPrice(model.offPeakInputPrice)
+            },
+            {
+              label: `${tSettings('provider.outputPrice')} · ${tSettings('provider.peakPricing')}`,
+              value: formatPrice(model.outputPrice)
+            },
+            {
+              label: `${tSettings('provider.outputPrice')} · ${tSettings('provider.offPeakPricing')}`,
+              value: formatPrice(model.offPeakOutputPrice)
+            },
+            {
+              label: `${tSettings('provider.cacheCreationPrice')} · ${tSettings('provider.peakPricing')}`,
+              value: formatPrice(model.cacheCreationPrice)
+            },
+            {
+              label: `${tSettings('provider.cacheCreationPrice')} · ${tSettings('provider.offPeakPricing')}`,
+              value: formatPrice(model.offPeakCacheCreationPrice)
+            },
+            {
+              label: `${tSettings('provider.cacheHitPrice')} · ${tSettings('provider.peakPricing')}`,
+              value: formatPrice(model.cacheHitPrice)
+            },
+            {
+              label: `${tSettings('provider.cacheHitPrice')} · ${tSettings('provider.offPeakPricing')}`,
+              value: formatPrice(model.offPeakCacheHitPrice)
+            }
+          ]
+        : [
+            { label: tSettings('provider.inputPrice'), value: formatPrice(model.inputPrice) },
+            { label: tSettings('provider.outputPrice'), value: formatPrice(model.outputPrice) },
+            {
+              label: tSettings('provider.cacheCreationPrice'),
+              value: formatPrice(model.cacheCreationPrice)
+            },
+            { label: tSettings('provider.cacheHitPrice'), value: formatPrice(model.cacheHitPrice) }
+          ]
+  ).filter((row) => row.value !== '-')
+
+  if (contextRows.length === 0 && priceRows.length === 0 && pricingBrackets.length === 0)
+    return null
 
   return (
     <div className="mt-3 space-y-2 border-t border-border/60 pt-2">
@@ -270,15 +593,38 @@ function ModelHoverDetails({
             <span>{tSettings('provider.pricing')}</span>
             <span className="normal-case tracking-normal">{tSettings('provider.pricingUnit')}</span>
           </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-            {priceRows.map((row) => (
-              <div key={row.label} className="flex min-w-0 items-center justify-between gap-2">
-                <span className="truncate text-[10px] text-muted-foreground">{row.label}</span>
-                <span className="shrink-0 text-[10px] font-semibold text-foreground/85">
-                  {row.value.replace('/M tokens', '')}
-                </span>
+          <PriceRowGrid rows={priceRows} />
+        </div>
+      )}
+
+      {pricingBrackets.length > 0 && (
+        <div className="space-y-1.5 rounded-md bg-muted/25 px-2 py-1.5">
+          <div className="flex items-center justify-between gap-2 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70">
+            <span>
+              {tSettings('provider.pricing')} ·{' '}
+              {tSettings('provider.pricingTiers', { defaultValue: 'Tiered' })}
+            </span>
+            <span className="normal-case tracking-normal">{tSettings('provider.pricingUnit')}</span>
+          </div>
+          <div className="space-y-1">
+            {pricingBrackets.map(({ bracket, rows }) => (
+              <div
+                key={bracket.minPromptTokens}
+                className="rounded-[5px] bg-background/45 px-1.5 py-1 dark:bg-white/[0.04]"
+              >
+                <div className="text-[10px] font-semibold tabular-nums text-foreground/75">
+                  {formatBracketRange(bracket)}
+                </div>
+                <div className="mt-0.5">
+                  <PriceRowGrid rows={rows} />
+                </div>
               </div>
             ))}
+          </div>
+          <div className="text-[9px] leading-3 text-muted-foreground/70">
+            {tSettings('provider.pricingTierHint', {
+              defaultValue: 'Bracket picked by prompt size (input + cache tokens) per request.'
+            })}
           </div>
         </div>
       )}
@@ -391,7 +737,7 @@ function ModelSettingsPopover({
   providerType?: AIProvider['type']
   providerWebsocketMode?: AIProvider['websocketMode']
   side?: 'top' | 'bottom'
-  t: (key: string) => string
+  t: (key: string, opts?: Record<string, unknown>) => string
   tChat: (key: string, opts?: Record<string, unknown>) => string
   tSettings: (key: string, opts?: Record<string, unknown>) => string
 }): React.JSX.Element | null {
@@ -449,6 +795,8 @@ function ModelSettingsPopover({
 
   const supportsBuiltinSearch = modelSupportsBuiltinSearch(model, providerType)
   const builtinSearchEnabled = supportsBuiltinSearch && model?.enableBuiltinSearch === true
+  const supportsGptLongContext = modelSupportsGptLongContext(model)
+  const gptLongContextEnabled = supportsGptLongContext && isGptLongContextEnabled(model)
 
   const hasConfigControls =
     supportsThinking ||
@@ -456,7 +804,8 @@ function ModelSettingsPopover({
     supportsResponsesWebsocket ||
     supportsResponsesImageGeneration ||
     supportsAnthropicCacheTtl ||
-    supportsBuiltinSearch
+    supportsBuiltinSearch ||
+    supportsGptLongContext
 
   const supportsAnthropicThinkingBudget =
     supportsThinking && requestType === 'anthropic' && !!model?.thinkingConfig
@@ -506,6 +855,16 @@ function ModelSettingsPopover({
       enableBuiltinSearch: !builtinSearchEnabled
     })
   }, [model, providerId, builtinSearchEnabled])
+
+  const toggleGptLongContext = useCallback(() => {
+    if (!model?.id) return
+    const providerStore = useProviderStore.getState()
+    const targetProviderId = providerId ?? providerStore.activeProviderId
+    if (!targetProviderId) return
+    providerStore.updateModel(targetProviderId, model.id, {
+      enableLongContext: !gptLongContextEnabled
+    })
+  }, [model, providerId, gptLongContextEnabled])
 
   const websocketEnabled =
     (model?.websocketMode ?? providerWebsocketMode ?? 'disabled') !== 'disabled'
@@ -682,90 +1041,90 @@ function ModelSettingsPopover({
                   </div>
                 )}
 
-                {supportsAnthropicCacheTtl && (
-                  <div className="px-2 py-1.5">
-                    <div className="mb-2 flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold text-foreground">
-                          {tSettings('provider.cacheTtl')}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {tSettings('provider.cacheTtlHint')}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      {(['5m', '1h'] as const).map((ttl) => {
-                        const active = anthropicCacheTtl === ttl
-                        return (
-                          <button
-                            key={ttl}
-                            type="button"
-                            className={cn(
-                              'rounded-md border px-2 py-1.5 text-xs font-medium transition-colors',
-                              active
-                                ? 'border-sky-400 bg-sky-500/10 text-sky-600 dark:text-sky-300'
-                                : 'border-border text-muted-foreground hover:bg-muted/50'
-                            )}
-                            onClick={() => updateAnthropicCacheTtl(ttl)}
-                          >
-                            {ttl}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                {(supportsBuiltinSearch || supportsGptLongContext || supportsAnthropicCacheTtl) && (
+                  <CapabilityCard>
+                    {supportsBuiltinSearch && (
+                      <CapabilityRow
+                        tone="teal"
+                        icon={<Globe2 className="size-3.5" />}
+                        label={t('topbar.builtinSearch')}
+                        description={
+                          builtinSearchEnabled
+                            ? t('topbar.builtinSearchOn')
+                            : t('topbar.builtinSearchOff')
+                        }
+                        enabled={builtinSearchEnabled}
+                        onClick={toggleBuiltinSearch}
+                      />
+                    )}
 
-                {supportsBuiltinSearch && (
-                  <PillToggle
-                    enabled={builtinSearchEnabled}
-                    onClick={toggleBuiltinSearch}
-                    label={t('topbar.builtinSearch')}
-                    description={
-                      builtinSearchEnabled
-                        ? t('topbar.builtinSearchOn')
-                        : t('topbar.builtinSearchOff')
-                    }
-                    activeClassName="bg-teal-500 border-teal-500"
-                  />
+                    {supportsGptLongContext && (
+                      <CapabilityRow
+                        tone="orange"
+                        icon={<Expand className="size-3.5" />}
+                        label={t('topbar.longContext')}
+                        description={
+                          gptLongContextEnabled
+                            ? t('topbar.longContextOn')
+                            : t('topbar.longContextOff')
+                        }
+                        enabled={gptLongContextEnabled}
+                        onClick={toggleGptLongContext}
+                      />
+                    )}
+
+                    {supportsAnthropicCacheTtl && (
+                      <CapabilityChoiceRow
+                        tone="sky"
+                        icon={<Timer className="size-3.5" />}
+                        label={tSettings('provider.cacheTtl')}
+                        description={tSettings('provider.cacheTtlHint')}
+                        options={['5m', '1h'] as const}
+                        value={anthropicCacheTtl}
+                        onChange={updateAnthropicCacheTtl}
+                      />
+                    )}
+                  </CapabilityCard>
                 )}
 
                 {(supportsFastMode ||
                   supportsResponsesWebsocket ||
                   supportsResponsesImageGeneration) && (
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {supportsFastMode && (
-                      <PillToggle
-                        compact
+                      <CapabilityChip
+                        tone="amber"
+                        icon={<Zap className="size-3" />}
+                        label={t('topbar.fastMode')}
+                        hint={tSettings('provider.supportsFastModeDesc')}
                         enabled={fastModeEnabled}
                         onClick={() =>
                           useSettingsStore
                             .getState()
                             .updateSettings({ fastModeEnabled: !fastModeEnabled })
                         }
-                        label={t('topbar.fastMode')}
-                        activeClassName="bg-amber-500 border-amber-500"
                       />
                     )}
 
                     {supportsResponsesWebsocket && (
-                      <PillToggle
-                        compact
+                      <CapabilityChip
+                        tone="sky"
+                        icon={<Cable className="size-3" />}
+                        label={t('topbar.websocketProtocol', { defaultValue: 'WebSocket' })}
+                        hint={tSettings('provider.supportsWebsocketDesc')}
                         enabled={websocketEnabled}
                         onClick={toggleResponsesWebsocket}
-                        label={tSettings('provider.responsesWebsocket')}
-                        activeClassName="bg-sky-500 border-sky-500"
                       />
                     )}
 
                     {supportsResponsesImageGeneration && (
-                      <PillToggle
-                        compact
+                      <CapabilityChip
+                        tone="emerald"
+                        icon={<ImageIcon className="size-3" />}
+                        label={t('topbar.imageGeneration', { defaultValue: 'Image generation' })}
+                        hint={tSettings('provider.supportsImageGenerationDesc')}
                         enabled={responsesImageGenerationEnabled}
                         onClick={toggleResponsesImageGeneration}
-                        label={tSettings('provider.responsesImageGeneration')}
-                        activeClassName="bg-emerald-500 border-emerald-500"
                       />
                     )}
                   </div>

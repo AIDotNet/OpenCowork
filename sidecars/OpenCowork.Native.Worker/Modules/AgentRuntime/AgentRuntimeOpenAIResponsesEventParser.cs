@@ -45,6 +45,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 {
                     MarkFirstToken(parseState, startedAt);
                     parseState.EmittedThinkingDelta = true;
+                    parseState.ReasoningStreamedLive = true;
                     await EmitProjectedEventAsync(
                         parseState,
                         state,
@@ -56,12 +57,12 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             case "response.output_item.added":
                 if (root.TryGetProperty("item", out var addedItem))
                 {
-                    await ProcessOutputItemAddedAsync(addedItem, parseState, state, context);
+                    await ProcessOutputItemAddedAsync(addedItem, parseState, state, context, startedAt);
                 }
                 break;
 
             case "response.function_call_arguments.delta":
-                await ProcessFunctionArgumentsDeltaAsync(root, parseState, state, context);
+                await ProcessFunctionArgumentsDeltaAsync(root, parseState, state, context, startedAt);
                 break;
 
             case "response.function_call_arguments.done":
@@ -135,7 +136,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         JsonElement item,
         ResponsesParseState parseState,
         AgentRuntimeTools.AgentRuntimeRunState state,
-        WorkerRequestContext context)
+        WorkerRequestContext context,
+        long startedAt)
     {
         var itemType = JsonHelpers.GetString(item, "type");
         if (itemType == "reasoning")
@@ -175,6 +177,9 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             return;
         }
+        // A streaming function call is generated output: tool-only responses must
+        // still produce a first-token mark for TTFT/TPS.
+        MarkFirstToken(parseState, startedAt);
         if (!string.IsNullOrWhiteSpace(itemId))
         {
             parseState.CallIdAliases[itemId] = callId;
@@ -198,7 +203,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         JsonElement root,
         ResponsesParseState parseState,
         AgentRuntimeTools.AgentRuntimeRunState state,
-        WorkerRequestContext context)
+        WorkerRequestContext context,
+        long startedAt)
     {
         var callId = ResolveCallId(root, parseState);
         if (string.IsNullOrWhiteSpace(callId))
@@ -211,8 +217,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             parseState.ToolBuffers[callId] = buffer;
         }
 
-        if (JsonHelpers.GetString(root, "delta") is { } delta)
+        if (JsonHelpers.GetString(root, "delta") is { Length: > 0 } delta)
         {
+            MarkFirstToken(parseState, startedAt);
+            parseState.EstimatedOutputTokens += EstimateTokenCount(delta);
             buffer.Arguments.Append(delta);
         }
         if (AgentRuntimeToolArgumentStreaming.TryGetInputForDelta(

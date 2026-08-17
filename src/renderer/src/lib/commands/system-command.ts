@@ -25,6 +25,24 @@ function decodeAttribute(value: string): string {
     .replace(/&amp;/g, '&')
 }
 
+function encodeAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+export function serializeSystemCommandTag(
+  command: SystemCommandSnapshot,
+  remainingText = ''
+): string {
+  const tag = `<system-command name="${encodeAttribute(command.name)}">${command.content}</system-command>`
+  const remaining = remainingText.trim()
+  return remaining ? `${tag}\n\n${remaining}` : tag
+}
+
 export function normalizeCommandName(name: string): string {
   return name.trim().toLowerCase()
 }

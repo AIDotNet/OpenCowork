@@ -74,22 +74,12 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
 
     private static int EstimateTokenCount(string text)
     {
-        return string.IsNullOrWhiteSpace(text) ? 0 : Math.Max(1, text.Length / 4);
+        return AgentRuntimeThroughput.EstimateTokens(text);
     }
 
     private static long ElapsedMs(long startedAt)
     {
         return (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-    }
-
-    private static double? ComputeTps(int outputTokens, long? firstTokenMs, long completedMs)
-    {
-        if (!firstTokenMs.HasValue || outputTokens <= 0)
-        {
-            return null;
-        }
-        var durationMs = completedMs - firstTokenMs.Value;
-        return durationMs <= 0 ? null : outputTokens / (durationMs / 1000.0);
     }
 
     private static Task EmitProjectedEventAsync(
@@ -118,6 +108,12 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         public HashSet<string> EmittedWebSearchCallIds { get; } = new(StringComparer.Ordinal);
         public bool ImageGenerationStarted { get; set; }
         public bool EmittedThinkingDelta { get; set; }
+        /// <summary>
+        /// True only when reasoning summary text streamed live (during the reasoning
+        /// phase). Summaries surfaced at output_item.done arrive after reasoning ended,
+        /// so they do not prove the TPS window covered reasoning generation.
+        /// </summary>
+        public bool ReasoningStreamedLive { get; set; }
         public bool ReceivedAnyMessage { get; set; }
         public bool ProjectedAnyOutput { get; set; }
         public long? FirstTokenMs { get; set; }

@@ -116,6 +116,7 @@ nsis:
   allowToChangeInstallationDirectory: true
 mac:
   icon: resources/icon-mac.png
+  minimumSystemVersion: '14.0'
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

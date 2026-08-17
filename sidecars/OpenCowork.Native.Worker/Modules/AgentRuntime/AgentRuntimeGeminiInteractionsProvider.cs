@@ -127,8 +127,11 @@ internal static class AgentRuntimeGeminiInteractionsProvider
                 Timing: new AgentRuntimeRequestTiming(
                     totalMs,
                     parseState.FirstTokenMs,
-                    ComputeTps(
-                        parseState.Usage?.OutputTokens ?? parseState.EstimatedOutputTokens,
+                    AgentRuntimeThroughput.ComputeTps(
+                        parseState.Usage,
+                        parseState.EstimatedOutputTokens,
+                        parseState.ReasoningStreamed,
+                        usageIncludesReasoning: false,
                         parseState.FirstTokenMs,
                         totalMs))));
 
@@ -496,6 +499,8 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         parseState.FirstTokenMs ??= ElapsedMs(startedAt);
         if (thinking)
         {
+            parseState.ReasoningStreamed = true;
+            parseState.EstimatedOutputTokens += EstimateTokens(text);
             await AgentRuntimeTools.EmitAsync(
                 state,
                 context,
@@ -1085,17 +1090,22 @@ internal static class AgentRuntimeGeminiInteractionsProvider
     private static AgentRuntimeTokenUsage ReadUsage(JsonElement usage)
     {
         var inputTokens = JsonHelpers.GetInt(usage, "total_input_tokens", 0);
+        var reasoningTokens = JsonHelpers.GetIntNullable(usage, "total_thought_tokens");
         var outputTokens = JsonHelpers.GetInt(usage, "total_output_tokens", 0);
         if (outputTokens == 0)
         {
-            outputTokens = Math.Max(0, JsonHelpers.GetInt(usage, "total_tokens", 0) - inputTokens);
+            // Keep the fallback consistent with total_output_tokens, which excludes
+            // thought tokens (total_tokens includes them).
+            outputTokens = Math.Max(
+                0,
+                JsonHelpers.GetInt(usage, "total_tokens", 0) - inputTokens - (reasoningTokens ?? 0));
         }
         var cachedTokens = JsonHelpers.GetIntNullable(usage, "total_cached_tokens");
         return new AgentRuntimeTokenUsage(
             inputTokens,
             outputTokens,
             CacheReadTokens: cachedTokens,
-            ReasoningTokens: JsonHelpers.GetIntNullable(usage, "total_thought_tokens"),
+            ReasoningTokens: reasoningTokens,
             ContextTokens: inputTokens);
     }
 
@@ -1161,22 +1171,12 @@ internal static class AgentRuntimeGeminiInteractionsProvider
 
     private static int EstimateTokens(string text)
     {
-        return Math.Max(1, text.Length / 4);
+        return AgentRuntimeThroughput.EstimateTokens(text);
     }
 
     private static long ElapsedMs(long startedAt)
     {
         return (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-    }
-
-    private static double? ComputeTps(int outputTokens, long? firstTokenMs, long totalMs)
-    {
-        if (outputTokens <= 0 || firstTokenMs is null || totalMs <= firstTokenMs.Value)
-        {
-            return null;
-        }
-        var seconds = (totalMs - firstTokenMs.Value) / 1000.0;
-        return seconds <= 0 ? null : Math.Round(outputTokens / seconds, 2);
     }
 
     private sealed class PendingToolCall(string? id, string? name)
@@ -1195,6 +1195,8 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         public HashSet<string> EmittedImages { get; } = new(StringComparer.Ordinal);
         public Dictionary<int, string> StepTypesByIndex { get; } = [];
         public Dictionary<int, PendingToolCall> PendingToolCalls { get; } = [];
+        /// <summary>Thought-summary text streamed inside the measured window.</summary>
+        public bool ReasoningStreamed { get; set; }
         public long? FirstTokenMs { get; set; }
         public int EstimatedOutputTokens { get; set; }
         public AgentRuntimeTokenUsage? Usage { get; set; }

@@ -56,11 +56,14 @@ import {
   builtinProviderPresets,
   buildProviderModelSnapshot,
   modelSupportsComputerUse,
+  modelSupportsGptLongContext,
   modelSupportsVision,
+  resolveEffectiveModelContextLength,
   normalizeModelKey,
   normalizeProviderBaseUrl,
   type ManagedModelConfig
 } from '@renderer/stores/provider-store'
+import { GPT_LONG_CONTEXT_LENGTH } from '../../../../shared/gpt-context'
 import {
   useQuotaStore,
   type CodexQuota,
@@ -93,6 +96,7 @@ import type {
   AIProvider,
   ThinkingConfig,
   ModelCategory,
+  ModelPricingTier,
   ReasoningEffortLevel,
   ResponsesImageGenerationAction,
   ResponsesImageGenerationBackground,
@@ -116,6 +120,12 @@ import {
   normalizeResponsesImageGenerationPartialImages
 } from '@renderer/lib/api/responses-image-generation'
 import { resolveProviderUserAgent } from '@renderer/lib/api/api-user-agent'
+import {
+  DEEPSEEK_PRICING_SCHEDULE,
+  formatPeakHoursUtc,
+  hasOffPeakPricing,
+  normalizePricingTiers
+} from '@renderer/lib/model-pricing'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { ProviderIcon, ModelIcon } from './provider-icons'
@@ -180,6 +190,176 @@ function toModelConfig(model: ManagedModelConfig): AIModelConfig {
   const { normalizedKey, ...nextModel } = model
   void normalizedKey
   return nextModel
+}
+
+function ModelPriceChips({
+  model,
+  t
+}: {
+  model: AIModelConfig
+  t: (key: string, opts?: Record<string, unknown>) => string
+}): React.JSX.Element | null {
+  const timed = hasOffPeakPricing(model)
+  const chips: React.JSX.Element[] = []
+
+  if (timed) {
+    if (model.inputPrice != null || model.outputPrice != null) {
+      chips.push(
+        <span key="peak-io" className="rounded-full bg-muted/45 px-2 py-0.5">
+          {t('provider.modelMetaPeakPricing', {
+            input: model.inputPrice ?? '?',
+            output: model.outputPrice ?? '?'
+          })}
+        </span>
+      )
+    }
+    if (model.offPeakInputPrice != null || model.offPeakOutputPrice != null) {
+      chips.push(
+        <span key="offpeak-io" className="rounded-full bg-muted/45 px-2 py-0.5">
+          {t('provider.modelMetaOffPeakPricing', {
+            input: model.offPeakInputPrice ?? '?',
+            output: model.offPeakOutputPrice ?? '?'
+          })}
+        </span>
+      )
+    }
+    if (model.cacheCreationPrice != null || model.cacheHitPrice != null) {
+      chips.push(
+        <span
+          key="peak-cache"
+          className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
+        >
+          {model.cacheCreationPrice != null && model.cacheHitPrice != null
+            ? t('provider.modelMetaPeakCachePair', {
+                write: model.cacheCreationPrice,
+                read: model.cacheHitPrice
+              })
+            : model.cacheCreationPrice != null
+              ? t('provider.modelMetaCacheWrite', { write: model.cacheCreationPrice })
+              : t('provider.modelMetaCacheRead', { read: model.cacheHitPrice })}
+        </span>
+      )
+    }
+    if (model.offPeakCacheCreationPrice != null || model.offPeakCacheHitPrice != null) {
+      chips.push(
+        <span
+          key="offpeak-cache"
+          className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
+        >
+          {model.offPeakCacheCreationPrice != null && model.offPeakCacheHitPrice != null
+            ? t('provider.modelMetaOffPeakCachePair', {
+                write: model.offPeakCacheCreationPrice,
+                read: model.offPeakCacheHitPrice
+              })
+            : model.offPeakCacheCreationPrice != null
+              ? t('provider.modelMetaCacheWrite', { write: model.offPeakCacheCreationPrice })
+              : t('provider.modelMetaCacheRead', { read: model.offPeakCacheHitPrice })}
+        </span>
+      )
+    }
+  } else {
+    if (model.inputPrice != null || model.outputPrice != null) {
+      chips.push(
+        <span key="io" className="rounded-full bg-muted/45 px-2 py-0.5">
+          {t('provider.modelMetaPricing', {
+            input: model.inputPrice ?? '?',
+            output: model.outputPrice ?? '?'
+          })}
+        </span>
+      )
+    }
+    if (model.cacheCreationPrice != null || model.cacheHitPrice != null) {
+      chips.push(
+        <span
+          key="cache"
+          className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400"
+        >
+          {model.cacheCreationPrice != null && model.cacheHitPrice != null
+            ? t('provider.modelMetaCachePair', {
+                write: model.cacheCreationPrice,
+                read: model.cacheHitPrice
+              })
+            : model.cacheCreationPrice != null
+              ? t('provider.modelMetaCacheWrite', { write: model.cacheCreationPrice })
+              : t('provider.modelMetaCacheRead', { read: model.cacheHitPrice })}
+        </span>
+      )
+    }
+  }
+
+  const tierCount = normalizePricingTiers(model.pricingTiers).length
+  if (tierCount > 0) {
+    chips.push(
+      <span
+        key="tiers"
+        className="rounded-full bg-orange-500/10 px-2 py-0.5 text-orange-600 dark:text-orange-400"
+      >
+        {t('provider.modelMetaPricingTiers', {
+          count: tierCount + 1,
+          defaultValue: '{{count}} price tiers'
+        })}
+      </span>
+    )
+  }
+
+  return chips.length > 0 ? <>{chips}</> : null
+}
+
+/** Editable form row for one tiered-pricing bracket. Values stay strings while editing. */
+interface PricingTierDraft {
+  key: string
+  minPromptTokens: string
+  inputPrice: string
+  outputPrice: string
+  cacheCreationPrice: string
+  cacheHitPrice: string
+}
+
+function createPricingTierDraft(): PricingTierDraft {
+  return {
+    key: `tier-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    minPromptTokens: '',
+    inputPrice: '',
+    outputPrice: '',
+    cacheCreationPrice: '',
+    cacheHitPrice: ''
+  }
+}
+
+function toPricingTierDrafts(tiers: ModelPricingTier[] | undefined): PricingTierDraft[] {
+  return normalizePricingTiers(tiers).map((tier, index) => ({
+    key: `tier-${index}-${tier.minPromptTokens}`,
+    minPromptTokens: String(tier.minPromptTokens),
+    inputPrice: tier.inputPrice?.toString() ?? '',
+    outputPrice: tier.outputPrice?.toString() ?? '',
+    cacheCreationPrice: tier.cacheCreationPrice?.toString() ?? '',
+    cacheHitPrice: tier.cacheHitPrice?.toString() ?? ''
+  }))
+}
+
+function fromPricingTierDrafts(drafts: PricingTierDraft[]): ModelPricingTier[] {
+  const parsePrice = (value: string): number | undefined => {
+    if (!value.trim()) return undefined
+    const parsed = parseFloat(value)
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined
+  }
+
+  const tiers = drafts.flatMap((draft) => {
+    const floor = normalizePositiveInteger(draft.minPromptTokens)
+    if (floor === undefined) return []
+    const tier: ModelPricingTier = { minPromptTokens: floor }
+    const inputPrice = parsePrice(draft.inputPrice)
+    const outputPrice = parsePrice(draft.outputPrice)
+    const cacheCreationPrice = parsePrice(draft.cacheCreationPrice)
+    const cacheHitPrice = parsePrice(draft.cacheHitPrice)
+    if (inputPrice !== undefined) tier.inputPrice = inputPrice
+    if (outputPrice !== undefined) tier.outputPrice = outputPrice
+    if (cacheCreationPrice !== undefined) tier.cacheCreationPrice = cacheCreationPrice
+    if (cacheHitPrice !== undefined) tier.cacheHitPrice = cacheHitPrice
+    return [tier]
+  })
+
+  return normalizePricingTiers(tiers)
 }
 
 function normalizePositiveInteger(value: unknown): number | undefined {
@@ -772,6 +952,21 @@ function ModelFormDialog({
     initial?.cacheCreationPrice?.toString() ?? ''
   )
   const [cacheHitPrice, setCacheHitPrice] = useState(initial?.cacheHitPrice?.toString() ?? '')
+  const [offPeakInputPrice, setOffPeakInputPrice] = useState(
+    initial?.offPeakInputPrice?.toString() ?? ''
+  )
+  const [offPeakOutputPrice, setOffPeakOutputPrice] = useState(
+    initial?.offPeakOutputPrice?.toString() ?? ''
+  )
+  const [offPeakCacheCreationPrice, setOffPeakCacheCreationPrice] = useState(
+    initial?.offPeakCacheCreationPrice?.toString() ?? ''
+  )
+  const [offPeakCacheHitPrice, setOffPeakCacheHitPrice] = useState(
+    initial?.offPeakCacheHitPrice?.toString() ?? ''
+  )
+  const [pricingTiers, setPricingTiers] = useState<PricingTierDraft[]>(() =>
+    toPricingTierDrafts(initial?.pricingTiers)
+  )
   const [premiumRequestMultiplier, setPremiumRequestMultiplier] = useState(
     initial?.premiumRequestMultiplier?.toString() ?? ''
   )
@@ -791,6 +986,7 @@ function ModelFormDialog({
   const [enableBuiltinSearch, setEnableBuiltinSearch] = useState(
     initial?.enableBuiltinSearch ?? true
   )
+  const [enableLongContext, setEnableLongContext] = useState(initial?.enableLongContext ?? false)
   const [supportsFastMode, setSupportsFastMode] = useState(initial?.serviceTier === 'priority')
   const [supportsWebsocket, setSupportsWebsocket] = useState(initial?.supportsWebsocket ?? false)
   const [supportsImageGeneration, setSupportsImageGeneration] = useState(
@@ -849,6 +1045,10 @@ function ModelFormDialog({
     setOutputPrice(model.outputPrice?.toString() ?? '')
     setCacheCreationPrice(model.cacheCreationPrice?.toString() ?? '')
     setCacheHitPrice(model.cacheHitPrice?.toString() ?? '')
+    setOffPeakInputPrice(model.offPeakInputPrice?.toString() ?? '')
+    setOffPeakOutputPrice(model.offPeakOutputPrice?.toString() ?? '')
+    setOffPeakCacheCreationPrice(model.offPeakCacheCreationPrice?.toString() ?? '')
+    setOffPeakCacheHitPrice(model.offPeakCacheHitPrice?.toString() ?? '')
     setPremiumRequestMultiplier(model.premiumRequestMultiplier?.toString() ?? '')
     setAvailablePlans(model.availablePlans?.join(', ') ?? '')
     setSupportsVision(model.supportsVision ?? false)
@@ -857,6 +1057,7 @@ function ModelFormDialog({
     setEnableComputerUse(model.enableComputerUse ?? false)
     setSupportsBuiltinSearch(model.supportsBuiltinSearch ?? false)
     setEnableBuiltinSearch(model.enableBuiltinSearch ?? true)
+    setEnableLongContext(model.enableLongContext ?? false)
     setSupportsFastMode(model.serviceTier === 'priority')
     setSupportsWebsocket(model.supportsWebsocket ?? false)
     setSupportsImageGeneration(model.supportsImageGeneration ?? false)
@@ -957,6 +1158,39 @@ function ModelFormDialog({
     } else {
       delete model.cacheHitPrice
     }
+    if (offPeakInputPrice.trim()) {
+      const v = parseFloat(offPeakInputPrice)
+      if (!isNaN(v)) model.offPeakInputPrice = v
+    } else {
+      delete model.offPeakInputPrice
+    }
+    if (offPeakOutputPrice.trim()) {
+      const v = parseFloat(offPeakOutputPrice)
+      if (!isNaN(v)) model.offPeakOutputPrice = v
+    } else {
+      delete model.offPeakOutputPrice
+    }
+    if (offPeakCacheCreationPrice.trim()) {
+      const v = parseFloat(offPeakCacheCreationPrice)
+      if (!isNaN(v)) model.offPeakCacheCreationPrice = v
+    } else {
+      delete model.offPeakCacheCreationPrice
+    }
+    if (offPeakCacheHitPrice.trim()) {
+      const v = parseFloat(offPeakCacheHitPrice)
+      if (!isNaN(v)) model.offPeakCacheHitPrice = v
+    } else {
+      delete model.offPeakCacheHitPrice
+    }
+    if (hasOffPeakPricing(model)) {
+      model.pricingSchedule =
+        initial?.pricingSchedule ?? managedDefaults?.pricingSchedule ?? DEEPSEEK_PRICING_SCHEDULE
+    } else {
+      delete model.pricingSchedule
+    }
+    const parsedPricingTiers = fromPricingTierDrafts(pricingTiers)
+    if (parsedPricingTiers.length > 0) model.pricingTiers = parsedPricingTiers
+    else delete model.pricingTiers
     if (premiumRequestMultiplier.trim()) {
       const v = parseFloat(premiumRequestMultiplier)
       if (!isNaN(v)) model.premiumRequestMultiplier = v
@@ -979,6 +1213,17 @@ function ModelFormDialog({
     } else {
       delete model.supportsBuiltinSearch
       delete model.enableBuiltinSearch
+    }
+    if (modelSupportsGptLongContext(model)) {
+      model.supportsLongContext = true
+      model.enableLongContext = enableLongContext
+      if (!(typeof model.longContextLength === 'number' && model.longContextLength > 0)) {
+        model.longContextLength = initial?.longContextLength ?? GPT_LONG_CONTEXT_LENGTH
+      }
+    } else {
+      delete model.supportsLongContext
+      delete model.enableLongContext
+      delete model.longContextLength
     }
     if (isResponsesModel || isOpenAiChatModel) {
       if (supportsFastMode) model.serviceTier = 'priority'
@@ -1197,6 +1442,9 @@ function ModelFormDialog({
                 ({t('provider.pricingUnit')})
               </span>
             </label>
+            <p className="text-[11px] font-medium text-muted-foreground">
+              {t('provider.peakPricing')}
+            </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground">{t('provider.inputPrice')}</p>
@@ -1244,6 +1492,195 @@ function ModelFormDialog({
                   className="text-xs"
                 />
               </div>
+            </div>
+            <p className="pt-1 text-[11px] font-medium text-muted-foreground">
+              {t('provider.offPeakPricing')}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">{t('provider.inputPrice')}</p>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={offPeakInputPrice}
+                  onChange={(e) => setOffPeakInputPrice(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">{t('provider.outputPrice')}</p>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={offPeakOutputPrice}
+                  onChange={(e) => setOffPeakOutputPrice(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">
+                  {t('provider.cacheCreationPrice')}
+                </p>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={offPeakCacheCreationPrice}
+                  onChange={(e) => setOffPeakCacheCreationPrice(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">{t('provider.cacheHitPrice')}</p>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={offPeakCacheHitPrice}
+                  onChange={(e) => setOffPeakCacheHitPrice(e.target.value)}
+                  className="text-xs"
+                />
+              </div>
+            </div>
+            {(offPeakInputPrice.trim() ||
+              offPeakOutputPrice.trim() ||
+              offPeakCacheCreationPrice.trim() ||
+              offPeakCacheHitPrice.trim() ||
+              initial?.pricingSchedule) && (
+              <p className="text-[11px] text-muted-foreground">
+                {t('provider.peakHoursHint', {
+                  hours: formatPeakHoursUtc(initial?.pricingSchedule)
+                })}
+              </p>
+            )}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-muted-foreground">
+                  {t('provider.pricingTiers', { defaultValue: 'Tiered pricing' })}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-[11px]"
+                  onClick={() => setPricingTiers((tiers) => [...tiers, createPricingTierDraft()])}
+                >
+                  <Plus className="size-3" />
+                  {t('provider.pricingTierAdd', { defaultValue: 'Add tier' })}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t('provider.pricingTiersDesc', {
+                  defaultValue:
+                    'For models billed by prompt size. Each tier overrides the rates above once a request reaches its prompt-token floor; leave a price empty to keep the base rate.'
+                })}
+              </p>
+              {pricingTiers.map((tier, index) => {
+                const updateTier = (patch: Partial<PricingTierDraft>): void =>
+                  setPricingTiers((tiers) =>
+                    tiers.map((item, itemIndex) =>
+                      itemIndex === index ? { ...item, ...patch } : item
+                    )
+                  )
+                return (
+                  <div
+                    key={tier.key}
+                    className="space-y-2 rounded-md border border-border/60 bg-muted/20 p-2"
+                  >
+                    <div className="flex items-end gap-2">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('provider.pricingTierThreshold', {
+                            defaultValue: 'From prompt tokens'
+                          })}
+                        </p>
+                        <Input
+                          type="number"
+                          step="1000"
+                          min="1"
+                          placeholder="512000"
+                          value={tier.minPromptTokens}
+                          onChange={(e) => updateTier({ minPromptTokens: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label={t('provider.pricingTierRemove', {
+                          defaultValue: 'Remove tier'
+                        })}
+                        title={t('provider.pricingTierRemove', { defaultValue: 'Remove tier' })}
+                        onClick={() =>
+                          setPricingTiers((tiers) =>
+                            tiers.filter((_, itemIndex) => itemIndex !== index)
+                          )
+                        }
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('provider.inputPrice')}
+                        </p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={tier.inputPrice}
+                          onChange={(e) => updateTier({ inputPrice: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('provider.outputPrice')}
+                        </p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={tier.outputPrice}
+                          onChange={(e) => updateTier({ outputPrice: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('provider.cacheCreationPrice')}
+                        </p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={tier.cacheCreationPrice}
+                          onChange={(e) => updateTier({ cacheCreationPrice: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('provider.cacheHitPrice')}
+                        </p>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={tier.cacheHitPrice}
+                          onChange={(e) => updateTier({ cacheHitPrice: e.target.value })}
+                          className="text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <div className="grid grid-cols-2 gap-3 pt-2">
               <div className="space-y-1">
@@ -1782,6 +2219,23 @@ function ModelFormDialog({
                     />
                   </div>
                 </>
+              )}
+              {modelSupportsGptLongContext({
+                id,
+                category,
+                supportsLongContext: initial?.supportsLongContext
+              }) && (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col">
+                    <span className="text-xs text-muted-foreground">
+                      {t('provider.enableLongContext')}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground/70">
+                      {t('provider.enableLongContextDesc')}
+                    </span>
+                  </div>
+                  <Switch checked={enableLongContext} onCheckedChange={setEnableLongContext} />
+                </div>
               )}
             </div>
           </div>
@@ -3683,10 +4137,12 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground/70">
-                          {model.contextLength && (
+                          {resolveEffectiveModelContextLength(model) && (
                             <span className="rounded-full bg-muted/45 px-2 py-0.5">
                               {t('provider.modelMetaContext', {
-                                count: toRoundedTokenThousands(model.contextLength)
+                                count: toRoundedTokenThousands(
+                                  resolveEffectiveModelContextLength(model)!
+                                )
                               })}
                             </span>
                           )}
@@ -3697,30 +4153,7 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                               })}
                             </span>
                           )}
-                          {(model.inputPrice != null || model.outputPrice != null) && (
-                            <span className="rounded-full bg-muted/45 px-2 py-0.5">
-                              {t('provider.modelMetaPricing', {
-                                input: model.inputPrice ?? '?',
-                                output: model.outputPrice ?? '?'
-                              })}
-                            </span>
-                          )}
-                          {(model.cacheCreationPrice != null || model.cacheHitPrice != null) && (
-                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">
-                              {model.cacheCreationPrice != null && model.cacheHitPrice != null
-                                ? t('provider.modelMetaCachePair', {
-                                    write: model.cacheCreationPrice,
-                                    read: model.cacheHitPrice
-                                  })
-                                : model.cacheCreationPrice != null
-                                  ? t('provider.modelMetaCacheWrite', {
-                                      write: model.cacheCreationPrice
-                                    })
-                                  : t('provider.modelMetaCacheRead', {
-                                      read: model.cacheHitPrice
-                                    })}
-                            </span>
-                          )}
+                          <ModelPriceChips model={model} t={t} />
                           {(model.premiumRequestMultiplier != null ||
                             model.availablePlans?.length) && (
                             <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-600 dark:text-sky-400">
@@ -4245,10 +4678,12 @@ export function ModelManagementPanel(): React.JSX.Element {
                             {t('provider.modelManagementNoSource')}
                           </span>
                         )}
-                        {model.contextLength && (
+                        {resolveEffectiveModelContextLength(model) && (
                           <span className="rounded-full bg-muted/45 px-2 py-0.5">
                             {t('provider.modelMetaContext', {
-                              count: toRoundedTokenThousands(model.contextLength)
+                              count: toRoundedTokenThousands(
+                                resolveEffectiveModelContextLength(model)!
+                              )
                             })}
                           </span>
                         )}
@@ -4259,30 +4694,7 @@ export function ModelManagementPanel(): React.JSX.Element {
                             })}
                           </span>
                         )}
-                        {(model.inputPrice != null || model.outputPrice != null) && (
-                          <span className="rounded-full bg-muted/45 px-2 py-0.5">
-                            {t('provider.modelMetaPricing', {
-                              input: model.inputPrice ?? '?',
-                              output: model.outputPrice ?? '?'
-                            })}
-                          </span>
-                        )}
-                        {(model.cacheCreationPrice != null || model.cacheHitPrice != null) && (
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">
-                            {model.cacheCreationPrice != null && model.cacheHitPrice != null
-                              ? t('provider.modelMetaCachePair', {
-                                  write: model.cacheCreationPrice,
-                                  read: model.cacheHitPrice
-                                })
-                              : model.cacheCreationPrice != null
-                                ? t('provider.modelMetaCacheWrite', {
-                                    write: model.cacheCreationPrice
-                                  })
-                                : t('provider.modelMetaCacheRead', {
-                                    read: model.cacheHitPrice
-                                  })}
-                          </span>
-                        )}
+                        <ModelPriceChips model={model} t={t} />
                         {(model.premiumRequestMultiplier != null ||
                           model.availablePlans?.length) && (
                           <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-600 dark:text-sky-400">

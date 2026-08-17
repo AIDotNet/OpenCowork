@@ -8,6 +8,8 @@
     "boundaryManual": "Manual",
     "boundarySummarized": "{{count}} summarized",
     "summaryTitle": "Compressed Context Summary",
+    "divider": "Context compressed",
+    "dividerWithCount": "Context compressed · {{count}} earlier messages summarized",
     "continuationSessionTitle": "{{title}} · Compressed",
     "continueInNewSession": "Continue in a new session",
     "summaryMessages": "{{count}} earlier messages",

@@ -6,7 +6,11 @@ import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
-import { useChatStore, type SessionMode } from '@renderer/stores/chat-store'
+import {
+  useChatStore,
+  type SessionCompactSummary,
+  type SessionMode
+} from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
@@ -214,6 +218,7 @@ interface MessageRowProps {
   disableAnimation: boolean
   toolResults?: ToolResultsLookup
   inlineCompactSummaries?: readonly UnifiedMessage[]
+  compactSummary?: SessionCompactSummary | null
   orchestrationRun?: import('@renderer/lib/orchestration/types').OrchestrationRun | null
   hiddenToolUseIds?: Set<string>
   anchorMessageId?: string | null
@@ -276,6 +281,7 @@ interface MessageListSessionSelection {
   hasNewer: boolean
   projectId?: string
   mode: SessionMode
+  compactSummary: SessionCompactSummary | null
 }
 
 interface SessionScopedTeamSelection {
@@ -297,7 +303,8 @@ const EMPTY_MESSAGE_LIST_SESSION_SELECTION: MessageListSessionSelection = {
   hasNewer: false,
   projectId: undefined,
   workingFolder: undefined,
-  mode: 'chat'
+  mode: 'chat',
+  compactSummary: null
 }
 
 const EMPTY_SESSION_TEAM_SELECTION: SessionScopedTeamSelection = {
@@ -451,7 +458,8 @@ function selectMessageListSession(
     hasOlder: session.hasOlder ?? session.loadedRangeStart > 0,
     hasNewer: session.hasNewer ?? session.loadedRangeEnd < (session.messageCount ?? 0),
     projectId: session.projectId,
-    mode: session.mode
+    mode: session.mode,
+    compactSummary: session.compactSummary ?? null
   }
 }
 
@@ -533,6 +541,7 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
     (prev.toolResults === next.toolResults ||
       areToolResultsEqual(prev.toolResults, next.toolResults)) &&
     prev.inlineCompactSummaries === next.inlineCompactSummaries &&
+    prev.compactSummary === next.compactSummary &&
     prev.orchestrationRun === next.orchestrationRun &&
     prev.hiddenToolUseIds === next.hiddenToolUseIds &&
     prev.anchorMessageId === next.anchorMessageId &&
@@ -629,9 +638,11 @@ function isTeamLocatorSource(source: MessageLocatorSource): boolean {
 
 function shouldShowAssistantRailMarker(
   source: MessageLocatorSource,
-  hiddenCompactSummaryIds: Set<string>
+  hiddenCompactSummaryIds: Set<string>,
+  compactSummaryId: string | null
 ): boolean {
   if (hiddenCompactSummaryIds.has(source.id)) return false
+  if (source.id === compactSummaryId) return true
   if (source.meta?.compactSummary) return true
   if (source.meta?.compactBoundary) return false
   if (source.meta?.compressionStatus) return false
@@ -649,10 +660,11 @@ function shouldShowAssistantRailMarker(
 function getAssistantRailMarkerKind(
   source: MessageLocatorSource,
   streamingMessageId: string | null,
-  hiddenCompactSummaryIds: Set<string>
+  hiddenCompactSummaryIds: Set<string>,
+  compactSummaryId: string | null
 ): AssistantRailMarkerKind | null {
-  if (!shouldShowAssistantRailMarker(source, hiddenCompactSummaryIds)) return null
-  if (source.meta?.compactSummary) return 'summary'
+  if (!shouldShowAssistantRailMarker(source, hiddenCompactSummaryIds, compactSummaryId)) return null
+  if (source.id === compactSummaryId || source.meta?.compactSummary) return 'summary'
   if (source.role === 'user') return 'user'
   if (source.id === streamingMessageId) return 'streaming'
   return 'assistant'
@@ -777,6 +789,7 @@ function buildAssistantRailLayout(args: {
   streamingMessageId: string | null
   measuredHeights: Map<string, number>
   hiddenCompactSummaryIds: Set<string>
+  compactSummaryId: string | null
   t: TFunction
 }): AssistantRailLayout {
   if (args.sources.length === 0) return EMPTY_ASSISTANT_RAIL_LAYOUT
@@ -792,7 +805,8 @@ function buildAssistantRailLayout(args: {
     const markerKind = getAssistantRailMarkerKind(
       source,
       args.streamingMessageId,
-      args.hiddenCompactSummaryIds
+      args.hiddenCompactSummaryIds,
+      args.compactSummaryId
     )
     rows.push({ ...source, estimatedTop, estimatedHeight, markerKind })
     estimatedTop += estimatedHeight
@@ -1033,6 +1047,7 @@ const MessageRow = React.memo(function MessageRow({
   disableAnimation,
   toolResults,
   inlineCompactSummaries,
+  compactSummary,
   orchestrationRun,
   hiddenToolUseIds,
   anchorMessageId,
@@ -1078,6 +1093,7 @@ const MessageRow = React.memo(function MessageRow({
         onDeleteMessage={onDeleteMessage}
         toolResults={toolResults}
         inlineCompactSummaries={inlineCompactSummaries}
+        compactSummary={compactSummary}
         orchestrationRun={orchestrationRun}
         hiddenToolUseIds={hiddenToolUseIds}
         requestRetryState={requestRetryState}
@@ -1107,6 +1123,10 @@ export function StaticMessageTranscript({
   messages,
   className
 }: StaticMessageTranscriptProps): React.JSX.Element {
+  const compactSummary = useChatStore((s) => {
+    const index = sessionId ? s.sessionsById[sessionId] : undefined
+    return index === undefined ? null : (s.sessions[index]?.compactSummary ?? null)
+  })
   const transcriptAnalysis = React.useMemo(
     () => buildTranscriptStaticAnalysis(messages),
     [messages]
@@ -1217,6 +1237,7 @@ export function StaticMessageTranscript({
               disableAnimation
               toolResults={toolResultsLookup.get(row.messageId)}
               inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(row.messageId)}
+              compactSummary={compactSummary}
               orchestrationRun={
                 orchestrationState.byMessageId.get(row.messageId)?.primaryRun ?? null
               }
@@ -1262,12 +1283,20 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     loadedRangeStart,
     hasOlder,
     hasNewer,
-    mode: sessionMode
+    mode: sessionMode,
+    compactSummary
   } = sessionSelection
   const storeStreamingMessageId = useChatStore((s) =>
     targetSessionId ? (s.streamingMessages[targetSessionId] ?? null) : null
   )
   const activeSessionId = targetSessionId
+
+  // Main owns the compaction cut, so the transcript reads it rather than
+  // inferring the compaction point from the messages it happens to hold.
+  React.useEffect(() => {
+    if (!targetSessionId) return
+    void useChatStore.getState().refreshSessionCompactSummary(targetSessionId)
+  }, [targetSessionId])
   const overlayEnabled =
     sessionMode === 'chat' ||
     sessionMode === 'cowork' ||
@@ -1540,10 +1569,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       streamingMessageId,
       measuredHeights: measuredMessageHeightsRef.current,
       hiddenCompactSummaryIds: hiddenAssistantRailCompactSummaryIds,
+      compactSummaryId: compactSummary?.messageId ?? null,
       t
     })
   }, [
     assistantRailMeasureVersion,
+    compactSummary,
     hiddenAssistantRailCompactSummaryIds,
     messageLocatorSources,
     streamingMessageId,
@@ -2581,6 +2612,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                 disableAnimation
                 toolResults={toolResultsLookup.get(row.messageId)}
                 inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(row.messageId)}
+                compactSummary={compactSummary}
                 orchestrationRun={
                   orchestrationState.byMessageId.get(row.messageId)?.primaryRun ?? null
                 }
@@ -2713,6 +2745,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                           inlineCompactSummaries={inlineCompactSummaryState.byAssistantId.get(
                             messageId
                           )}
+                          compactSummary={compactSummary}
                           orchestrationRun={
                             orchestrationState.byMessageId.get(messageId)?.primaryRun ?? null
                           }

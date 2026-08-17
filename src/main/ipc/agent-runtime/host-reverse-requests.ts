@@ -16,6 +16,7 @@ import {
   executePluginAction,
   isPluginToolEnabled
 } from '../channel-handlers'
+import { resolveHeadlessChannelApproval } from '../../channels/headless-auto-reply'
 import { showSystemNotification } from '../notify-handlers'
 import {
   cancelJob,
@@ -264,6 +265,12 @@ export function createHostReverseRequestHandler<
             approved: hookDecision.approved,
             ...(hookDecision.reason ? { reason: hookDecision.reason } : {})
           }
+        }
+        // Headless channel runs have no renderer to approve; resolve from the
+        // channel's permission flags (same policy the renderer applies).
+        const headlessDecision = resolveHeadlessChannelApproval(params)
+        if (headlessDecision) {
+          return headlessDecision
         }
         return await deps.uiCapabilities.requestApproval(params)
       }

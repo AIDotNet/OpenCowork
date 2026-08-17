@@ -315,6 +315,31 @@ export async function executePluginAction(args: {
   }
 }
 
+/** Download a Feishu message resource (audio/file) as base64, callable from main. */
+export async function downloadFeishuMessageResourceFromMain(args: {
+  pluginId: string
+  messageId: string
+  fileKey: string
+  type?: 'image' | 'file'
+}): Promise<{ ok?: boolean; base64?: string; error?: string }> {
+  const service = activeChannelManager?.getService(args.pluginId) as
+    | import('../channels/providers/feishu/feishu-service').FeishuService
+    | undefined
+  if (!service?.api) return { error: 'Feishu plugin not running or not found' }
+  try {
+    const buf = await service.api.downloadMessageResource(
+      args.messageId,
+      args.fileKey,
+      args.type ?? 'file'
+    )
+    return { ok: true, base64: buf.toString('base64') }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[Feishu] download-resource failed:', msg)
+    return { error: msg }
+  }
+}
+
 export async function executeChannelSpecificPluginTool(
   channel: string,
   args: Record<string, unknown>

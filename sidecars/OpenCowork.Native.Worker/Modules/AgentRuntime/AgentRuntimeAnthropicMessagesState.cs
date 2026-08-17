@@ -111,22 +111,12 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
 
     private static int EstimateTokenCount(string text)
     {
-        return string.IsNullOrWhiteSpace(text) ? 0 : Math.Max(1, text.Length / 4);
+        return AgentRuntimeThroughput.EstimateTokens(text);
     }
 
     private static long ElapsedMs(long startedAt)
     {
         return (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-    }
-
-    private static double? ComputeTps(int outputTokens, long? firstTokenMs, long completedMs)
-    {
-        if (!firstTokenMs.HasValue || outputTokens <= 0)
-        {
-            return null;
-        }
-        var durationMs = completedMs - firstTokenMs.Value;
-        return durationMs <= 0 ? null : outputTokens / (durationMs / 1000.0);
     }
 
     private sealed class AnthropicParseState
@@ -135,6 +125,8 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         public Dictionary<int, AnthropicToolBuffer> ToolBuffers { get; } = new();
         public List<AgentRuntimeNativeToolCall> ToolCalls { get; } = new();
         public HashSet<string> EmittedEncryptedReasoning { get; } = new(StringComparer.Ordinal);
+        /// <summary>Thinking deltas streamed inside the measured window.</summary>
+        public bool ReasoningStreamed { get; set; }
         public long? FirstTokenMs { get; set; }
         public int EstimatedOutputTokens { get; set; }
         public AgentRuntimeTokenUsage? Usage { get; set; }

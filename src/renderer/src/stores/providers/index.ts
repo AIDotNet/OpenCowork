@@ -1,6 +1,7 @@
 ﻿export type { BuiltinProviderPreset } from './types'
 
 import type { ReasoningEffortLevel } from '../../lib/api/types'
+import { applyGptLongContextDefaults } from '../../../../shared/gpt-context'
 import { routinAiPlanPreset, routinAiPreset } from './routin-ai'
 import { openaiPreset } from './openai'
 import { anthropicPreset } from './anthropic'
@@ -136,3 +137,15 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
 ]
   .map(applyServerToolCapabilityDefaults)
   .map(applyUltraReasoningTierDefault)
+  .map(applyGptLongContextPresetDefaults)
+
+function applyGptLongContextPresetDefaults(preset: BuiltinProviderPreset): BuiltinProviderPreset {
+  let changed = false
+  const defaultModels = preset.defaultModels.map((model) => {
+    const next = applyGptLongContextDefaults(model)
+    if (next === model) return model
+    changed = true
+    return next
+  })
+  return changed ? { ...preset, defaultModels } : preset
+}

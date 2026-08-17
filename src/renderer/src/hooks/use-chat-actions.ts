@@ -6874,13 +6874,19 @@ export function useChatActions(): {
  * Trigger plan implementation by sending a message to the agent.
  * Called from PlanPanel "Implement" button — bypasses the input box.
  */
-export async function sendImplementPlan(planId: string): Promise<void> {
+export async function sendImplementPlan(
+  planId: string,
+  options?: { modelSelection?: PlanExecutionModelSelection }
+): Promise<void> {
   if (!_sendMessageFn) return
 
   const plan = ensurePlanAwaitingReview(planId)
   if (!plan) return
 
-  const modelSelection = await confirmPlanExecution({ sessionId: plan.sessionId })
+  const modelSelection = await confirmPlanExecution({
+    sessionId: plan.sessionId,
+    initialSelection: options?.modelSelection
+  })
   if (!modelSelection) return
 
   const latestPlan = ensurePlanAwaitingReview(planId)

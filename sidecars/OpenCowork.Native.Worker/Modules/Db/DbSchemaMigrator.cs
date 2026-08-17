@@ -87,6 +87,23 @@ internal static class DbSchemaMigrator
 
             CREATE INDEX IF NOT EXISTS idx_sub_agent_history_session
               ON sub_agent_history(session_id, started_at DESC);
+
+            -- Authority for the post-compression model view. A compacted session
+            -- keeps its whole transcript, so request assembly needs a recorded cut
+            -- rather than one re-derived from where the summary row happens to sit.
+            CREATE TABLE IF NOT EXISTS session_compactions (
+              session_id TEXT PRIMARY KEY,
+              generation INTEGER NOT NULL DEFAULT 1,
+              summary_message_id TEXT NOT NULL,
+              through_message_id TEXT,
+              through_sort_order INTEGER NOT NULL,
+              keep_message_ids TEXT NOT NULL DEFAULT '[]',
+              compacted_message_count INTEGER NOT NULL DEFAULT 0,
+              trigger_kind TEXT NOT NULL DEFAULT 'auto',
+              pre_tokens INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
             """);
     }
 
@@ -816,6 +833,16 @@ internal static class DbSchemaMigrator
               renewed_at INTEGER NOT NULL,
               expires_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS runtime_hosted_sessions (
+              session_id TEXT PRIMARY KEY,
+              template_json TEXT NOT NULL,
+              messages_json TEXT NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_hosted_sessions_updated
+              ON runtime_hosted_sessions(updated_at);
             """);
     }
 

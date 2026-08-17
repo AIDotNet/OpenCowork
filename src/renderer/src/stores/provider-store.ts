@@ -461,6 +461,12 @@ export function isModelBuiltinSearchEnabled(
   return modelSupportsBuiltinSearch(model, providerType) && model?.enableBuiltinSearch === true
 }
 
+export {
+  isGptLongContextEnabled,
+  modelSupportsGptLongContext,
+  resolveEffectiveModelContextLength
+} from '../../../shared/gpt-context'
+
 export function modelSupportsResponsesWebsocket(
   model: AIModelConfig | null | undefined,
   providerType?: ProviderType

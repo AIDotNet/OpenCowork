@@ -26,6 +26,11 @@ import {
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
 import { sendImplementPlan, sendImplementPlanInNewSession } from '@renderer/hooks/use-chat-actions'
+import {
+  PlanExecutionModelSelect,
+  resolvePlanExecutionDefaultModel,
+  type PlanExecutionModelSelection
+} from '@renderer/components/chat/PlanExecuteDialog'
 import { presentPlanReviewInRightPanel } from '@renderer/lib/plan-review-panel'
 import { cn } from '@renderer/lib/utils'
 import {
@@ -187,10 +192,19 @@ export function PlanReviewCard({
   )
   const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
 
+  const executionSessionId = sessionId ?? activeSessionId ?? plan?.sessionId ?? ''
+  const [executionModel, setExecutionModel] = React.useState<PlanExecutionModelSelection>(() =>
+    executionSessionId ? resolvePlanExecutionDefaultModel(executionSessionId) : { mode: 'auto' }
+  )
   const [copied, setCopied] = React.useState(false)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
   const [contentTruncated, setContentTruncated] = React.useState(false)
   const planContent = payload?.content ?? ''
+
+  React.useEffect(() => {
+    if (!executionSessionId) return
+    setExecutionModel(resolvePlanExecutionDefaultModel(executionSessionId))
+  }, [executionSessionId, payload?.planId])
 
   React.useEffect(() => {
     const el = contentRef.current
@@ -363,7 +377,7 @@ export function PlanReviewCard({
               size="sm"
               className="h-8 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
               onClick={() => {
-                void sendImplementPlan(payload.planId)
+                void sendImplementPlan(payload.planId, { modelSelection: executionModel })
               }}
               disabled={isRunning}
             >
@@ -379,13 +393,21 @@ export function PlanReviewCard({
               size="sm"
               className="h-8 gap-1.5"
               onClick={() => {
-                void sendImplementPlanInNewSession(payload.planId)
+                void sendImplementPlanInNewSession(payload.planId, {
+                  modelSelection: executionModel
+                })
               }}
               disabled={isRunning}
             >
               <MessageSquarePlus className="size-3.5" />
               {t('planReview.executeInNewSession', { defaultValue: 'Execute in new session' })}
             </Button>
+            <PlanExecutionModelSelect
+              sessionId={executionSessionId}
+              value={executionModel}
+              onChange={setExecutionModel}
+              className="h-8 w-[11.5rem] shrink-0 text-xs"
+            />
           </>
         )}
         {displayStatus === 'implementing' && (

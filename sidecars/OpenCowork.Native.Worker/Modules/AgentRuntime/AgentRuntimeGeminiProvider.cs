@@ -131,7 +131,13 @@ internal static class AgentRuntimeGeminiProvider
                 Timing: new AgentRuntimeRequestTiming(
                     totalMs,
                     parseState.FirstTokenMs,
-                    ComputeTps(parseState.Usage?.OutputTokens ?? parseState.EstimatedOutputTokens, parseState.FirstTokenMs, totalMs))));
+                    AgentRuntimeThroughput.ComputeTps(
+                        parseState.Usage,
+                        parseState.EstimatedOutputTokens,
+                        parseState.ReasoningStreamed,
+                        usageIncludesReasoning: false,
+                        parseState.FirstTokenMs,
+                        totalMs))));
 
         return new AgentRuntimeProviderTurnResult(
             new AgentRuntimeChatMessage(
@@ -189,6 +195,8 @@ internal static class AgentRuntimeGeminiProvider
                     parseState.FirstTokenMs ??= ElapsedMs(startedAt);
                     if (JsonHelpers.GetBool(part, "thought", false))
                     {
+                        parseState.ReasoningStreamed = true;
+                        parseState.EstimatedOutputTokens += EstimateTokens(text);
                         await AgentRuntimeTools.EmitAsync(
                             state,
                             context,
@@ -700,12 +708,16 @@ internal static class AgentRuntimeGeminiProvider
     private static AgentRuntimeTokenUsage ReadUsage(JsonElement usage)
     {
         var inputTokens = JsonHelpers.GetInt(usage, "promptTokenCount", 0);
+        var reasoningTokens = JsonHelpers.GetIntNullable(usage, "thoughtsTokenCount");
         var outputTokens = JsonHelpers.GetInt(usage, "candidatesTokenCount", 0);
         if (outputTokens == 0)
         {
-            outputTokens = Math.Max(0, JsonHelpers.GetInt(usage, "totalTokenCount", 0) - inputTokens);
+            // Keep the fallback consistent with candidatesTokenCount, which excludes
+            // thought tokens (totalTokenCount includes them).
+            outputTokens = Math.Max(
+                0,
+                JsonHelpers.GetInt(usage, "totalTokenCount", 0) - inputTokens - (reasoningTokens ?? 0));
         }
-        var reasoningTokens = JsonHelpers.GetIntNullable(usage, "thoughtsTokenCount");
         return new AgentRuntimeTokenUsage(
             inputTokens,
             outputTokens,
@@ -749,22 +761,12 @@ internal static class AgentRuntimeGeminiProvider
 
     private static int EstimateTokens(string text)
     {
-        return Math.Max(1, text.Length / 4);
+        return AgentRuntimeThroughput.EstimateTokens(text);
     }
 
     private static long ElapsedMs(long startedAt)
     {
         return (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
-    }
-
-    private static double? ComputeTps(int outputTokens, long? firstTokenMs, long totalMs)
-    {
-        if (outputTokens <= 0 || firstTokenMs is null || totalMs <= firstTokenMs.Value)
-        {
-            return null;
-        }
-        var seconds = (totalMs - firstTokenMs.Value) / 1000.0;
-        return seconds <= 0 ? null : Math.Round(outputTokens / seconds, 2);
     }
 
     private sealed class GeminiParseState
@@ -773,6 +775,8 @@ internal static class AgentRuntimeGeminiProvider
         public List<AgentRuntimeNativeToolCall> ToolCalls { get; } = [];
         public HashSet<string> EmittedToolSignatures { get; } = new(StringComparer.Ordinal);
         public HashSet<string> EmittedEncryptedReasoning { get; } = new(StringComparer.Ordinal);
+        /// <summary>Thought-summary parts streamed inside the measured window.</summary>
+        public bool ReasoningStreamed { get; set; }
         public long? FirstTokenMs { get; set; }
         public int EstimatedOutputTokens { get; set; }
         public AgentRuntimeTokenUsage? Usage { get; set; }

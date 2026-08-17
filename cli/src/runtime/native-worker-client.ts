@@ -139,7 +139,7 @@ function resolveWorkerPath(explicitPath?: string): string | null {
       'OpenCowork.Native.Worker',
       'bin',
       'Release',
-      'net10.0',
+      'net11.0',
       rid,
       'native',
       executable
@@ -150,7 +150,7 @@ function resolveWorkerPath(explicitPath?: string): string | null {
       'OpenCowork.Native.Worker',
       'bin',
       'Release',
-      'net10.0',
+      'net11.0',
       rid,
       'publish',
       executable
@@ -161,7 +161,7 @@ function resolveWorkerPath(explicitPath?: string): string | null {
       'OpenCowork.Native.Worker',
       'bin',
       'Release',
-      'net10.0',
+      'net11.0',
       executable
     ),
     join(
@@ -170,7 +170,7 @@ function resolveWorkerPath(explicitPath?: string): string | null {
       'OpenCowork.Native.Worker',
       'bin',
       'Debug',
-      'net10.0',
+      'net11.0',
       executable
     )
   ]

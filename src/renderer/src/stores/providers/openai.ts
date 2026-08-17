@@ -2,8 +2,8 @@ import type { BuiltinProviderPreset } from './types'
 
 export const openaiPreset: BuiltinProviderPreset = {
   builtinId: 'openai',
-  // v2: server-tool capability flags (supportsBuiltinSearch/supportsImageGeneration)
-  version: 2,
+  // v3: GPT models default to the 272K short-context tier with an opt-in 1M window
+  version: 3,
   name: 'OpenAI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.openai.com/v1',

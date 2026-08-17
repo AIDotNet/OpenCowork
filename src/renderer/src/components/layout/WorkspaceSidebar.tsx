@@ -1148,12 +1148,17 @@ export function WorkspaceSidebar(): React.JSX.Element {
 
   // A persisted expanded project must hydrate its first cursor page on mount;
   // otherwise the tree would show an empty project until the user toggles it.
+  // A failed load must NOT be retried here: the error write re-triggers this
+  // effect (it depends on sessionListPageState), so retrying on error spins
+  // load -> error -> effect -> load at full speed and pegs the renderer at
+  // 100% CPU on every launch (issue #155). Errored pages are only retried
+  // through explicit user expansion (handleResourceExpandedChange).
   useEffect(() => {
     if (!collapseStateInitializedRef.current) return
     for (const group of projectGroups) {
       if (collapsedProjectIds.has(group.project.id)) continue
       const page = sessionListPageState[group.project.id]
-      if (!page || (!page.loaded && !page.loading)) {
+      if (!page || (!page.loaded && !page.loading && !page.error)) {
         void loadProjectSessions(group.project.id)
       }
     }

@@ -2,10 +2,8 @@ import type { AIModelConfig, ProviderConfig, UnifiedMessage } from '../api/types
 import { useProviderStore } from '../../stores/provider-store'
 import { useSettingsStore } from '../../stores/settings-store'
 import {
+  buildLoopCompressionConfig,
   compressMessages,
-  resolveCompressionContextLength,
-  resolveCompressionReservedOutputBudget,
-  resolveCompressionThreshold,
   type CompressionConfig
 } from './context-compression'
 import type { AgentLoopConfig } from './types'
@@ -31,21 +29,11 @@ export function buildRuntimeCompressionConfig(
   providerConfig: ProviderConfig
 ): CompressionConfig | null {
   const settings = useSettingsStore.getState()
-  if (!settings.contextCompressionEnabled) return null
-
-  const modelConfig = findModelConfig(providerConfig)
-  if (!modelConfig?.contextLength) return null
-
-  const contextLength = resolveCompressionContextLength(modelConfig)
-  if (!contextLength || contextLength <= 0) return null
-
-  return {
-    enabled: true,
-    contextLength,
-    threshold: resolveCompressionThreshold(settings.contextCompressionThreshold),
-    preCompressThreshold: 0.65,
-    reservedOutputBudget: resolveCompressionReservedOutputBudget(modelConfig)
-  }
+  return buildLoopCompressionConfig({
+    enabled: settings.contextCompressionEnabled,
+    threshold: settings.contextCompressionThreshold,
+    model: findModelConfig(providerConfig)
+  })
 }
 
 export function buildRuntimeCompression(

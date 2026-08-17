@@ -132,6 +132,90 @@ internal static class RuntimeJobStore
         return command.ExecuteNonQuery();
     }
 
+    /// <summary>Persists a hosted-session snapshot (template + canonical history).</summary>
+    public static void UpsertHostedSession(
+        string sessionId,
+        string templateJson,
+        string messagesJson,
+        long now)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO runtime_hosted_sessions (session_id, template_json, messages_json, updated_at)
+            VALUES ($sessionId, $templateJson, $messagesJson, $now)
+            ON CONFLICT(session_id) DO UPDATE SET
+              template_json = excluded.template_json,
+              messages_json = excluded.messages_json,
+              updated_at = excluded.updated_at;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$templateJson", templateJson);
+        command.Parameters.AddWithValue("$messagesJson", messagesJson);
+        command.Parameters.AddWithValue("$now", now);
+        command.ExecuteNonQuery();
+    }
+
+    public static (string TemplateJson, string MessagesJson)? TryLoadHostedSession(string sessionId)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT template_json, messages_json
+              FROM runtime_hosted_sessions
+             WHERE session_id = $sessionId;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+        return (reader.GetString(0), reader.GetString(1));
+    }
+
+    public static void DeleteHostedSession(string sessionId)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "DELETE FROM runtime_hosted_sessions WHERE session_id = $sessionId;";
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Drops stale hosted-session snapshots (age cutoff + row-count cap).</summary>
+    public static int CleanupHostedSessions(long cutoff, int maxRows)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        var deleted = 0;
+        using (var expire = connection.CreateCommand())
+        {
+            expire.CommandText =
+                "DELETE FROM runtime_hosted_sessions WHERE updated_at < $cutoff;";
+            expire.Parameters.AddWithValue("$cutoff", cutoff);
+            deleted += expire.ExecuteNonQuery();
+        }
+        using (var overflow = connection.CreateCommand())
+        {
+            overflow.CommandText = """
+                DELETE FROM runtime_hosted_sessions
+                 WHERE session_id NOT IN (
+                   SELECT session_id FROM runtime_hosted_sessions
+                    ORDER BY updated_at DESC
+                    LIMIT $maxRows
+                 );
+                """;
+            overflow.Parameters.AddWithValue("$maxRows", maxRows);
+            deleted += overflow.ExecuteNonQuery();
+        }
+        return deleted;
+    }
+
     public static RuntimeJobSubmission Submit(
         string jobId,
         string hostId,

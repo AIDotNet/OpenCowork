@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/AIDotNet/OpenCowork/releases/latest"><img src="https://img.shields.io/github/v/release/AIDotNet/OpenCowork?label=Release" alt="Release"></a>
   <img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-1.3.10-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.3.11-orange" alt="Version">
   <a href="https://github.com/AIDotNet/OpenCowork/stargazers"><img src="https://img.shields.io/github/stars/AIDotNet/OpenCowork?style=social" alt="Stars"></a>
 </p>
 
@@ -72,7 +72,7 @@ OpenCowork runs the agent **next to the work**:
 
 ### Runtime
 
-- **Electron + .NET Native Worker** — React 19 UI, a narrow Preload bridge, Electron Main as host gateway, and a per-platform **.NET 10 Native AOT** worker that owns the agent loop.
+- **Electron + .NET Native Worker** — React 19 UI, a narrow Preload bridge, Electron Main as host gateway, and a per-platform **.NET 11 Native AOT** worker that owns the agent loop.
 - **Worker-authoritative loop** — provider streaming, tool execution, approvals, cancellation, SQLite, and CodeGraph indexing live in the worker. Main supervises the process; the renderer presents state.
 - **SSH** — operate on remote hosts with an integrated xterm.js terminal.
 
@@ -128,7 +128,7 @@ Optional **desktop pet** (XP, skins, away tracking) and **lifecycle hooks** sit 
 </p>
 
 ```
-Renderer (React 19)  ←→  Preload  ←→  Main (host gateway)  ←→  Native Worker (.NET 10 AOT)
+Renderer (React 19)  ←→  Preload  ←→  Main (host gateway)  ←→  Native Worker (.NET 11 AOT)
      UI, approvals,              windows, IPC,                 agent loop,
      session UX                  channels, MCP, SSH,           tools, SQLite,
                                  cron, worker supervisor       CodeGraph, jobs
@@ -176,7 +176,7 @@ Requires Node.js ≥ 18. See [cli/README.md](cli/README.md) for keys, `/model`, 
 
 ## Quick Start
 
-**Desktop from source:** Node.js ≥ 18, npm ≥ 9, and the [.NET SDK 10](https://dotnet.microsoft.com/download) with the Native AOT workload (`dotnet` on `PATH`). Clone with submodules — the native worker will not build without `sidecars/codegraph`.
+**Desktop from source:** Node.js ≥ 18, npm ≥ 9, and the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) Preview 7 or newer with the Native AOT prerequisites (`dotnet` on `PATH`). Clone with submodules — the native worker will not build without `sidecars/codegraph`.
 
 ```bash
 git clone --recurse-submodules https://github.com/AIDotNet/OpenCowork.git
@@ -185,7 +185,7 @@ npm install
 npm run dev
 ```
 
-Packaged builds: [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest) (Windows installer / green zip, macOS, Linux).
+Packaged builds: [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest) (Windows installer / green zip, macOS 14 or newer, Linux).
 
 | Command                   | Description |
 | ------------------------- | ----------- |

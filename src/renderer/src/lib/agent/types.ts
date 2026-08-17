@@ -188,7 +188,10 @@ export type AgentEvent =
       keptMessageCount?: number
       /** Legacy marker emitted when an older runtime used a failed-summary fallback. */
       summarizerFailed?: boolean
-      compactArtifacts?: UnifiedMessage[]
+      /** Plain user message carrying the summary text, persisted by Main. */
+      compactSummaryMessage?: UnifiedMessage
+      /** Messages the summary replaced, so the host can record the compaction cut. */
+      compactedMessageIds?: string[]
       messages?: UnifiedMessage[]
     }
 

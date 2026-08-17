@@ -8,6 +8,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { buildOrchestrationRuns } from '@renderer/lib/orchestration/build-runs'
+import { EMPTY_SESSION_MESSAGES } from './sub-agent-run-data'
 import { selectSessionScopedAgentState } from '@renderer/lib/agent/session-scoped-agent-state'
 import { OrchestrationStagePills } from '@renderer/components/chat/OrchestrationStagePills'
 import { TranscriptMessageList } from '@renderer/components/chat/TranscriptMessageList'
@@ -21,8 +22,10 @@ import {
 export function OrchestrationConsole(): React.JSX.Element {
   const { t } = useTranslation('layout')
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  // Selector must return a stable reference when there is no active session;
+  // a fresh `[]` per read would loop useSyncExternalStore forever (issue #155).
   const messages = useChatStore((s) =>
-    activeSessionId ? s.getSessionMessages(activeSessionId) : []
+    activeSessionId ? s.getSessionMessages(activeSessionId) : EMPTY_SESSION_MESSAGES
   )
   const { activeSubAgents, completedSubAgents, subAgentHistory } = useAgentStore((s) =>
     selectSessionScopedAgentState(s, activeSessionId)

@@ -69,7 +69,9 @@ internal static class AgentStreamMessagePackEmitter
         WriteOptionalInt(writer, "originalCount", streamEvent.OriginalCount);
         WriteOptionalInt(writer, "newCount", streamEvent.NewCount);
         WriteOptionalInt(writer, "keptMessageCount", streamEvent.KeptMessageCount);
-        WriteOptionalMessages(writer, "compactArtifacts", streamEvent.CompactArtifacts);
+        WriteOptionalInt(writer, "preTokens", streamEvent.PreTokens);
+        WriteOptionalJson(writer, "compactSummaryMessage", streamEvent.CompactSummaryMessage);
+        WriteOptionalStrings(writer, "compactedMessageIds", streamEvent.CompactedMessageIds);
         WriteOptionalMessages(writer, streamEvent.Messages);
         WriteOptionalString(writer, "subAgentName", streamEvent.SubAgentName);
         WriteOptionalString(writer, "toolUseId", streamEvent.ToolUseId);
@@ -125,7 +127,9 @@ internal static class AgentStreamMessagePackEmitter
         if (streamEvent.OriginalCount.HasValue) count++;
         if (streamEvent.NewCount.HasValue) count++;
         if (streamEvent.KeptMessageCount.HasValue) count++;
-        if (streamEvent.CompactArtifacts is not null) count++;
+        if (streamEvent.PreTokens.HasValue) count++;
+        if (HasJson(streamEvent.CompactSummaryMessage)) count++;
+        if (streamEvent.CompactedMessageIds is not null) count++;
         if (streamEvent.Messages is not null) count++;
         if (streamEvent.SubAgentName is not null) count++;
         if (streamEvent.ToolUseId is not null) count++;

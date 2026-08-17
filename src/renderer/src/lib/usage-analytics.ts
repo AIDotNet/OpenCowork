@@ -10,10 +10,13 @@ import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-clien
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useProviderStore } from '@renderer/stores/provider-store'
 import {
+  calculateCostBreakdown,
   getBillableInputTokens,
   getCacheCreationTokens,
+  getPromptTokens,
   resolveCacheCreationCost
 } from '@renderer/lib/format-tokens'
+import { resolveModelPrices } from '@renderer/lib/model-pricing'
 import { truncateRequestDebugForPersistence } from '@renderer/lib/debug-store'
 import { accruePetExpFromUsage } from '@renderer/lib/pet/pet-exp'
 import {
@@ -132,7 +135,8 @@ function resolveProviderAndModel(
 
 function computeCosts(
   usage: TokenUsage,
-  modelConfig: AIModelConfig | null
+  modelConfig: AIModelConfig | null,
+  at?: Date
 ): {
   inputPrice: number | null
   outputPrice: number | null
@@ -144,38 +148,28 @@ function computeCosts(
   cacheHitCostUsd: number | null
   totalCostUsd: number | null
 } {
-  const billableInput = getBillableInputTokens(usage, modelConfig?.type)
-  const inputPrice = toNullableNumber(modelConfig?.inputPrice)
-  const outputPrice = toNullableNumber(modelConfig?.outputPrice)
-  const cacheHitPrice = toNullableNumber(modelConfig?.cacheHitPrice)
+  const prices = resolveModelPrices(modelConfig, at, getPromptTokens(usage, modelConfig?.type))
   const cacheCreationTokens = getCacheCreationTokens(usage)
-  const { price: resolvedCacheCreationPrice, cost: resolvedCacheCreationCostUsd } =
-    resolveCacheCreationCost(usage, modelConfig)
-  const cacheCreationPrice = toNullableNumber(resolvedCacheCreationPrice ?? undefined)
-
-  const inputCostUsd = inputPrice == null ? null : (billableInput * inputPrice) / 1_000_000
-  const outputCostUsd =
-    outputPrice == null ? null : ((usage.outputTokens ?? 0) * outputPrice) / 1_000_000
-  const cacheCreationCostUsd =
-    cacheCreationTokens > 0 ? resolvedCacheCreationCostUsd : cacheCreationPrice == null ? null : 0
-  const cacheHitCostUsd =
-    cacheHitPrice == null ? null : ((usage.cacheReadTokens ?? 0) * cacheHitPrice) / 1_000_000
-
-  const costs = [inputCostUsd, outputCostUsd, cacheCreationCostUsd, cacheHitCostUsd]
-  const totalCostUsd = costs.every((item) => item == null)
-    ? null
-    : costs.reduce<number>((sum, item) => sum + (item ?? 0), 0)
+  const breakdown = calculateCostBreakdown(usage, modelConfig, at)
+  const { price: resolvedCacheCreationPrice } = resolveCacheCreationCost(usage, modelConfig, at)
+  const cacheHitPrice =
+    prices.cacheHitPrice ?? (prices.inputPrice != null ? prices.inputPrice * 0.1 : null)
 
   return {
-    inputPrice,
-    outputPrice,
-    cacheCreationPrice,
+    inputPrice: prices.inputPrice,
+    outputPrice: prices.outputPrice,
+    cacheCreationPrice: toNullableNumber(resolvedCacheCreationPrice ?? undefined),
     cacheHitPrice,
-    inputCostUsd,
-    outputCostUsd,
-    cacheCreationCostUsd,
-    cacheHitCostUsd,
-    totalCostUsd
+    inputCostUsd: breakdown.inputCost,
+    outputCostUsd: breakdown.outputCost,
+    cacheCreationCostUsd:
+      cacheCreationTokens > 0
+        ? breakdown.cacheCreationCost
+        : resolvedCacheCreationPrice == null
+          ? null
+          : 0,
+    cacheHitCostUsd: breakdown.cacheReadCost,
+    totalCostUsd: breakdown.totalCost
   }
 }
 
@@ -221,8 +215,8 @@ export async function recordUsageEvent(input: {
     billableInputTokens:
       usage.billableInputTokens ?? getBillableInputTokens(usage, model?.type ?? provider?.type)
   }
-  const costs = computeCosts(normalizedUsage, model)
   const createdAt = input.createdAt ?? Date.now()
+  const costs = computeCosts(normalizedUsage, model, new Date(createdAt))
 
   // Feed the desktop pet: token usage converts to pet experience.
   void accruePetExpFromUsage({

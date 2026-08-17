@@ -27,6 +27,7 @@ import {
 } from './request-utils'
 import { isUsableRendererWindow, type RunTargetRouter } from './run-target-router'
 import type { UiCapabilityRouter } from './ui-capability-router'
+import { getAgentSessionService } from './agent-session-service-host'
 
 export type TrackedRun = {
   sessionId: string
@@ -375,6 +376,24 @@ export function registerRuntimeCommandGateway(deps: RuntimeCommandGatewayDeps): 
       })
     }
     try {
+      const hosted = await getAgentSessionService().startAssembledRun(runRecord, {
+        runId: requestedRunId
+      })
+      if (hosted) {
+        if (!hosted.accepted || !hosted.runId) {
+          throw new Error(
+            hosted.errorCode
+              ? `Hosted session run was not accepted (${hosted.errorCode})`
+              : 'Hosted session run was not accepted'
+          )
+        }
+        const result = { started: true, runId: hosted.runId, state: 'running' }
+        deps.windows.rememberOrigin(event, hookAdjustedParams, hosted.runId)
+        acceptTrackedRun(deps.activeRuns, requestedRunId, result)
+        console.log('[Sidecar] agent:run routed through hosted session')
+        return result
+      }
+
       const result = (await deps.request('agent/run', hookAdjustedParams, 60_000)) as {
         started: boolean
         runId: string

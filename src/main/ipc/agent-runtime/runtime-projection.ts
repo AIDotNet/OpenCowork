@@ -11,6 +11,7 @@ import type {
 import type { NativeWorkerRawEventFrame } from '../../lib/native-worker'
 import { getRuntimeRegistry } from '../runtime-registry'
 import { RuntimeWindowRouter } from './runtime-window-router'
+import { recordCompactionEvents } from './compaction-event-recorder'
 
 export class RuntimeProjectionHost {
   private engine: RuntimeProjectionEngine
@@ -84,6 +85,8 @@ export class RuntimeProjectionHost {
       clearTimeout(pending)
       this.expireTimers.delete(runId)
     }
+
+    recordCompactionEvents(sessionId, events)
 
     const envelopes = this.engine.applyStreamEnvelope({
       runId,

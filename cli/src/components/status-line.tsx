@@ -95,8 +95,15 @@ function agentPerformance(
 ): AgentPerformance | null {
   if (!status?.firstResponseAt) return null
   const generatedTokens = status.completedOutputTokens + status.activeResponseCharacters / 4
-  const secondsSinceFirstToken = Math.max(0.001, (now - status.firstResponseAt) / 1_000)
-  const tps = generatedTokens / secondsSinceFirstToken
+  // Measure throughput over time actually spent streaming model output. Wall
+  // clock since the first token would count tool-execution gaps between
+  // requests, making TPS decay while the agent runs tools.
+  const activeMs =
+    status.activeResponseStartedAt !== undefined
+      ? Math.max(0, now - status.activeResponseStartedAt)
+      : 0
+  const generationSeconds = Math.max(0.25, (status.generationMs + activeMs) / 1_000)
+  const tps = generatedTokens / generationSeconds
   return {
     tps: `${tps < 10 ? tps.toFixed(1) : Math.round(tps)}`,
     ttft: formatLatency(status.firstResponseAt - status.startedAt)

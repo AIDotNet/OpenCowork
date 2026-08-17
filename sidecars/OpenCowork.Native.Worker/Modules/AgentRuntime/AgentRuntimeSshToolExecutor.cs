@@ -61,13 +61,6 @@ internal static class AgentRuntimeSshToolExecutor
             !string.IsNullOrWhiteSpace(JsonHelpers.GetString(parameters, "sshConnectionId"));
     }
 
-    public static bool CanExecute(string toolName, JsonElement parameters)
-    {
-        return IsSshTool(toolName) &&
-            string.IsNullOrWhiteSpace(JsonHelpers.GetString(parameters, "pluginId")) &&
-            HasConnection(parameters);
-    }
-
     public static bool RequiresApproval(string toolName, JsonElement input, JsonElement parameters)
     {
         return toolName switch
@@ -90,6 +83,18 @@ internal static class AgentRuntimeSshToolExecutor
         WorkerLog.Debug(
             $"agent ssh tool start runId={FormatLogValue(JsonHelpers.GetString(parameters, "runId"))} " +
             $"tool={call.Name} connectionId={FormatLogValue(ConnectionId(parameters))}");
+
+        if (!HasConnection(parameters))
+        {
+            WorkerLog.Warn(
+                $"agent ssh tool rejected reason=missing-connection tool={call.Name} " +
+                $"connectionId={FormatLogValue(ConnectionId(parameters))}");
+            return EncodeError(
+                $"{call.Name} cannot run: this session targets SSH connection " +
+                $"'{ConnectionId(parameters) ?? "unknown"}' but the agent runtime received no " +
+                "credentials for it. Check that the connection still exists in Settings, then retry. " +
+                "Local paths are not a substitute: they resolve on this machine, not the remote host.");
+        }
 
         try
         {
@@ -386,31 +391,23 @@ internal static class AgentRuntimeSshToolExecutor
         var ignorePatterns = JsonHelpers.GetStringArray(input, "ignore")
             .Where(static pattern => !string.IsNullOrWhiteSpace(pattern))
             .ToArray();
-        var ignoreJson = ToJsonStringArray(ignorePatterns);
+        // NUL-delimited records survive newlines and tabs in remote file names, which a
+        // line-oriented `ls` parse would corrupt.
         var script = """
-            import fnmatch, json, os, sys
-            path = os.path.abspath(os.path.expanduser(sys.argv[1]))
-            limit = int(sys.argv[2])
-            ignore = json.loads(sys.argv[3])
-            entries = []
-            has_more = False
-            for name in os.listdir(path):
-                if any(fnmatch.fnmatch(name, pat) for pat in ignore):
-                    continue
-                full = os.path.join(path, name)
-                try:
-                    typ = "directory" if os.path.isdir(full) else ("symlink" if os.path.islink(full) else "file")
-                except OSError:
-                    continue
-                if len(entries) >= limit:
-                    has_more = True
-                    break
-                entries.append({"name": name, "type": typ, "path": full})
-            print(json.dumps({"entries": entries, "hasMore": has_more}, separators=(",", ":")))
+            CDPATH= cd -- "$1" 2>/dev/null || { echo "Directory not found: $1" >&2; exit 1; }
+            printf 'root\t%s\0' "$(pwd)"
+            for entry in * .[!.]* ..?*; do
+              if [ -d "$entry" ]; then kind=directory
+              elif [ -L "$entry" ]; then kind=symlink
+              elif [ -e "$entry" ]; then kind=file
+              else continue
+              fi
+              printf '%s\t%s\0' "$kind" "$entry"
+            done
             """;
         var result = await SshOpenSsh.ExecuteAsync(
             parameters,
-            $"python3 -c {SshOpenSsh.ShellEscape(script)} {SshOpenSsh.ShellPathExpr(root)} {LsBackendFetchLimit} {SshOpenSsh.ShellEscape(ignoreJson)}",
+            BuildShellCommand(script, SshOpenSsh.ShellPathExpr(root)),
             60_000,
             maxStdoutChars: 512 * 1024);
         if (result.ExitCode != 0)
@@ -418,24 +415,44 @@ internal static class AgentRuntimeSshToolExecutor
             return EncodeError(result.Stderr.Length > 0 ? result.Stderr : "Remote LS failed");
         }
 
-        using var document = JsonDocument.Parse(result.Stdout);
+        var resolvedRoot = root;
         var entries = new List<SshLsEntry>();
-        var rootElement = document.RootElement;
-        if (rootElement.TryGetProperty("entries", out var entriesElement) &&
-            entriesElement.ValueKind == JsonValueKind.Array)
+        var hasMore = false;
+        foreach (var record in result.Stdout.Split('\0'))
         {
-            foreach (var item in entriesElement.EnumerateArray())
+            if (record.Length == 0)
             {
-                entries.Add(new SshLsEntry(
-                    JsonHelpers.GetString(item, "name") ?? string.Empty,
-                    JsonHelpers.GetString(item, "type") ?? "file",
-                    JsonHelpers.GetString(item, "path") ?? string.Empty));
+                continue;
             }
+
+            var separator = record.IndexOf('\t', StringComparison.Ordinal);
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var kind = record[..separator];
+            var name = record[(separator + 1)..];
+            if (kind == "root")
+            {
+                resolvedRoot = NormalizeRemotePath(name);
+                continue;
+            }
+
+            if (ignorePatterns.Any(pattern => MatchesGlob(name, pattern)))
+            {
+                continue;
+            }
+
+            if (entries.Count >= LsBackendFetchLimit)
+            {
+                hasMore = true;
+                break;
+            }
+
+            entries.Add(new SshLsEntry(name, kind, PosixJoin(resolvedRoot, name)));
         }
 
-        var hasMore = rootElement.TryGetProperty("hasMore", out var hasMoreElement) &&
-            hasMoreElement.ValueKind is JsonValueKind.True or JsonValueKind.False &&
-            hasMoreElement.GetBoolean();
         return FormatLsResultForPrompt(entries, hasMore);
     }
 
@@ -819,19 +836,28 @@ internal static class AgentRuntimeSshToolExecutor
 
     private static async Task<FileSnapshot> CaptureSnapshotAsync(JsonElement parameters, string path)
     {
+        // GNU and BSD `stat` disagree on flags and busybox images may ship neither, so fall
+        // back to `wc -c`. Size alone still detects concurrent edits; an unknown mtime only
+        // makes the stale-file guard slightly less strict, which beats failing every Edit.
         var script = """
-            import json, os, sys
-            p = os.path.expanduser(sys.argv[1])
-            try:
-                st = os.lstat(p)
-                typ = "directory" if os.path.isdir(p) else ("symlink" if os.path.islink(p) else "file")
-                print(json.dumps({"exists": True, "type": typ, "size": int(st.st_size), "mtimeMs": int(st.st_mtime * 1000)}, separators=(",", ":")))
-            except FileNotFoundError:
-                print(json.dumps({"exists": False, "type": None, "size": None, "mtimeMs": None}, separators=(",", ":")))
+            target=$1
+            if [ -d "$target" ]; then kind=directory
+            elif [ -L "$target" ]; then kind=symlink
+            elif [ -e "$target" ]; then kind=file
+            else printf 'exists\t0\n'; exit 0
+            fi
+            size=$(stat -c %s -- "$target" 2>/dev/null) ||
+              size=$(stat -f %z -- "$target" 2>/dev/null) ||
+              size=$(wc -c < "$target" 2>/dev/null) ||
+              size=
+            mtime=$(stat -c %Y -- "$target" 2>/dev/null) ||
+              mtime=$(stat -f %m -- "$target" 2>/dev/null) ||
+              mtime=
+            printf 'exists\t1\ntype\t%s\nsize\t%s\nmtime\t%s\n' "$kind" "$size" "$mtime"
             """;
         var result = await SshOpenSsh.ExecuteAsync(
             parameters,
-            $"python3 -c {SshOpenSsh.ShellEscape(script)} {SshOpenSsh.ShellPathExpr(path)}",
+            BuildShellCommand(script, SshOpenSsh.ShellPathExpr(path)),
             30_000,
             maxStdoutChars: 64 * 1024,
             maxStderrChars: 64 * 1024);
@@ -840,21 +866,84 @@ internal static class AgentRuntimeSshToolExecutor
             throw new IOException(result.Stderr.Length > 0 ? result.Stderr : $"Remote stat failed: {path}");
         }
 
-        using var document = JsonDocument.Parse(result.Stdout);
-        var root = document.RootElement;
-        var exists = root.TryGetProperty("exists", out var existsElement) &&
-            existsElement.ValueKind is JsonValueKind.True or JsonValueKind.False &&
-            existsElement.GetBoolean();
-        if (!exists)
+        var fields = ParseFieldLines(result.Stdout);
+        if (!fields.TryGetValue("exists", out var exists) || exists != "1")
         {
             return new FileSnapshot(false, null, null, null);
         }
 
         return new FileSnapshot(
             true,
-            JsonHelpers.GetString(root, "type"),
-            JsonHelpers.GetLongNullable(root, "size"),
-            JsonHelpers.GetLongNullable(root, "mtimeMs"));
+            fields.TryGetValue("type", out var kind) && kind.Length > 0 ? kind : "file",
+            ParseOptionalLong(fields, "size", 1),
+            ParseOptionalLong(fields, "mtime", 1_000));
+    }
+
+    private static Dictionary<string, string> ParseFieldLines(string stdout)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var line in stdout.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            var separator = line.IndexOf('\t', StringComparison.Ordinal);
+            if (separator <= 0)
+            {
+                continue;
+            }
+            fields[line[..separator]] = line[(separator + 1)..].Trim();
+        }
+        return fields;
+    }
+
+    private static long? ParseOptionalLong(
+        Dictionary<string, string> fields,
+        string name,
+        long multiplier)
+    {
+        return fields.TryGetValue(name, out var raw) &&
+            long.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var value)
+                ? value * multiplier
+                : null;
+    }
+
+    /// <summary>
+    /// Wraps a POSIX script in `sh -c` so it runs the same way regardless of the remote
+    /// login shell (csh and fish cannot parse these scripts).
+    /// </summary>
+    private static string BuildShellCommand(string script, string quotedArgument)
+    {
+        return $"sh -c {SshOpenSsh.ShellEscape(script)} sh {quotedArgument}";
+    }
+
+    /// <summary>Shell-style name matching (`*`, `?`, `[seq]`), matching fnmatch semantics.</summary>
+    private static bool MatchesGlob(string name, string pattern)
+    {
+        var builder = new StringBuilder("^");
+        for (var index = 0; index < pattern.Length; index++)
+        {
+            var character = pattern[index];
+            if (character == '[')
+            {
+                var close = pattern.IndexOf(']', index + 1);
+                if (close > index + 1)
+                {
+                    var set = pattern[(index + 1)..close];
+                    builder.Append('[');
+                    builder.Append(set[0] is '!' or '^' ? "^" + Regex.Escape(set[1..]) : Regex.Escape(set));
+                    builder.Append(']');
+                    index = close;
+                    continue;
+                }
+            }
+
+            builder.Append(character switch
+            {
+                '*' => ".*",
+                '?' => ".",
+                _ => Regex.Escape(character.ToString())
+            });
+        }
+        builder.Append('$');
+        return Regex.IsMatch(name, builder.ToString());
     }
 
     private static async Task<StoredFileSnapshot> CaptureFullTextSnapshotAsync(
@@ -1560,13 +1649,6 @@ internal static class AgentRuntimeSshToolExecutor
     private static int CountLines(string text)
     {
         return text.Length == 0 ? 0 : text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').Length;
-    }
-
-    private static string ToJsonStringArray(IEnumerable<string> values)
-    {
-        return "[" + string.Join(
-            ',',
-            values.Select(value => "\"" + value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"")) + "]";
     }
 
     private static string EncodeJsonObject(Action<Utf8JsonWriter> writeProperties)

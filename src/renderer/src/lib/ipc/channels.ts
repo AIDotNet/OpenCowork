@@ -163,6 +163,7 @@ export const IPC = {
   PLUGIN_SESSIONS_RENAME: 'plugin:sessions:rename',
   PLUGIN_INCOMING_MESSAGE: 'plugin:incoming-message',
   PLUGIN_SESSION_TASK: 'plugin:session-task',
+  PLUGIN_SESSION_TASK_ACK: 'plugin:session-task-ack',
   PLUGIN_SESSIONS_FIND_BY_CHAT: 'plugin:sessions:find-by-chat',
   PLUGIN_STREAM_START: 'plugin:stream:start',
   PLUGIN_STREAM_UPDATE: 'plugin:stream:update',

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Toaster } from './components/ui/sonner'
 import { Button } from './components/ui/button'
 import { ConfirmDialogProvider } from './components/ui/confirm-dialog'
+import { PlanExecuteDialogProvider } from './components/chat/PlanExecuteDialog'
 import {
   Dialog,
   DialogContent,
@@ -996,6 +997,7 @@ function App(): React.JSX.Element {
           </Suspense>
           <Toaster position="bottom-left" theme="system" richColors />
           <ConfirmDialogProvider />
+          <PlanExecuteDialogProvider />
           <NotifyToastContainer />
         </ThemeProvider>
       </ErrorBoundary>
@@ -1134,6 +1136,7 @@ function App(): React.JSX.Element {
 
         <Toaster position="bottom-left" theme="system" richColors />
         <ConfirmDialogProvider />
+        <PlanExecuteDialogProvider />
         <NotifyToastContainer />
       </ThemeProvider>
     </ErrorBoundary>

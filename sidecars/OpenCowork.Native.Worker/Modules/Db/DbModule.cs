@@ -130,6 +130,8 @@
         context.Register("db/messages-add", DbMessageTools.Add);
         context.Register("db/messages-add-batch", DbMessageTools.AddBatch);
         context.Register("db/messages-insert-artifacts", DbMessageTools.InsertArtifacts);
+        context.Register("db/session-compaction-get", DbMessageTools.CompactionGet);
+        context.Register("db/session-compaction-commit", DbMessageTools.CompactionCommit);
         context.Register("db/messages-upsert", DbMessageTools.Upsert);
         context.Register("db/messages-update", DbMessageTools.Update);
         context.Register("db/messages-clear", DbMessageTools.Clear);

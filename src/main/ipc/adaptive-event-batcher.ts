@@ -694,8 +694,13 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
     case 'context_compression_start':
       return { type: 'context_compression_start' }
     case 'context_compressed': {
-      const compactArtifacts = Array.isArray(raw.compactArtifacts)
-        ? raw.compactArtifacts.map((m) => mapMessage(m)).filter((m): m is MessageWire => m !== null)
+      const compactSummaryMessage = raw.compactSummaryMessage
+        ? (mapMessage(raw.compactSummaryMessage) ?? undefined)
+        : undefined
+      const compactedMessageIds = Array.isArray(raw.compactedMessageIds)
+        ? raw.compactedMessageIds.filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+          )
         : undefined
       const messages = Array.isArray(raw.messages)
         ? raw.messages.map((m) => mapMessage(m)).filter((m): m is MessageWire => m !== null)
@@ -705,13 +710,21 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
         typeof keptMessageCountRaw === 'number' && Number.isFinite(keptMessageCountRaw)
           ? keptMessageCountRaw
           : undefined
+      const preTokensRaw = raw.preTokens
+      const preTokens =
+        typeof preTokensRaw === 'number' && Number.isFinite(preTokensRaw) ? preTokensRaw : undefined
       return {
         type: 'context_compressed',
         originalCount: num(raw.originalCount),
         newCount: num(raw.newCount ?? raw.compressedCount),
         ...(keptMessageCount !== undefined ? { keptMessageCount } : {}),
+        ...(preTokens !== undefined ? { preTokens } : {}),
         ...(raw.summarizerFailed === true ? { summarizerFailed: true } : {}),
-        ...(compactArtifacts && compactArtifacts.length > 0 ? { compactArtifacts } : {}),
+        ...(compactSummaryMessage ? { compactSummaryMessage } : {}),
+        ...(compactedMessageIds && compactedMessageIds.length > 0 ? { compactedMessageIds } : {}),
+        ...(typeof raw.assistantMessageId === 'string' && raw.assistantMessageId.length > 0
+          ? { assistantMessageId: raw.assistantMessageId }
+          : {}),
         ...(messages && messages.length > 0 ? { messages } : {})
       }
     }

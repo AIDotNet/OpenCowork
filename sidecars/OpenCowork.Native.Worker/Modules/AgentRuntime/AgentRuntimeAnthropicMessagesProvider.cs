@@ -127,7 +127,13 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
                 Timing: new AgentRuntimeRequestTiming(
                     totalMs,
                     parseState.FirstTokenMs,
-                    ComputeTps(parseState.Usage?.OutputTokens ?? parseState.EstimatedOutputTokens, parseState.FirstTokenMs, totalMs))));
+                    AgentRuntimeThroughput.ComputeTps(
+                        parseState.Usage,
+                        parseState.EstimatedOutputTokens,
+                        parseState.ReasoningStreamed,
+                        usageIncludesReasoning: true,
+                        parseState.FirstTokenMs,
+                        totalMs))));
 
         return new AgentRuntimeProviderTurnResult(
             new AgentRuntimeChatMessage(

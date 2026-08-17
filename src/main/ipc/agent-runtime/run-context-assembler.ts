@@ -4,11 +4,16 @@ import {
   type CapabilityCallerType
 } from '../../../shared/agent-runtime-v2'
 import { MULTI_AGENT_MODE_PROMPT } from '../../../shared/agent-system-prompt'
+import type { CompactRequestMeta } from '../../../shared/compact-request-view'
 import {
-  applyLatestCompactRequestView,
-  compactRequestFence,
-  type CompactRequestMeta
-} from '../../../shared/compact-request-view'
+  applyCompactWatermark,
+  compactWatermarkFence,
+  type CompactWatermark
+} from '../../../shared/compact-watermark'
+import {
+  buildLoopCompressionConfig,
+  type CompressionModelProfile
+} from '../../../shared/context-compression-config'
 import type { SessionRunSettings } from './session-run-settings'
 import type { SessionToolDefinition } from './session-tool-catalog'
 import { splitToolsForSubAgentCatalog } from '../../../shared/session-mode-tools'
@@ -32,7 +37,10 @@ export type AssembledWireMessage = {
   role: string
   content: unknown
   createdAt: number
+  /** Mirrored from SQLite so the compaction cut can be applied by position. */
+  sortOrder?: number
   meta?: CompactRequestMeta
+  usage?: Record<string, unknown>
 }
 
 export type AssembledSessionContext = {
@@ -49,8 +57,10 @@ export function hostedSessionPrefixIdentity(args: {
   modelId: string
   workingFolder: string | null
   sshConnectionId: string | null
-  /** Latest compact boundary/summary pair; changes after compression force a reopen. */
+  /** Recorded compaction cut; changes after compression force a reopen. */
   compactFence?: string | null
+  /** Compression window/threshold/provider; changes force a reopen so the Worker picks them up. */
+  compressionFence?: string | null
 }): string {
   return [
     args.sessionId,
@@ -59,6 +69,7 @@ export function hostedSessionPrefixIdentity(args: {
     args.modelId,
     args.workingFolder ?? '',
     args.sshConnectionId ?? '',
+    args.compressionFence ?? '',
     args.compactFence ?? ''
   ].join('\0')
 }
@@ -78,12 +89,23 @@ export type TranscriptMessage = {
   role: string
   content: unknown
   createdAt: number
+  sortOrder?: number
   meta?: CompactRequestMeta
+  usage?: Record<string, unknown>
 }
 
 export type RunContextAssemblerDeps = {
   getSession: (sessionId: string) => Promise<SessionRecord | null>
   getMessages: (sessionId: string) => Promise<TranscriptMessage[]>
+  /**
+   * Recorded compaction cut for the session. Returning `null` means "not
+   * compacted", which sends the full transcript — correct but expensive, so a
+   * lookup failure must never be reported as a cut.
+   */
+  getCompaction: (
+    sessionId: string,
+    transcript: readonly TranscriptMessage[]
+  ) => Promise<CompactWatermark | null>
   resolveProvider: (providerId: string, modelId: string) => Record<string, unknown> | null
   readPermissionPolicy: () => unknown | null
   listTools: (args: {
@@ -101,6 +123,14 @@ export type RunContextAssemblerDeps = {
     projectId: string | null
   }) => Promise<string | null> | string | null
   resolveSubAgentProvider?: () => Record<string, unknown> | null
+  resolveCompressionModel?: (providerId: string, modelId: string) => CompressionModelProfile | null
+  resolveCompressionProvider?: () => Record<string, unknown> | null
+  /**
+   * Credentials for the session's SSH host. The Worker routes file/shell tools over
+   * SSH only when the run request carries this payload, so an SSH session assembled
+   * without it would execute against the wrong (local) filesystem.
+   */
+  resolveSshConnection?: (connectionId: string) => Record<string, unknown> | null
 }
 
 function toWireMessage(message: TranscriptMessage): AssembledWireMessage {
@@ -109,12 +139,57 @@ function toWireMessage(message: TranscriptMessage): AssembledWireMessage {
     role: message.role,
     content: message.content,
     createdAt: message.createdAt,
-    ...(message.meta ? { meta: message.meta } : {})
+    ...(typeof message.sortOrder === 'number' ? { sortOrder: message.sortOrder } : {}),
+    ...(message.meta ? { meta: message.meta } : {}),
+    ...(message.usage ? { usage: message.usage } : {})
   }
+}
+
+function findPersistedContextLength(messages: readonly AssembledWireMessage[]): number {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = messages[index]?.usage
+    const contextLength = usage ? Number(usage.contextLength) : 0
+    if (Number.isFinite(contextLength) && contextLength > 0) {
+      return Math.floor(contextLength)
+    }
+  }
+  return 0
+}
+
+function compressionFenceForTemplate(args: {
+  compression: ReturnType<typeof buildLoopCompressionConfig>
+  compressionProvider: Record<string, unknown> | null
+}): string {
+  if (!args.compression) return 'off'
+  const provider = args.compressionProvider
+  const providerKey = [
+    typeof provider?.providerId === 'string' ? provider.providerId : '',
+    typeof provider?.model === 'string' ? provider.model : ''
+  ].join(':')
+  return [
+    'on',
+    args.compression.contextLength,
+    args.compression.threshold,
+    args.compression.reservedOutputBudget ?? '',
+    providerKey
+  ].join(':')
 }
 
 function asProviderRecord(provider: Record<string, unknown>): Record<string, unknown> {
   return { ...provider }
+}
+
+function readCommandObject(
+  value: unknown,
+  requiredKeys: readonly string[]
+): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  for (const key of requiredKeys) {
+    const field = record[key]
+    if (typeof field !== 'string' || field.trim().length === 0) return null
+  }
+  return record
 }
 
 export async function assembleSessionContext(
@@ -134,17 +209,22 @@ export async function assembleSessionContext(
   }
 
   const mode = intent.mode || session.mode
-  const mapped = (await deps.getMessages(intent.sessionId)).map(toWireMessage)
-  const requestMessages = applyLatestCompactRequestView(mapped)
+  const transcript = await deps.getMessages(intent.sessionId)
+  const mapped = transcript.map(toWireMessage)
+  const compaction = await deps.getCompaction(intent.sessionId, transcript)
+  const requestMessages = applyCompactWatermark(mapped, compaction)
   if (requestMessages.length !== mapped.length) {
-    console.log('[RunContextAssembler] Applied compact request view', {
+    console.log('[RunContextAssembler] Applied compaction cut', {
       sessionId: intent.sessionId,
       before: mapped.length,
       after: requestMessages.length,
-      compactFence: compactRequestFence(requestMessages)
+      throughSortOrder: compaction?.throughSortOrder ?? null,
+      generation: compaction?.generation ?? 0
     })
   }
-  const triggerIndex = requestMessages.findIndex((message) => message.id === intent.triggerMessageId)
+  const triggerIndex = requestMessages.findIndex(
+    (message) => message.id === intent.triggerMessageId
+  )
   const historyMessages =
     triggerIndex >= 0 ? requestMessages.slice(0, triggerIndex) : requestMessages
   const turnMessages =
@@ -216,10 +296,20 @@ export async function assembleSessionContext(
     forceApproval: false,
     permissionMode,
     maxParallelTools: runSettings.maxParallelTools,
-    maxConcurrentSubAgents: runSettings.maxConcurrentSubAgents
+    maxConcurrentSubAgents: runSettings.maxConcurrentSubAgents,
+    includeFullDebugBody: runSettings.devMode === true
   }
   if (session.sshConnectionId) {
     openTemplate.sshConnectionId = session.sshConnectionId
+    const connection = deps.resolveSshConnection?.(session.sshConnectionId) ?? null
+    if (connection) {
+      openTemplate.connection = connection
+    } else {
+      console.warn(
+        `[RunContextAssembler] SSH connection ${session.sshConnectionId} could not be resolved; ` +
+          `remote tools will fail until the connection is restored`
+      )
+    }
   }
   if (session.projectId) {
     openTemplate.projectId = session.projectId
@@ -235,6 +325,17 @@ export async function assembleSessionContext(
   }
   if (intent.commandMetadata) {
     openTemplate.commandMetadata = intent.commandMetadata
+    const systemCommand = readCommandObject(intent.commandMetadata.systemCommand, [
+      'name',
+      'content'
+    ])
+    if (systemCommand) {
+      openTemplate.systemCommand = systemCommand
+    }
+    const slashCommand = readCommandObject(intent.commandMetadata.slashCommand, ['commandName'])
+    if (slashCommand) {
+      openTemplate.slashCommand = slashCommand
+    }
   }
   if (intent.attachmentIds.length > 0) {
     openTemplate.attachmentIds = intent.attachmentIds
@@ -256,6 +357,19 @@ export async function assembleSessionContext(
   if (intent.extraTemplate) {
     Object.assign(openTemplate, intent.extraTemplate)
   }
+  const compression = buildLoopCompressionConfig({
+    enabled: runSettings.contextCompressionEnabled === true,
+    threshold: runSettings.contextCompressionThreshold,
+    model: deps.resolveCompressionModel?.(providerId, modelId) ?? null,
+    persistedContextLength: findPersistedContextLength(mapped)
+  })
+  const compressionProvider = compression ? (deps.resolveCompressionProvider?.() ?? null) : null
+  if (compression) {
+    openTemplate.compression = compression
+    if (compressionProvider) {
+      openTemplate.compressionProvider = compressionProvider
+    }
+  }
 
   return {
     openTemplate,
@@ -268,7 +382,8 @@ export async function assembleSessionContext(
       modelId,
       workingFolder: session.workingFolder,
       sshConnectionId: session.sshConnectionId,
-      compactFence: compactRequestFence(requestMessages)
+      compressionFence: compressionFenceForTemplate({ compression, compressionProvider }),
+      compactFence: compactWatermarkFence(compaction)
     })
   }
 }

@@ -174,6 +174,37 @@ internal sealed record MessageInsertArtifactsResult(
 
 internal sealed record MessageDeleteLastResult(bool Success, MessageRow? Message, string? Error);
 
+/// <summary>
+/// Recorded compaction cut for one session. `ThroughMessageId` is the authority
+/// and `ThroughSortOrder` its numeric fallback, so the cut survives a
+/// sort-order renumber. `KeepMessageIds` holds rows that sit inside the cut but
+/// must still be sent — the assistant turn that was mid-flight when compression
+/// ran keeps producing output after the compaction point.
+/// </summary>
+internal sealed record SessionCompactionRow(
+    string SessionId,
+    int Generation,
+    string SummaryMessageId,
+    string? ThroughMessageId,
+    int ThroughSortOrder,
+    List<string> KeepMessageIds,
+    int CompactedMessageCount,
+    string Trigger,
+    int PreTokens,
+    long CreatedAt);
+
+internal sealed record SessionCompactionResult(
+    bool Success,
+    SessionCompactionRow? Compaction,
+    string? Error);
+
+internal sealed record SessionCompactionCommitResult(
+    bool Success,
+    SessionCompactionRow? Compaction,
+    int SummarySortOrder,
+    int Total,
+    string? Error);
+
 internal sealed record MessageCompactResult(
     bool Success,
     int TotalMessages,

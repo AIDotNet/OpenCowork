@@ -38,8 +38,10 @@ import { readPersistedProviderStore } from '../lib/ai-provider-store'
 import {
   buildProviderConfigById,
   getApiRequestTimeoutSeconds,
+  getCompressionProviderConfig,
   getFastProviderConfig,
   normalizeProviderType,
+  resolveModelCompressionProfile,
   resolveProviderDefaultModelId,
   type PersistedProvidersState,
   type ProviderRunConfig as ProviderConfig,
@@ -763,6 +765,11 @@ async function* runNativeAgentLoop(args: {
                 createdAt: triggerMessage?.createdAt ?? Date.now()
               }
             ],
+            // A cron turn assembles only its own trigger, never a stored transcript,
+            // so there is no prior history for a compaction cut to remove. Compression
+            // inside the run is still recorded, and the Worker's hosted session carries
+            // the reduced conversation forward on its own.
+            getCompaction: async () => null,
             resolveProvider: () => ({ ...args.config.provider }),
             readPermissionPolicy: () => readPermissionPolicySnapshot() ?? null,
             listTools: () =>
@@ -778,7 +785,16 @@ async function* runNativeAgentLoop(args: {
               webSearch: null,
               settingsRevision: 'cron'
             }),
-            resolveSystemPrompt: () => args.config.provider.systemPrompt ?? null
+            resolveSystemPrompt: () => args.config.provider.systemPrompt ?? null,
+            resolveCompressionModel: (providerId, modelId) =>
+              resolveModelCompressionProfile(getPersistedProvidersState(), providerId, modelId),
+            resolveCompressionProvider: () => {
+              const config = getCompressionProviderConfig(
+                getPersistedProvidersState(),
+                readPersistedSettingsState()
+              )
+              return config ? { ...config } : null
+            }
           }
         )
     })

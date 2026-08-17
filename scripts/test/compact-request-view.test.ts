@@ -4,7 +4,8 @@ import {
   applyLatestCompactRequestView,
   compactRequestFence,
   parsePersistedMessageContent,
-  parsePersistedMessageMeta
+  parsePersistedMessageMeta,
+  parsePersistedMessageUsage
 } from '../../src/shared/compact-request-view.ts'
 
 function makeHistory(count: number) {
@@ -130,4 +131,14 @@ test('persisted JSON content and meta are restored for compact marks', () => {
   )
   assert.equal(typeof content, 'string')
   assert.equal(meta?.compactSummary?.messagesSummarized, 3)
+})
+
+test('persisted usage is restored for compression trigger tokens', () => {
+  const usage = parsePersistedMessageUsage(
+    JSON.stringify({ inputTokens: 1200, outputTokens: 40, contextTokens: 1200, contextLength: 200000 })
+  )
+  assert.equal(usage?.contextTokens, 1200)
+  assert.equal(usage?.contextLength, 200000)
+  assert.equal(parsePersistedMessageUsage(null), undefined)
+  assert.equal(parsePersistedMessageUsage('not-json'), undefined)
 })

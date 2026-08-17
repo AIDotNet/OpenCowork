@@ -62,3 +62,16 @@ export function safeSendMessagePackToAllWindows(channel: string, payload: unknow
     safePostMessageToWindow(win, binaryChannel, bytes)
   }
 }
+
+/** Same as safeSendMessagePackToAllWindows but reports how many windows received it. */
+export function sendMessagePackToAllWindowsCounted(channel: string, payload: unknown): number {
+  const bytes = encodeMessagePackPayload(payload)
+  const binaryChannel = toMessagePackChannel(channel)
+  let delivered = 0
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (safePostMessageToWindow(win, binaryChannel, bytes)) {
+      delivered += 1
+    }
+  }
+  return delivered
+}

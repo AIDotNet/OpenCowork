@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { assembleSessionContext } from '../../src/main/ipc/agent-runtime/run-context-assembler.ts'
-import { AgentSessionService } from '../../src/main/ipc/agent-runtime/agent-session-service.ts'
+import {
+  AgentSessionService,
+  splitAssembledTurnMessages
+} from '../../src/main/ipc/agent-runtime/agent-session-service.ts'
+import {
+  deriveCompactWatermarkFromTranscript,
+  type CompactWatermark,
+  type WatermarkMessage
+} from '../../src/shared/compact-watermark.ts'
 
 const session = {
   id: 'session-1',
@@ -14,15 +22,31 @@ const session = {
 }
 
 const messages = [
-  { id: 'user-1', role: 'user', content: 'first', createdAt: 1 },
-  { id: 'asst-1', role: 'assistant', content: 'ok', createdAt: 2 },
-  { id: 'user-2', role: 'user', content: 'second', createdAt: 3 }
+  { id: 'user-1', role: 'user', content: 'first', createdAt: 1, sortOrder: 0 },
+  { id: 'asst-1', role: 'assistant', content: 'ok', createdAt: 2, sortOrder: 1 },
+  { id: 'user-2', role: 'user', content: 'second', createdAt: 3, sortOrder: 2 }
 ]
+
+function watermark(overrides: Partial<CompactWatermark> = {}): CompactWatermark {
+  return {
+    generation: 1,
+    summaryMessageId: 'summary-1',
+    throughMessageId: 'asst-1',
+    throughSortOrder: 1,
+    keepMessageIds: [],
+    compactedMessageCount: 2,
+    trigger: 'auto',
+    preTokens: 80_000,
+    createdAt: 5,
+    ...overrides
+  }
+}
 
 function assemblerDeps() {
   return {
     getSession: async () => session,
     getMessages: async () => messages,
+    getCompaction: async () => null,
     resolveProvider: (providerId: string, modelId: string) => ({
       type: 'openai-chat',
       apiKey: 'k',
@@ -44,6 +68,15 @@ function assemblerDeps() {
       maxIterations: 0,
       webSearchEnabled: false,
       webSearch: null,
+      teamToolsEnabled: false,
+      codegraphEnabled: false,
+      codegraphFullToolSurface: false,
+      memoryUseMemories: true,
+      memorySummaryBudgetTokens: 12_000,
+      contextCompressionEnabled: false,
+      contextCompressionThreshold: 0.8,
+      contextCompressionModel: null,
+      devMode: false,
       settingsRevision: 'test'
     }),
     resolveSystemPrompt: () => 'hosted prompt'
@@ -93,6 +126,42 @@ test('assembler keeps history before the trigger and sends only the new user tur
     (assembled.openTemplate.provider as { systemPrompt?: string }).systemPrompt,
     'hosted prompt'
   )
+})
+
+test('assembler lifts systemCommand and slashCommand from commandMetadata onto the send template', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: {
+        goalRunSource: 'user_turn',
+        systemCommand: {
+          name: 'init',
+          content: 'Generate a file named AGENTS.md'
+        },
+        slashCommand: {
+          commandName: 'init',
+          rawArguments: 'docs',
+          parsedArguments: ['docs']
+        }
+      }
+    },
+    assemblerDeps()
+  )
+
+  assert.deepEqual(assembled.openTemplate.systemCommand, {
+    name: 'init',
+    content: 'Generate a file named AGENTS.md'
+  })
+  assert.deepEqual(assembled.openTemplate.slashCommand, {
+    commandName: 'init',
+    rawArguments: 'docs',
+    parsedArguments: ['docs']
+  })
 })
 
 test('start-run opens a hosted session then sends only the trigger turn', async () => {
@@ -147,6 +216,170 @@ test('start-run opens a hosted session then sends only the trigger turn', async 
     (calls[1]?.params.messages as Array<{ id: string }>).map((message) => message.id),
     ['user-2']
   )
+})
+
+test('start-run forwards systemCommand on session-send without pinning it on session-open', async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      calls.push({ method, params: record })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: 'run-1',
+          assistantMessageId: 'asst:run-1',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: {
+      systemCommand: {
+        name: 'init',
+        content: 'Generate a file named AGENTS.md'
+      }
+    }
+  })
+
+  assert.equal(calls[0]?.method, 'agent/session-open')
+  assert.equal(calls[0]?.params.systemCommand, undefined)
+  assert.equal(calls[1]?.method, 'agent/session-send')
+  assert.deepEqual(calls[1]?.params.systemCommand, {
+    name: 'init',
+    content: 'Generate a file named AGENTS.md'
+  })
+})
+
+test('assembler sets includeFullDebugBody from persisted Dev Mode', async () => {
+  const off = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    assemblerDeps()
+  )
+  const on = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      readRunSettings: () => ({
+        ...assemblerDeps().readRunSettings(),
+        devMode: true
+      })
+    }
+  )
+  assert.equal(off.openTemplate.includeFullDebugBody, false)
+  assert.equal(on.openTemplate.includeFullDebugBody, true)
+})
+
+test('start-run forwards includeFullDebugBody on session-send', async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) =>
+      assembleSessionContext(intent, {
+        ...assemblerDeps(),
+        readRunSettings: () => ({
+          ...assemblerDeps().readRunSettings(),
+          devMode: true
+        })
+      }),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      calls.push({ method, params: record })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: 'run-1',
+          assistantMessageId: 'asst:run-1',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  assert.equal(calls[0]?.method, 'agent/session-open')
+  assert.equal(calls[0]?.params.includeFullDebugBody, true)
+  assert.equal(calls[1]?.method, 'agent/session-send')
+  assert.equal(calls[1]?.params.includeFullDebugBody, true)
+})
+
+test('startAssembledRun forwards includeFullDebugBody on a reused hosted session', async () => {
+  const sendFlags: unknown[] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        sendFlags.push(record.includeFullDebugBody)
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: `asst:${record.runId}`,
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startAssembledRun(
+    { ...assembledRunParams, includeFullDebugBody: false },
+    { runId: 'run-1' }
+  )
+  await service.startAssembledRun(
+    { ...assembledRunParams, includeFullDebugBody: true },
+    { runId: 'run-2' }
+  )
+  assert.deepEqual(sendFlags, [false, true])
 })
 
 test('start-run reuses an open hosted session when prefix identity is unchanged', async () => {
@@ -281,6 +514,51 @@ test('start-run uses Worker-allocated run and assistant message ids', async () =
   assert.equal(calls[1]?.params.runId, undefined)
 })
 
+test('ssh sessions carry resolved credentials on open and on every turn', async () => {
+  const sshSession = { ...session, sshConnectionId: 'conn-1' }
+  const connection = { id: 'conn-1', host: 'example.com', username: 'root', password: 'secret' }
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) =>
+      assembleSessionContext(intent, {
+        ...assemblerDeps(),
+        getSession: async () => sshSession,
+        resolveSshConnection: (connectionId) => (connectionId === 'conn-1' ? connection : null)
+      }),
+    request: async (method, params) => {
+      calls.push({ method, params: params as Record<string, unknown> })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return { started: true, runId: 'run-1', assistantMessageId: 'asst:run-1', accepted: true }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  // Without `connection` the Worker cannot route Read/Write/Bash over SSH and reports
+  // "Native tool not registered". It rides along on session-send too, so a session
+  // restored from the Worker's on-disk snapshot still gets live credentials.
+  assert.equal(calls[0]?.method, 'agent/session-open')
+  assert.equal(calls[0]?.params.sshConnectionId, 'conn-1')
+  assert.deepEqual(calls[0]?.params.connection, connection)
+  assert.equal(calls[1]?.method, 'agent/session-send')
+  assert.deepEqual(calls[1]?.params.connection, connection)
+})
+
 test('send-turn reopens from transcript after session_evicted and retries once', async () => {
   const calls: string[] = []
   let sendAttempts = 0
@@ -319,20 +597,27 @@ test('send-turn reopens from transcript after session_evicted and retries once',
 
   assert.equal(result.accepted, true)
   assert.equal(result.errorCode, null)
-  assert.deepEqual(calls, ['agent/session-open', 'agent/session-send', 'agent/session-open', 'agent/session-send'])
+  assert.deepEqual(calls, [
+    'agent/session-open',
+    'agent/session-send',
+    'agent/session-open',
+    'agent/session-send'
+  ])
   assert.equal(sendAttempts, 2)
 })
 
-test('send-turn reopens when compact fence changes', async () => {
+test('send-turn reopens when the compaction cut changes', async () => {
   const calls: string[] = []
   let messageSet: typeof messages = messages
+  let compaction: CompactWatermark | null = null
   const service = new AgentSessionService({
     isRunning: () => true,
     nextRunId: () => 'run-1',
     assemble: (intent) =>
       assembleSessionContext(intent, {
         ...assemblerDeps(),
-        getMessages: async () => messageSet
+        getMessages: async () => messageSet,
+        getCompaction: async () => compaction
       }),
     request: async (method) => {
       calls.push(method)
@@ -364,28 +649,15 @@ test('send-turn reopens when compact fence changes', async () => {
   messageSet = [
     ...messages.slice(0, 2),
     {
-      id: 'boundary-1',
-      role: 'system',
-      content: 'Conversation compacted',
-      createdAt: 4,
-      meta: {
-        compactBoundary: {
-          trigger: 'manual',
-          preTokens: 80000,
-          messagesSummarized: 2,
-          summaryId: 'summary-1'
-        }
-      }
-    },
-    {
       id: 'summary-1',
       role: 'user',
-      content: '[Context Memory Compressed Summary]\n\nPrior turns.',
+      content: 'Here is a summary of our conversation so far.',
       createdAt: 5,
-      meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+      sortOrder: 3
     },
     messages[2]
   ]
+  compaction = watermark()
 
   await service.sendTurn({
     sessionId: 'session-1',
@@ -592,7 +864,9 @@ test('assembler keeps Write in the ACP sub-agent catalog but not the lead tool l
     ['Read', 'Task']
   )
   assert.deepEqual(
-    (assembled.openTemplate.subAgentToolCatalog as Array<{ name: string }>).map((tool) => tool.name),
+    (assembled.openTemplate.subAgentToolCatalog as Array<{ name: string }>).map(
+      (tool) => tool.name
+    ),
     ['Read', 'Task', 'Write']
   )
   const snapshot = assembled.openTemplate.capabilitySnapshot as {
@@ -631,34 +905,34 @@ test('assembler injects CodeGraph guidance when explore is in the catalog', asyn
   assert.match(texts[0], /codegraph_explore/)
 })
 
-test('assembler drops pre-compression history and keeps the compact fence', async () => {
-  const compactMessages = [
-    { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1 },
-    { id: 'old-2', role: 'assistant', content: 'huge earlier reply', createdAt: 2 },
-    {
-      id: 'boundary-1',
-      role: 'system',
-      content: 'Conversation compacted',
-      createdAt: 3,
-      meta: {
-        compactBoundary: {
-          trigger: 'auto',
-          preTokens: 120000,
-          messagesSummarized: 2,
-          summaryId: 'summary-1'
-        }
-      }
-    },
-    {
-      id: 'summary-1',
-      role: 'user',
-      content: '[Context Memory Compressed Summary]\n\nEarlier work is done.',
-      createdAt: 4,
-      meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
-    },
-    { id: 'asst-after', role: 'assistant', content: 'continued from summary', createdAt: 5 },
-    { id: 'user-2', role: 'user', content: 'next question', createdAt: 6 }
-  ]
+const compactedTranscript = [
+  { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1, sortOrder: 0 },
+  { id: 'old-2', role: 'assistant', content: 'huge earlier reply', createdAt: 2, sortOrder: 1 },
+  {
+    id: 'asst-triggering',
+    role: 'assistant',
+    content: 'kept streaming through the compaction',
+    createdAt: 3,
+    sortOrder: 2
+  },
+  {
+    id: 'summary-1',
+    role: 'user',
+    content: 'Here is a summary of our conversation so far. Earlier work is done.',
+    createdAt: 4,
+    sortOrder: 3
+  },
+  {
+    id: 'asst-after',
+    role: 'assistant',
+    content: 'continued from summary',
+    createdAt: 5,
+    sortOrder: 4
+  },
+  { id: 'user-2', role: 'user', content: 'next question', createdAt: 6, sortOrder: 5 }
+]
+
+test('assembler drops everything through the recorded cut and keeps the spared turn', async () => {
   const assembled = await assembleSessionContext(
     {
       sessionId: 'session-1',
@@ -671,22 +945,55 @@ test('assembler drops pre-compression history and keeps the compact fence', asyn
     },
     {
       ...assemblerDeps(),
-      getMessages: async () => compactMessages
+      getMessages: async () => compactedTranscript,
+      getCompaction: async () =>
+        watermark({
+          throughMessageId: 'asst-triggering',
+          throughSortOrder: 2,
+          keepMessageIds: ['asst-triggering']
+        })
     }
   )
   assert.deepEqual(
     assembled.historyMessages.map((message) => message.id),
-    ['boundary-1', 'summary-1', 'asst-after']
+    ['summary-1', 'asst-triggering', 'asst-after']
   )
   assert.deepEqual(
     assembled.turnMessages.map((message) => message.id),
     ['user-2']
   )
-  assert.equal(assembled.historyMessages.some((message) => message.id === 'old-1'), false)
-  assert.ok(assembled.prefixIdentity.endsWith('\0boundary-1:summary-1'))
+  assert.ok(assembled.prefixIdentity.endsWith('\u00001:2:summary-1'))
 })
 
-test('assembler prefix identity changes after a new compact fence', async () => {
+test('assembler resolves the cut from the boundary row after a sort-order renumber', async () => {
+  const renumbered = compactedTranscript.map((message) => ({
+    ...message,
+    sortOrder: message.sortOrder + 100
+  }))
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => renumbered,
+      // The stored position is stale; the boundary id still resolves.
+      getCompaction: async () => watermark({ throughMessageId: 'old-2', throughSortOrder: 1 })
+    }
+  )
+  assert.deepEqual(
+    assembled.historyMessages.map((message) => message.id),
+    ['summary-1', 'asst-triggering', 'asst-after']
+  )
+})
+
+test('assembler prefix identity changes after a new compaction', async () => {
   const before = await assembleSessionContext(
     {
       sessionId: 'session-1',
@@ -711,32 +1018,421 @@ test('assembler prefix identity changes after a new compact fence', async () => 
     },
     {
       ...assemblerDeps(),
-      getMessages: async () => [
-        ...messages.slice(0, 2),
+      getMessages: async () => compactedTranscript,
+      getCompaction: async () => watermark()
+    }
+  )
+  assert.notEqual(before.prefixIdentity, after.prefixIdentity)
+})
+
+test('assembler derives the cut for a session compacted by an older build', async () => {
+  const legacyTranscript = [
+    { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1, sortOrder: 0 },
+    { id: 'old-2', role: 'assistant', content: 'huge earlier reply', createdAt: 2, sortOrder: 1 },
+    {
+      id: 'boundary-1',
+      role: 'system',
+      content: 'Conversation compacted',
+      createdAt: 3,
+      sortOrder: 2,
+      meta: {
+        compactBoundary: {
+          trigger: 'auto',
+          preTokens: 120000,
+          messagesSummarized: 2,
+          summaryId: 'summary-1'
+        }
+      }
+    },
+    {
+      id: 'summary-1',
+      role: 'user',
+      content: '[Context Memory Compressed Summary]\n\nEarlier work is done.',
+      createdAt: 4,
+      sortOrder: 3,
+      meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+    },
+    {
+      id: 'asst-after',
+      role: 'assistant',
+      content: 'continued from summary',
+      createdAt: 5,
+      sortOrder: 4
+    },
+    { id: 'user-2', role: 'user', content: 'next question', createdAt: 6, sortOrder: 5 }
+  ]
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => legacyTranscript,
+      getCompaction: async (_sessionId: string, transcript: readonly WatermarkMessage[]) =>
+        deriveCompactWatermarkFromTranscript(transcript)
+    }
+  )
+  assert.deepEqual(
+    assembled.historyMessages.map((message) => message.id),
+    ['summary-1', 'asst-after']
+  )
+})
+
+const assembledRunParams = {
+  sessionId: 'session-1',
+  sessionPromptMode: 'chat',
+  workingFolder: '/tmp/project',
+  provider: { type: 'openai-chat', apiKey: 'k', model: 'model-1', providerId: 'prov-1' },
+  tools: [{ name: 'Read' }],
+  messages: [
+    { id: 'user-1', role: 'user', content: 'first', createdAt: 1 },
+    { id: 'asst-1', role: 'assistant', content: 'ok', createdAt: 2 },
+    { id: 'user-2', role: 'user', content: 'second', createdAt: 3 },
+    { id: 'asst-empty', role: 'assistant', content: '', createdAt: 4 }
+  ]
+}
+
+test('splitAssembledTurnMessages keeps history and the last user turn', () => {
+  const { history, turn } = splitAssembledTurnMessages(assembledRunParams.messages)
+  assert.deepEqual(
+    history.map((message) => message.id),
+    ['user-1', 'asst-1']
+  )
+  assert.deepEqual(
+    turn.map((message) => message.id),
+    ['user-2']
+  )
+})
+
+test('splitAssembledTurnMessages leaves tool_result-only user messages in history', () => {
+  const { history, turn } = splitAssembledTurnMessages([
+    { id: 'user-1', role: 'user', content: 'first' },
+    { id: 'asst-1', role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read' }] },
+    { id: 'tool-1', role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] }
+  ])
+  assert.equal(turn.length, 0)
+  assert.deepEqual(
+    history.map((message) => message.id),
+    ['user-1', 'asst-1', 'tool-1']
+  )
+})
+
+test('startAssembledRun opens a hosted session then sends only the new user turn', async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      calls.push({ method, params: record })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: `asst:${record.runId}`,
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const result = await service.startAssembledRun(
+    { ...assembledRunParams },
+    { runId: 'run-assembled' }
+  )
+  assert.equal(result?.accepted, true)
+  assert.equal(result?.runId, 'run-assembled')
+  assert.equal(calls[0]?.method, 'agent/session-open')
+  assert.deepEqual(
+    (calls[0]?.params.messages as Array<{ id: string }>).map((message) => message.id),
+    ['user-1', 'asst-1']
+  )
+  assert.equal(calls[1]?.method, 'agent/session-send')
+  assert.equal(calls[1]?.params.runId, 'run-assembled')
+  assert.deepEqual(
+    (calls[1]?.params.messages as Array<{ id: string }>).map((message) => message.id),
+    ['user-2']
+  )
+})
+
+test('startAssembledRun reuses an open hosted session when prefix identity is unchanged', async () => {
+  const calls: string[] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      calls.push(method)
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: (params as { runId?: string }).runId ?? 'run-1',
+          assistantMessageId: 'asst:run-1',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startAssembledRun({ ...assembledRunParams }, { runId: 'run-1' })
+  await service.startAssembledRun({ ...assembledRunParams }, { runId: 'run-2' })
+  assert.deepEqual(calls, ['agent/session-open', 'agent/session-send', 'agent/session-send'])
+})
+
+/**
+ * Main owns the cut, so it must enforce it on payloads the renderer assembled
+ * from its own view of the transcript. A renderer view that predates the last
+ * compaction is exactly how summarized turns get back into the context window.
+ */
+test('startAssembledRun re-applies the recorded cut to an assembled payload', async () => {
+  const openMessages: string[][] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    readCompaction: async () => watermark({ throughMessageId: 'asst-1', throughSortOrder: 1 }),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      if (method === 'agent/session-open') {
+        openMessages.push((record.messages as Array<{ id: string }>).map((message) => message.id))
+        return { ok: true, sessionId: 'session-1', messageCount: 1 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: 'asst:run-cut',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const result = await service.startAssembledRun(
+    {
+      ...assembledRunParams,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first', createdAt: 1, sortOrder: 0 },
+        { id: 'asst-1', role: 'assistant', content: 'ok', createdAt: 2, sortOrder: 1 },
+        { id: 'summary-1', role: 'user', content: 'summary text', createdAt: 3, sortOrder: 2 },
+        { id: 'asst-after', role: 'assistant', content: 'continued', createdAt: 4, sortOrder: 3 },
+        { id: 'user-2', role: 'user', content: 'second', createdAt: 5, sortOrder: 4 }
+      ]
+    },
+    { runId: 'run-cut' }
+  )
+  assert.equal(result?.accepted, true)
+  assert.deepEqual(openMessages, [['summary-1', 'asst-after']])
+})
+
+test('startAssembledRun derives the cut for a session compacted by an older build', async () => {
+  const openMessages: string[][] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    readCompaction: async () => null,
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      if (method === 'agent/session-open') {
+        openMessages.push((record.messages as Array<{ id: string }>).map((message) => message.id))
+        return { ok: true, sessionId: 'session-1', messageCount: 1 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: 'asst:run-legacy',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const result = await service.startAssembledRun(
+    {
+      ...assembledRunParams,
+      messages: [
+        { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1, sortOrder: 0 },
         {
           id: 'boundary-1',
           role: 'system',
           content: 'Conversation compacted',
-          createdAt: 4,
-          meta: {
-            compactBoundary: {
-              trigger: 'manual',
-              preTokens: 80000,
-              messagesSummarized: 2,
-              summaryId: 'summary-1'
-            }
-          }
+          createdAt: 2,
+          sortOrder: 1,
+          meta: { compactBoundary: { summaryId: 'summary-1' } }
         },
         {
           id: 'summary-1',
           role: 'user',
-          content: '[Context Memory Compressed Summary]\n\nPrior turns.',
-          createdAt: 5,
-          meta: { compactSummary: { messagesSummarized: 2, recentMessagesPreserved: false } }
+          content: '[Context Memory Compressed Summary]\n\nEarlier work is done.',
+          createdAt: 3,
+          sortOrder: 2,
+          meta: { compactSummary: { messagesSummarized: 1 } }
+        },
+        { id: 'asst-after', role: 'assistant', content: 'continued', createdAt: 4, sortOrder: 3 },
+        { id: 'user-2', role: 'user', content: 'next question', createdAt: 5, sortOrder: 4 }
+      ]
+    },
+    { runId: 'run-legacy' }
+  )
+  assert.equal(result?.accepted, true)
+  assert.deepEqual(openMessages, [['summary-1', 'asst-after']])
+})
+
+test('startAssembledRun returns null for continue, provider-turn-only, and empty turns', async () => {
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async () => {
+      throw new Error('should not request worker')
+    }
+  })
+
+  assert.equal(
+    await service.startAssembledRun({ ...assembledRunParams, goalRunSource: 'continue' }),
+    null
+  )
+  assert.equal(
+    await service.startAssembledRun({ ...assembledRunParams, providerTurnOnly: true }),
+    null
+  )
+  assert.equal(
+    await service.startAssembledRun({
+      ...assembledRunParams,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first' },
+        { id: 'asst-1', role: 'assistant', content: 'ok' }
+      ]
+    }),
+    null
+  )
+})
+
+test('assembler attaches compression config and copies message usage onto the wire', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => [
+        messages[0],
+        {
+          ...messages[1],
+          usage: { inputTokens: 120_000, outputTokens: 800, contextTokens: 120_000 }
         },
         messages[2]
-      ]
+      ],
+      readRunSettings: () => ({
+        ...assemblerDeps().readRunSettings(),
+        contextCompressionEnabled: true,
+        contextCompressionThreshold: 0.8
+      }),
+      resolveCompressionModel: () => ({
+        contextLength: 200_000,
+        maxOutputTokens: 16_000
+      }),
+      resolveCompressionProvider: () => ({
+        type: 'openai-chat',
+        apiKey: 'k',
+        model: 'compress-1',
+        providerId: 'prov-compress'
+      })
     }
   )
+
+  assert.deepEqual(assembled.openTemplate.compression, {
+    enabled: true,
+    contextLength: 200_000,
+    threshold: 0.8,
+    preCompressThreshold: 0.65,
+    reservedOutputBudget: 16_000
+  })
+  assert.equal(
+    (assembled.openTemplate.compressionProvider as { model?: string }).model,
+    'compress-1'
+  )
+  assert.deepEqual(assembled.historyMessages[1]?.usage, {
+    inputTokens: 120_000,
+    outputTokens: 800,
+    contextTokens: 120_000
+  })
+  assert.match(assembled.prefixIdentity, /\0on:200000:0.8:16000:prov-compress:compress-1\0/)
+})
+
+test('assembler omits compression when the setting is disabled', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      readRunSettings: () => ({
+        ...assemblerDeps().readRunSettings(),
+        contextCompressionEnabled: false,
+        contextCompressionThreshold: 0.8
+      }),
+      resolveCompressionModel: () => ({ contextLength: 200_000 })
+    }
+  )
+  assert.equal(assembled.openTemplate.compression, undefined)
+  assert.equal(assembled.openTemplate.compressionProvider, undefined)
+  assert.match(assembled.prefixIdentity, /\0off\0/)
+})
+
+test('assembler prefix identity changes when compression settings change', async () => {
+  const intent = {
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  }
+  const before = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    readRunSettings: () => ({
+      ...assemblerDeps().readRunSettings(),
+      contextCompressionEnabled: true,
+      contextCompressionThreshold: 0.8
+    }),
+    resolveCompressionModel: () => ({ contextLength: 200_000 })
+  })
+  const after = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    readRunSettings: () => ({
+      ...assemblerDeps().readRunSettings(),
+      contextCompressionEnabled: true,
+      contextCompressionThreshold: 0.5
+    }),
+    resolveCompressionModel: () => ({ contextLength: 200_000 })
+  })
   assert.notEqual(before.prefixIdentity, after.prefixIdentity)
 })

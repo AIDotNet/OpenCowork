@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
-internal static class DbMessageTools
+internal static partial class DbMessageTools
 {
     private const int DefaultRequestContextHeadLimit = 12;
     // Locator rails only need a short preview. Keeping this bounded prevents a

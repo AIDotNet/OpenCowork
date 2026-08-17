@@ -90,6 +90,7 @@ export function initChannelEventListener(): void {
   // Listen for auto-reply session tasks from main process
   ipcClient.on(IPC.PLUGIN_SESSION_TASK, (...args: unknown[]) => {
     const task = args[0] as {
+      taskId?: string
       sessionId: string
       pluginId: string
       pluginType: string
@@ -103,6 +104,11 @@ export function initChannelEventListener(): void {
       audio?: { fileKey: string; fileName?: string; mediaType?: string; durationMs?: number }
     }
     if (!task || !task.sessionId) return
+
+    // Ack ownership so main does not fall back to the headless runner.
+    if (task.taskId) {
+      void ipcClient.invoke(IPC.PLUGIN_SESSION_TASK_ACK, task.taskId).catch(() => {})
+    }
 
     // Dedup by messageId — use window-level Set that survives HMR module reloads
     if (task.messageId) {

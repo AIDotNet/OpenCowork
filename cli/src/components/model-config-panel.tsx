@@ -30,6 +30,7 @@ type ModelConfigEntry = {
     | 'thinkingBudget'
     | 'fastModeEnabled'
     | 'builtinSearchEnabled'
+    | 'enableLongContext'
     | 'websocketMode'
     | 'imageGenerationEnabled'
     | 'cacheTtl'
@@ -77,6 +78,8 @@ function valueFor(entry: ModelConfigEntry, draft: ModelConfigDraft): string {
       return draft.fastModeEnabled ? 'On' : 'Off'
     case 'builtinSearchEnabled':
       return draft.builtinSearchEnabled ? 'On' : 'Off'
+    case 'enableLongContext':
+      return draft.enableLongContext ? '1M' : '272K'
     case 'websocketMode':
       return draft.websocketMode === 'auto' ? 'Auto' : 'Off'
     case 'imageGenerationEnabled':
@@ -88,6 +91,9 @@ function valueFor(entry: ModelConfigEntry, draft: ModelConfigDraft): string {
     case 'maxOutputTokens':
       return `${formatTokens(draft.maxOutputTokens)} output`
     case 'pricing':
+      if (draft.offPeakInputPrice != null || draft.offPeakOutputPrice != null) {
+        return `peak ${formatPrice(draft.inputPrice)}/${formatPrice(draft.outputPrice)} · off-peak ${formatPrice(draft.offPeakInputPrice)}/${formatPrice(draft.offPeakOutputPrice)}`
+      }
       return `${formatPrice(draft.inputPrice)} input · ${formatPrice(draft.outputPrice)} output`
   }
 }
@@ -100,6 +106,8 @@ function isEnabled(entry: ModelConfigEntry, draft: ModelConfigDraft): boolean {
       return draft.fastModeEnabled
     case 'builtinSearchEnabled':
       return draft.builtinSearchEnabled
+    case 'enableLongContext':
+      return draft.enableLongContext
     case 'websocketMode':
       return draft.websocketMode === 'auto'
     case 'imageGenerationEnabled':
@@ -179,6 +187,16 @@ export function ModelConfigPanel({
         key: 'builtinSearchEnabled',
         kind: 'boolean',
         label: 'Built-in search'
+      })
+    }
+    if (configuration.supportsGptLongContext) {
+      next.push({
+        category: 'Limits',
+        description:
+          'GPT models default to the 272K short-context pricing tier. Enable 1M to use the long-context window.',
+        key: 'enableLongContext',
+        kind: 'boolean',
+        label: '1M context'
       })
     }
     if (configuration.supportsResponsesWebsocket) {
@@ -393,6 +411,7 @@ export function ModelConfigPanel({
 function toPatch(draft: ModelConfigDraft): ModelConfigurationPatch {
   return {
     ...(draft.supportsBuiltinSearch ? { builtinSearchEnabled: draft.builtinSearchEnabled } : {}),
+    ...(draft.supportsGptLongContext ? { enableLongContext: draft.enableLongContext } : {}),
     ...(draft.supportsCacheTtl ? { cacheTtl: draft.cacheTtl } : {}),
     ...(draft.supportsFastMode ? { fastModeEnabled: draft.fastModeEnabled } : {}),
     ...(draft.supportsImageGeneration

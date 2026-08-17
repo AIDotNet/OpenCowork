@@ -9,6 +9,7 @@ import type { UnifiedMessage, ToolResultContent } from '@renderer/lib/api/types'
 import type { RequestRetryState, ToolCallState } from '@renderer/lib/agent/types'
 import type { EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 import type { OrchestrationRun } from '@renderer/lib/orchestration/types'
+import type { SessionCompactSummary } from '@renderer/stores/chat-store'
 import { isCompactSummaryLikeMessage } from '@renderer/lib/agent/context-compression'
 import {
   MARKDOWN_REHYPE_PLUGINS,
@@ -35,6 +36,11 @@ interface MessageItemProps {
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
   inlineCompactSummaries?: readonly UnifiedMessage[]
+  /**
+   * The session's recorded compaction cut. The summary it names renders as the
+   * compaction divider instead of a user bubble; every other message ignores it.
+   */
+  compactSummary?: SessionCompactSummary | null
   renderMode?: MessageRenderMode
   orchestrationRun?: OrchestrationRun | null
   hiddenToolUseIds?: Set<string>
@@ -138,6 +144,7 @@ function MessageItemInner({
   toolResults,
   liveToolCallMap,
   inlineCompactSummaries,
+  compactSummary,
   renderMode = 'default',
   orchestrationRun,
   hiddenToolUseIds,
@@ -148,6 +155,14 @@ function MessageItemInner({
   const inner = (() => {
     switch (message.role) {
       case 'user': {
+        if (compactSummary?.messageId === message.id) {
+          return (
+            <ContextCompressionMessage
+              message={message}
+              compactedMessageCount={compactSummary.compactedMessageCount}
+            />
+          )
+        }
         if (isCompactSummaryLikeMessage(message)) {
           return <ContextCompressionMessage message={message} />
         }
@@ -309,6 +324,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
       areToolResultsEqual(prev.toolResults, next.toolResults) &&
       prev.liveToolCallMap === next.liveToolCallMap &&
       prev.inlineCompactSummaries === next.inlineCompactSummaries &&
+      prev.compactSummary === next.compactSummary &&
       prev.renderMode === next.renderMode &&
       prev.orchestrationRun === next.orchestrationRun &&
       areStringSetsEqual(prev.hiddenToolUseIds, next.hiddenToolUseIds) &&
@@ -358,6 +374,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     areToolResultsEqual(prev.toolResults, next.toolResults) &&
     prev.liveToolCallMap === next.liveToolCallMap &&
     prev.inlineCompactSummaries === next.inlineCompactSummaries &&
+    prev.compactSummary === next.compactSummary &&
     prev.renderMode === next.renderMode &&
     prev.orchestrationRun === next.orchestrationRun &&
     areStringSetsEqual(prev.hiddenToolUseIds, next.hiddenToolUseIds) &&

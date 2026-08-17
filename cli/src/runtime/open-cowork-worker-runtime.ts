@@ -46,6 +46,11 @@ import type {
 } from '../types.js'
 import { MAX_IMAGE_SIZE, MAX_PROMPT_IMAGES } from '../lib/clipboard-image.js'
 import {
+  isGptLongContextEnabled,
+  modelSupportsGptLongContext,
+  resolveEffectiveModelContextLength
+} from '../lib/gpt-context.js'
+import {
   MAX_FILE_REFERENCE_CONTEXT_CHARS,
   MAX_FILE_REFERENCE_LINES,
   MAX_FILE_REFERENCE_RESULTS,
@@ -322,6 +327,125 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+const DEFAULT_PEAK_HOURS_UTC = [
+  { startHour: 1, endHour: 4 },
+  { startHour: 6, endHour: 10 }
+] as const
+
+function isPeakPricingHour(model: JsonRecord | null, at = new Date()): boolean {
+  const schedule = model && isRecord(model.pricingSchedule) ? model.pricingSchedule : null
+  const rawWindows = schedule && Array.isArray(schedule.peakHoursUtc) ? schedule.peakHoursUtc : null
+  const windows =
+    rawWindows && rawWindows.length > 0
+      ? rawWindows
+          .map((window) => {
+            if (!isRecord(window)) return null
+            const startHour = numberValue(window.startHour)
+            const endHour = numberValue(window.endHour)
+            if (startHour === null || endHour === null) return null
+            return { startHour, endHour }
+          })
+          .filter((window): window is { startHour: number; endHour: number } => window !== null)
+      : DEFAULT_PEAK_HOURS_UTC
+  const hour = at.getUTCHours()
+  return windows.some((window) => hour >= window.startHour && hour < window.endHour)
+}
+
+interface ModelPrices {
+  inputPrice: number | null
+  outputPrice: number | null
+  cacheCreationPrice: number | null
+  cacheHitPrice: number | null
+}
+
+interface ModelPricingTier extends ModelPrices {
+  minPromptTokens: number
+}
+
+/** Mirrors `resolveModelPricingBrackets` in the desktop renderer (src/renderer/src/lib/model-pricing.ts). */
+function normalizePricingTiers(model: JsonRecord | null): ModelPricingTier[] {
+  const raw = model && Array.isArray(model.pricingTiers) ? model.pricingTiers : null
+  if (!raw || raw.length === 0) return []
+  const tiers: ModelPricingTier[] = []
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue
+    const floor = numberValue(entry.minPromptTokens)
+    if (floor === null || floor <= 0) continue
+    const tier: ModelPricingTier = {
+      minPromptTokens: Math.floor(floor),
+      inputPrice: numberValue(entry.inputPrice),
+      outputPrice: numberValue(entry.outputPrice),
+      cacheCreationPrice: numberValue(entry.cacheCreationPrice),
+      cacheHitPrice: numberValue(entry.cacheHitPrice)
+    }
+    if (
+      tier.inputPrice === null &&
+      tier.outputPrice === null &&
+      tier.cacheCreationPrice === null &&
+      tier.cacheHitPrice === null
+    ) {
+      continue
+    }
+    tiers.push(tier)
+  }
+  return tiers.sort((a, b) => a.minPromptTokens - b.minPromptTokens)
+}
+
+function selectPricingTier(
+  tiers: ModelPricingTier[],
+  promptTokens: number | null
+): ModelPricingTier | null {
+  if (promptTokens === null || !Number.isFinite(promptTokens)) return null
+  let selected: ModelPricingTier | null = null
+  for (const tier of tiers) {
+    if (promptTokens >= tier.minPromptTokens) selected = tier
+    else break
+  }
+  return selected
+}
+
+/**
+ * Effective rates for one request: time-of-day rate first, then the tiered bracket the
+ * prompt size falls into. `promptTokens` is billable input + cache read + cache write.
+ */
+function resolveTimedModelPrices(
+  model: JsonRecord | null,
+  at = new Date(),
+  promptTokens: number | null = null
+): ModelPrices {
+  const inputPrice = model ? numberValue(model.inputPrice) : null
+  const outputPrice = model ? numberValue(model.outputPrice) : null
+  const cacheCreationPrice = model ? numberValue(model.cacheCreationPrice) : null
+  const cacheHitPrice = model ? numberValue(model.cacheHitPrice) : null
+  const offPeakInputPrice = model ? numberValue(model.offPeakInputPrice) : null
+  const offPeakOutputPrice = model ? numberValue(model.offPeakOutputPrice) : null
+  const offPeakCacheCreationPrice = model ? numberValue(model.offPeakCacheCreationPrice) : null
+  const offPeakCacheHitPrice = model ? numberValue(model.offPeakCacheHitPrice) : null
+  const hasOffPeak =
+    offPeakInputPrice !== null ||
+    offPeakOutputPrice !== null ||
+    offPeakCacheCreationPrice !== null ||
+    offPeakCacheHitPrice !== null
+  const base: ModelPrices =
+    !hasOffPeak || isPeakPricingHour(model, at)
+      ? { inputPrice, outputPrice, cacheCreationPrice, cacheHitPrice }
+      : {
+          inputPrice: offPeakInputPrice ?? inputPrice,
+          outputPrice: offPeakOutputPrice ?? outputPrice,
+          cacheCreationPrice: offPeakCacheCreationPrice ?? cacheCreationPrice,
+          cacheHitPrice: offPeakCacheHitPrice ?? cacheHitPrice
+        }
+
+  const tier = selectPricingTier(normalizePricingTiers(model), promptTokens)
+  if (!tier) return base
+  return {
+    inputPrice: tier.inputPrice ?? base.inputPrice,
+    outputPrice: tier.outputPrice ?? base.outputPrice,
+    cacheCreationPrice: tier.cacheCreationPrice ?? base.cacheCreationPrice,
+    cacheHitPrice: tier.cacheHitPrice ?? base.cacheHitPrice
+  }
+}
+
 function canonicalPath(value: string): string {
   const resolved = resolve(value)
   try {
@@ -391,7 +515,9 @@ function encodedToolError(value: unknown): string {
     const error = isRecord(parsed) ? stringValue(parsed.error) : ''
     return formatCliToolError(error)
   } catch {
-    return formatCliToolError(text.startsWith('IO_') || text.startsWith('UnauthorizedAccess_') ? text : '')
+    return formatCliToolError(
+      text.startsWith('IO_') || text.startsWith('UnauthorizedAccess_') ? text : ''
+    )
   }
 }
 
@@ -1256,6 +1382,9 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     if (typeof patch.builtinSearchEnabled === 'boolean') {
       modelPatch.enableBuiltinSearch = patch.builtinSearchEnabled
     }
+    if (typeof patch.enableLongContext === 'boolean') {
+      modelPatch.enableLongContext = patch.enableLongContext
+    }
     if (patch.websocketMode) {
       modelPatch.websocketMode = patch.websocketMode
     }
@@ -1382,9 +1511,19 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       ? model.responsesImageGeneration
       : null
     const cacheTtlValue = stringValue(model.cacheTtl) || stringValue(provider.cacheTtl)
-    const contextLength = numberValue(model.contextLength)
+    const contextLength =
+      resolveEffectiveModelContextLength({
+        id: selection.modelId,
+        category: stringValue(model.category) ?? undefined,
+        contextLength: numberValue(model.contextLength) ?? undefined,
+        enableLongContext: model.enableLongContext === true,
+        longContextLength: numberValue(model.longContextLength) ?? undefined,
+        supportsLongContext: model.supportsLongContext === true ? true : undefined
+      }) ?? numberValue(model.contextLength)
     const inputPrice = numberValue(model.inputPrice)
     const outputPrice = numberValue(model.outputPrice)
+    const offPeakInputPrice = numberValue(model.offPeakInputPrice)
+    const offPeakOutputPrice = numberValue(model.offPeakOutputPrice)
 
     return {
       builtinSearchEnabled:
@@ -1393,6 +1532,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         model.enableBuiltinSearch === true,
       cacheTtl: cacheTtlValue === '1h' ? '1h' : '5m',
       ...(contextLength && contextLength > 0 ? { contextLength } : {}),
+      enableLongContext: isGptLongContextEnabled(model),
       defaultReasoningEffort,
       defaultThinkingEnabled: resolveThinkingEnabled(
         { ...configuration.settings, thinkingEnabledByModel: {} },
@@ -1405,6 +1545,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         model.supportsImageGeneration === true && responsesImageGeneration?.enabled === true,
       ...(inputPrice !== null ? { inputPrice } : {}),
       ...(maxOutputTokens && maxOutputTokens > 0 ? { maxOutputTokens } : {}),
+      ...(offPeakInputPrice !== null ? { offPeakInputPrice } : {}),
+      ...(offPeakOutputPrice !== null ? { offPeakOutputPrice } : {}),
       ...(outputPrice !== null ? { outputPrice } : {}),
       providerType,
       reasoningEffort,
@@ -1414,6 +1556,11 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       supportsBuiltinSearch:
         (providerType === 'anthropic' || providerType === 'openai-responses') &&
         model.supportsBuiltinSearch === true,
+      supportsGptLongContext: modelSupportsGptLongContext({
+        id: selection.modelId,
+        category: stringValue(model.category) ?? undefined,
+        supportsLongContext: model.supportsLongContext === true ? true : undefined
+      }),
       supportsCacheTtl: providerType === 'anthropic',
       supportsFastMode: model.serviceTier === 'priority',
       supportsImageGeneration:
@@ -1646,6 +1793,9 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
           providerId: this.config.providerId,
           modelId: this.config.model
         })?.model ?? {}
+      if (!stringValue(model.id) && this.config.model) {
+        model = { ...model, id: this.config.model }
+      }
     } catch {
       model = {}
     }
@@ -1690,6 +1840,13 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     let cacheReadTokens = 0
     let reasoningTokens = 0
     let requestCount = 0
+    // Tier-priced models bill per request by prompt size, so keep the per-request split.
+    const requestUsages: Array<{
+      billableInput: number
+      output: number
+      cacheRead: number
+      cacheCreation: number
+    }> = []
     const usages = [
       ...this.messages.map((message) => message.usage).filter(isRecord),
       ...this.activeRunUsages
@@ -1703,16 +1860,18 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         Math.max(0, numberValue(usage.cacheCreation5mTokens) ?? 0) +
         Math.max(0, numberValue(usage.cacheCreation1hTokens) ?? 0)
       const cacheCreation = Math.max(directCacheCreation, detailedCacheCreation)
+      const billableInput = Math.max(
+        0,
+        numberValue(usage.billableInputTokens) ?? input - cacheRead - cacheCreation
+      )
       inputTokens += input
       outputTokens += output
       cacheReadTokens += cacheRead
       cacheCreationTokens += cacheCreation
       reasoningTokens += Math.max(0, numberValue(usage.reasoningTokens) ?? 0)
-      billableInputTokens += Math.max(
-        0,
-        numberValue(usage.billableInputTokens) ?? input - cacheRead - cacheCreation
-      )
+      billableInputTokens += billableInput
       requestCount += 1
+      requestUsages.push({ billableInput, output, cacheRead, cacheCreation })
     }
 
     const configuration = loadOpenCoworkConfiguration()
@@ -1728,23 +1887,31 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     } catch {
       model = null
     }
-    const inputPrice = model ? numberValue(model.inputPrice) : null
-    const outputPrice = model ? numberValue(model.outputPrice) : null
-    const cacheCreationPrice =
-      (model ? numberValue(model.cacheCreationPrice) : null) ??
-      (inputPrice === null ? null : inputPrice * 1.25)
-    const cacheReadPrice =
-      (model ? numberValue(model.cacheHitPrice) : null) ??
-      (inputPrice === null ? null : inputPrice * 0.1)
-    const costs = [
-      inputPrice === null ? null : (billableInputTokens * inputPrice) / 1_000_000,
-      outputPrice === null ? null : (outputTokens * outputPrice) / 1_000_000,
-      cacheCreationPrice === null ? null : (cacheCreationTokens * cacheCreationPrice) / 1_000_000,
-      cacheReadPrice === null ? null : (cacheReadTokens * cacheReadPrice) / 1_000_000
-    ]
-    const estimatedCostUsd = costs.every((cost) => cost === null)
-      ? null
-      : costs.reduce<number>((total, cost) => total + (cost ?? 0), 0)
+    const now = new Date()
+    const basePrices = resolveTimedModelPrices(model, now)
+    // A priced model reports $0.00 before its first request; an unpriced one reports nothing.
+    let estimatedCostUsd: number | null =
+      basePrices.inputPrice === null && basePrices.outputPrice === null ? null : 0
+    for (const request of requestUsages) {
+      const promptTokens = request.billableInput + request.cacheRead + request.cacheCreation
+      const prices = resolveTimedModelPrices(model, now, promptTokens)
+      const inputPrice = prices.inputPrice
+      const outputPrice = prices.outputPrice
+      const cacheCreationPrice =
+        prices.cacheCreationPrice ?? (inputPrice === null ? null : inputPrice * 1.25)
+      const cacheReadPrice = prices.cacheHitPrice ?? (inputPrice === null ? null : inputPrice * 0.1)
+      const costs = [
+        inputPrice === null ? null : (request.billableInput * inputPrice) / 1_000_000,
+        outputPrice === null ? null : (request.output * outputPrice) / 1_000_000,
+        cacheCreationPrice === null
+          ? null
+          : (request.cacheCreation * cacheCreationPrice) / 1_000_000,
+        cacheReadPrice === null ? null : (request.cacheRead * cacheReadPrice) / 1_000_000
+      ]
+      if (costs.every((cost) => cost === null)) continue
+      estimatedCostUsd =
+        (estimatedCostUsd ?? 0) + costs.reduce<number>((total, cost) => total + (cost ?? 0), 0)
+    }
 
     return {
       billableInputTokens,

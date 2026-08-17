@@ -286,12 +286,15 @@ export interface ModelConfiguration {
   builtinSearchEnabled: boolean
   cacheTtl: '5m' | '1h'
   contextLength?: number
+  enableLongContext: boolean
   defaultReasoningEffort: string
   defaultThinkingEnabled: boolean
   fastModeEnabled: boolean
   imageGenerationEnabled: boolean
   inputPrice?: number
   maxOutputTokens?: number
+  offPeakInputPrice?: number
+  offPeakOutputPrice?: number
   outputPrice?: number
   providerType: string
   reasoningEffort: string
@@ -299,6 +302,7 @@ export interface ModelConfiguration {
   reasoningEffortLevels: string[]
   selection: ModelSelection
   supportsBuiltinSearch: boolean
+  supportsGptLongContext: boolean
   supportsCacheTtl: boolean
   supportsFastMode: boolean
   supportsImageGeneration: boolean
@@ -315,6 +319,7 @@ export interface ModelConfiguration {
 
 export interface ModelConfigurationPatch {
   builtinSearchEnabled?: boolean
+  enableLongContext?: boolean
   cacheTtl?: '5m' | '1h'
   fastModeEnabled?: boolean
   imageGenerationEnabled?: boolean
@@ -417,9 +422,13 @@ export type TurnStatusPhase = 'requesting' | 'thinking' | 'responding' | 'tool-u
 
 export interface TurnStatusSnapshot {
   activeResponseCharacters: number
+  /** Timestamp of the first streamed delta for the in-flight model response, cleared when its usage lands. */
+  activeResponseStartedAt?: number
   completedOutputTokens: number
   /** Timestamp for the first streamed thinking or response delta in this turn. */
   firstResponseAt?: number
+  /** Total milliseconds spent streaming completed model responses this turn (excludes tool-execution gaps). */
+  generationMs: number
   id: string
   phase: TurnStatusPhase
   requestTokens: number

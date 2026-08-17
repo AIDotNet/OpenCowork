@@ -69,6 +69,7 @@ import {
   getCacheCreationSplit,
   getCacheHitRate
 } from '@renderer/lib/format-tokens'
+import { resolveActivePricingTierFloor, resolveModelPrices } from '@renderer/lib/model-pricing'
 import { formatDurationMs } from '@renderer/lib/format-duration'
 import {
   getEffectiveContextWindow,
@@ -1003,15 +1004,20 @@ function ComposerRuntimeStatus({
     streamingExtraCostBreakdown?.cacheCreationCost ?? null
   )
   const totalCost = sumNullableCost(live.cumulativeTotalCost ?? null, streamingExtraCost ?? null)
+  // Tier-priced models bill by prompt size, so the fallback rates below follow whichever
+  // bracket the live context sits in. Memoizing on the bracket floor keeps the object
+  // identity stable while tokens tick up inside one bracket.
+  const activePricingTierFloor = resolveActivePricingTierFloor(model, currentEstimatedInputTokens)
   const metricPricing = React.useMemo(() => {
-    const inputPrice = model?.inputPrice ?? null
-    const outputPrice = model?.outputPrice ?? null
-    const cacheReadPrice = model?.cacheHitPrice ?? (inputPrice != null ? inputPrice * 0.1 : null)
+    const prices = resolveModelPrices(model, undefined, activePricingTierFloor)
+    const inputPrice = prices.inputPrice
+    const outputPrice = prices.outputPrice
+    const cacheReadPrice = prices.cacheHitPrice ?? (inputPrice != null ? inputPrice * 0.1 : null)
     const cacheCreatePrice =
-      model?.cacheCreationPrice ?? (inputPrice != null ? inputPrice * 1.25 : null)
+      prices.cacheCreationPrice ?? (inputPrice != null ? inputPrice * 1.25 : null)
     const cacheCreate1hPrice = inputPrice != null ? inputPrice * 2 : null
     return { inputPrice, outputPrice, cacheReadPrice, cacheCreatePrice, cacheCreate1hPrice }
-  }, [model])
+  }, [model, activePricingTierFloor])
   const tokensLabel = t('input.runtimeMetrics.detailTokens', { defaultValue: 'Tokens' })
   const costLabel = t('input.runtimeMetrics.detailCost', { defaultValue: 'Cost' })
   const buildTokenMetricDetail = React.useCallback(
@@ -1344,7 +1350,9 @@ function ComposerRuntimeStatus({
               tone="latency"
               title={
                 <MetricDetail
-                  title={t('input.runtimeMetrics.ttftFull', { defaultValue: 'Time to First Token' })}
+                  title={t('input.runtimeMetrics.ttftFull', {
+                    defaultValue: 'Time to First Token'
+                  })}
                   description={t('input.runtimeMetrics.ttftHint', {
                     defaultValue:
                       'Time from sending the request to receiving the first streamed token. Lower TTFT means the model started responding sooner.'
@@ -1360,67 +1368,70 @@ function ComposerRuntimeStatus({
             />
           </>
         )}
-      {showStatus ? (
-        <>
-          <span className="shrink-0 text-muted-foreground/35">/</span>
-          <span
-            className={cn('inline-flex min-w-0 items-center gap-1 truncate', statusView.className)}
-          >
-            <StatusIcon className={cn('size-3 shrink-0', statusView.spin && 'animate-spin')} />
-            <span className="min-w-0 truncate">{statusView.text}</span>
-          </span>
-        </>
-      ) : null}
-      {totalCost !== null && totalCost > 0 && (
-        <>
-          <span className="shrink-0 text-muted-foreground/35">/</span>
-          <HoverCard openDelay={180} closeDelay={100}>
-            <HoverCardTrigger asChild>
-              <span className="shrink-0 cursor-help tabular-nums text-muted-foreground/60">
-                <span className="text-muted-foreground/60">
-                  {t('input.runtimeMetrics.totalCost', { defaultValue: 'Cost' })}
-                </span>{' '}
-                <span className="font-medium text-emerald-500/85 dark:text-emerald-300/85">
-                  {formatCost(totalCost)}
-                </span>
-              </span>
-            </HoverCardTrigger>
-            <HoverCardContent
-              side="top"
-              align="end"
-              sideOffset={6}
-              className="w-[280px] rounded-lg border-[#262626] bg-[#101010] p-3 text-zinc-100 shadow-2xl"
+        {showStatus ? (
+          <>
+            <span className="shrink-0 text-muted-foreground/35">/</span>
+            <span
+              className={cn(
+                'inline-flex min-w-0 items-center gap-1 truncate',
+                statusView.className
+              )}
             >
-              <div className="space-y-1">
-                {totalCostRows.map((row) => (
-                  <div key={row.key} className="flex items-center justify-between gap-4 text-xs">
-                    <span className="flex min-w-0 items-center gap-1.5 text-zinc-400">
-                      <span
-                        className="size-1.5 shrink-0 rounded-full"
-                        style={{ backgroundColor: row.color }}
-                      />
-                      <span className="truncate">{row.label}</span>
-                    </span>
-                    <span className="shrink-0 font-semibold tabular-nums text-zinc-100">
-                      {formatCost(row.value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 border-t border-white/9 pt-2">
-                <div className="flex items-center justify-between gap-4 text-xs">
-                  <span className="truncate text-zinc-400">
+              <StatusIcon className={cn('size-3 shrink-0', statusView.spin && 'animate-spin')} />
+              <span className="min-w-0 truncate">{statusView.text}</span>
+            </span>
+          </>
+        ) : null}
+        {totalCost !== null && totalCost > 0 && (
+          <>
+            <span className="shrink-0 text-muted-foreground/35">/</span>
+            <HoverCard openDelay={180} closeDelay={100}>
+              <HoverCardTrigger asChild>
+                <span className="shrink-0 cursor-help tabular-nums text-muted-foreground/60">
+                  <span className="text-muted-foreground/60">
                     {t('input.runtimeMetrics.totalCost', { defaultValue: 'Cost' })}
-                  </span>
-                  <span className="shrink-0 font-semibold tabular-nums text-zinc-100">
+                  </span>{' '}
+                  <span className="font-medium text-emerald-500/85 dark:text-emerald-300/85">
                     {formatCost(totalCost)}
                   </span>
+                </span>
+              </HoverCardTrigger>
+              <HoverCardContent
+                side="top"
+                align="end"
+                sideOffset={6}
+                className="w-[280px] rounded-lg border-[#262626] bg-[#101010] p-3 text-zinc-100 shadow-2xl"
+              >
+                <div className="space-y-1">
+                  {totalCostRows.map((row) => (
+                    <div key={row.key} className="flex items-center justify-between gap-4 text-xs">
+                      <span className="flex min-w-0 items-center gap-1.5 text-zinc-400">
+                        <span
+                          className="size-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: row.color }}
+                        />
+                        <span className="truncate">{row.label}</span>
+                      </span>
+                      <span className="shrink-0 font-semibold tabular-nums text-zinc-100">
+                        {formatCost(row.value)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </HoverCardContent>
-          </HoverCard>
-        </>
-      )}
+                <div className="mt-2 border-t border-white/9 pt-2">
+                  <div className="flex items-center justify-between gap-4 text-xs">
+                    <span className="truncate text-zinc-400">
+                      {t('input.runtimeMetrics.totalCost', { defaultValue: 'Cost' })}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums text-zinc-100">
+                      {formatCost(totalCost)}
+                    </span>
+                  </div>
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+          </>
+        )}
       </div>
     </div>
   )

@@ -15,7 +15,7 @@ const tempDirectory = mkdtempSync(join(tmpdir(), 'open-cowork-worker-jobs-'))
 const controlEndpoint = join(tempDirectory, 'control.sock')
 const eventEndpoint = join(tempDirectory, 'events.sock')
 const workerDll = resolve(
-  'sidecars/OpenCowork.Native.Worker/bin/Debug/net10.0/OpenCowork.Native.Worker.dll'
+  'sidecars/OpenCowork.Native.Worker/bin/Debug/net11.0/OpenCowork.Native.Worker.dll'
 )
 const providerServer = createServer((request, response) => {
   if (request.url?.startsWith('/compression/')) {

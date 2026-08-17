@@ -16,7 +16,15 @@ internal sealed record AgentRuntimeContextCompressionResult(
     int NewCount,
     int? MessagesSummarized = null,
     bool? SummarizerFailed = null,
-    string? Error = null);
+    string? Error = null,
+    /// <summary>Id of the plain user message carrying the summary text.</summary>
+    string? SummaryMessageId = null,
+    /// <summary>
+    /// Every message the summarizer consumed. The host resolves these against its
+    /// own transcript to record the compaction cut, so it never has to guess which
+    /// rows the summary replaced.
+    /// </summary>
+    string[]? CompactedMessageIds = null);
 
 internal sealed record AgentRuntimeApprovalRequest(
     string RunId,
@@ -68,7 +76,10 @@ internal sealed record AgentRuntimeStreamEvent(
     int? KeptMessageCount = null,
     bool? SummarizerFailed = null,
     JsonElement[]? Messages = null,
-    JsonElement[]? CompactArtifacts = null,
+    /// <summary>Plain user message holding the summary, for the host to persist.</summary>
+    JsonElement? CompactSummaryMessage = null,
+    /// <summary>Messages the summary replaced, so the host can record the cut.</summary>
+    string[]? CompactedMessageIds = null,
     string? SubAgentName = null,
     string? ToolUseId = null,
     string[]? McpServerIds = null,
@@ -90,7 +101,9 @@ internal sealed record AgentRuntimeStreamEvent(
     int? MaxAttempts = null,
     int? DelayMs = null,
     int? StatusCode = null,
-    string? AssistantMessageId = null);
+    string? AssistantMessageId = null,
+    /// <summary>Context tokens measured when compression was triggered.</summary>
+    int? PreTokens = null);
 
 internal sealed record AgentRuntimeToolUseBlock(
     string Id,

@@ -1774,7 +1774,7 @@ function getNativeWorkerCandidatePaths(): string[] {
     'OpenCowork.Native.Worker',
     'bin',
     'Release',
-    'net10.0',
+    'net11.0',
     getCurrentRid(),
     'native',
     executableName
@@ -1785,7 +1785,7 @@ function getNativeWorkerCandidatePaths(): string[] {
     'OpenCowork.Native.Worker',
     'bin',
     'Release',
-    'net10.0',
+    'net11.0',
     getCurrentRid(),
     'publish',
     executableName
@@ -1917,7 +1917,7 @@ export function resolveCodeGraphWorkerPath(): string | null {
     'OpenCowork.CodeGraph.Worker',
     'bin',
     'Release',
-    'net10.0',
+    'net11.0',
     getCurrentRid(),
     'native',
     executableName
@@ -1929,7 +1929,7 @@ export function resolveCodeGraphWorkerPath(): string | null {
     'OpenCowork.CodeGraph.Worker',
     'bin',
     'Release',
-    'net10.0',
+    'net11.0',
     getCurrentRid(),
     'publish',
     executableName

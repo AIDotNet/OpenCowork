@@ -23,12 +23,22 @@ function assert(condition, message) {
   }
 }
 
-function parseDebugBody(debugInfo) {
-  if (!debugInfo || typeof debugInfo.body !== 'string' || debugInfo.body.length === 0) {
-    return null
+/**
+ * The provider request body is too large to ride along on the event, so
+ * `request_debug` carries a `bodyRef` and the body itself is fetched on demand.
+ * Reading only `debugInfo.body` makes every body assertion below skip silently.
+ */
+async function parseDebugBody(client, debugInfo) {
+  let raw = typeof debugInfo?.body === 'string' && debugInfo.body.length > 0 ? debugInfo.body : null
+  if (!raw && debugInfo?.bodyRef) {
+    const fetched = await client
+      .request('agent/debug-body-read', { bodyRef: debugInfo.bodyRef })
+      .catch(() => null)
+    raw = typeof fetched?.body === 'string' && fetched.body.length > 0 ? fetched.body : null
   }
+  if (!raw) return null
   try {
-    return JSON.stringify(JSON.parse(debugInfo.body))
+    return JSON.stringify(JSON.parse(raw))
   } catch {
     return null
   }
@@ -368,6 +378,146 @@ async function waitForRequestDebug(client, runId) {
   })
 }
 
+/**
+ * The recorded compaction cut is what keeps summarized turns out of the context
+ * window. Exercise it end to end against the Worker: commit a cut, confirm the
+ * request only carries the summary plus what came after it, and confirm the two
+ * ways a cut can be reported twice or invalidated.
+ */
+async function verifyCompactionCut(client, dbPath) {
+  const sessionId = 'session-compaction-cut'
+  await client.request('db/sessions-create', {
+    dbPath,
+    id: sessionId,
+    title: 'Compaction cut smoke',
+    mode: 'chat',
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  })
+
+  const now = Date.now()
+  const seeded = Array.from({ length: 20 }, (_, index) => ({
+    id: `cut-${index}`,
+    sessionId,
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: messageContent(`cut message ${index}`),
+    meta: null,
+    createdAt: now + index,
+    usage: null,
+    sortOrder: index
+  }))
+  await client.request('db/messages-add-batch', { dbPath, messages: seeded })
+
+  // The turn that was streaming when compression ran is inside the compacted
+  // range but must survive it, so it is reported as compacted and kept.
+  const commit = await client.request('db/session-compaction-commit', {
+    dbPath,
+    sessionId,
+    summaryMessage: {
+      id: 'cut-summary',
+      role: 'user',
+      content: messageContent('Here is a summary of our conversation so far. Keep this text.'),
+      createdAt: now + 1_000
+    },
+    compactedMessageIds: seeded.map((message) => message.id),
+    keepMessageIds: ['cut-19'],
+    compactedMessageCount: 20,
+    trigger: 'auto',
+    preTokens: 120_000,
+    createdAt: now + 1_000
+  })
+  assert(commit.success, `compaction commit failed: ${commit.error ?? 'unknown error'}`)
+  assert(
+    commit.compaction.generation === 1,
+    `expected generation 1, got ${commit.compaction.generation}`
+  )
+  assert(
+    commit.compaction.throughMessageId === 'cut-18',
+    `cut should stop before the spared row, got ${commit.compaction.throughMessageId}`
+  )
+  assert(
+    commit.summarySortOrder === 20,
+    `summary should land at the tail, got ${commit.summarySortOrder}`
+  )
+  assert(commit.total === 21, `expected total=21 after the summary, got ${commit.total}`)
+
+  const read = await client.request('db/session-compaction-get', { dbPath, sessionId })
+  assert(read.success && read.compaction, 'compaction read-back failed')
+  assert(
+    read.compaction.summaryMessageId === 'cut-summary',
+    'compaction read-back lost the summary'
+  )
+  assert(
+    read.compaction.keepMessageIds.join(',') === 'cut-19',
+    `compaction read-back lost the spared rows: ${read.compaction.keepMessageIds.join(',')}`
+  )
+
+  // The event outbox delivers at least once; a replayed report must not move the
+  // cut, or every replay would force a pointless hosted-session reopen.
+  const replay = await client.request('db/session-compaction-commit', {
+    dbPath,
+    sessionId,
+    summaryMessage: {
+      id: 'cut-summary',
+      role: 'user',
+      content: messageContent('Here is a summary of our conversation so far. Keep this text.'),
+      createdAt: now + 1_000
+    },
+    compactedMessageIds: seeded.map((message) => message.id),
+    keepMessageIds: ['cut-19'],
+    compactedMessageCount: 20,
+    trigger: 'auto',
+    preTokens: 120_000,
+    createdAt: now + 2_000
+  })
+  assert(replay.success, `replayed commit failed: ${replay.error ?? 'unknown error'}`)
+  assert(
+    replay.compaction.generation === 1,
+    `replayed commit moved the generation to ${replay.compaction.generation}`
+  )
+  assert(replay.total === 21, `replayed commit changed the row count to ${replay.total}`)
+
+  const cutDebugPromise = waitForRequestDebug(client, 'compaction-cut-run')
+  await client.submitAgentRun({
+    dbPath,
+    runId: 'compaction-cut-run',
+    sessionId,
+    messages: [],
+    contextSource: { sessionId, maxMessages: 60, compressionMode: 'auto' },
+    provider: {
+      type: 'openai-chat',
+      apiKey: 'test-key',
+      baseUrl: 'http://127.0.0.1:9/v1',
+      model: 'windowing-smoke-model'
+    },
+    tools: [],
+    maxIterations: 1,
+    forceApproval: false,
+    includeFullDebugBody: true
+  })
+  const cutBody = await parseDebugBody(client, await cutDebugPromise)
+  if (cutBody) {
+    assert(cutBody.includes('Keep this text'), 'compacted request omitted the summary')
+    assert(cutBody.includes('cut message 19'), 'compacted request dropped the spared turn')
+    assert(!cutBody.includes('cut message 5'), 'compacted request leaked summarized history')
+  } else {
+    console.warn('request_debug body unavailable; skipping compaction-cut assertions')
+  }
+  await client.request('agent/cancel', { runId: 'compaction-cut-run' }).catch(() => {})
+
+  // Rewinding past the summary makes the cut meaningless: it must be dropped so
+  // the session falls back to its (now shorter) full history.
+  const deleted = await client.request('db/messages-delete', {
+    dbPath,
+    sessionId,
+    messageId: 'cut-summary'
+  })
+  assert(deleted.success && deleted.deleted, 'summary delete failed')
+  const orphaned = await client.request('db/session-compaction-get', { dbPath, sessionId })
+  assert(orphaned.success, 'orphaned compaction read failed')
+  assert(!orphaned.compaction, 'a cut survived the loss of its summary')
+}
+
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'open-cowork-windowing-'))
   const dbPath = path.join(tempDir, 'data.db')
@@ -659,7 +809,7 @@ async function main() {
       includeFullDebugBody: true
     })
     const headTailDebugInfo = await headTailDebugPromise
-    const headTailBody = parseDebugBody(headTailDebugInfo)
+    const headTailBody = await parseDebugBody(client, headTailDebugInfo)
     if (headTailBody) {
       assert(headTailBody.includes('plain message 0'), 'request context omitted DB head task')
       assert(headTailBody.includes('plain message 79'), 'request context omitted DB tail')
@@ -705,7 +855,7 @@ async function main() {
       includeFullDebugBody: true
     })
     const directDebugInfo = await directDebugPromise
-    const directBody = parseDebugBody(directDebugInfo)
+    const directBody = await parseDebugBody(client, directDebugInfo)
     if (directBody) {
       assert(directBody.includes('direct renderer bounded task context'), 'direct messages omitted')
       assert(
@@ -794,7 +944,7 @@ async function main() {
       includeFullDebugBody: true
     })
     const debugInfo = await debugPromise
-    const serializedBody = parseDebugBody(debugInfo)
+    const serializedBody = await parseDebugBody(client, debugInfo)
     if (serializedBody) {
       assert(
         serializedBody.includes('Summary of messages 0 through 59'),
@@ -908,7 +1058,7 @@ async function main() {
       includeFullDebugBody: true
     })
     const flippedDebugInfo = await flippedDebugPromise
-    const flippedBody = parseDebugBody(flippedDebugInfo)
+    const flippedBody = await parseDebugBody(client, flippedDebugInfo)
     if (flippedBody) {
       assert(
         flippedBody.includes('Summary of flip messages 0 through 39'),
@@ -926,6 +1076,8 @@ async function main() {
       console.warn('request_debug body unavailable; skipping flipped-compact assertions')
     }
     await client.request('agent/cancel', { runId: 'flipped-compact-run' }).catch(() => {})
+
+    await verifyCompactionCut(client, dbPath)
 
     const clearedProjectless = await client.request('db/sessions-clear-project', {
       dbPath,

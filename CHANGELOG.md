@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.11] - 2026-08-17
+
+### Added
+
+- Added a durable compaction watermark recorded in Main from the Worker event stream so interactive, cron, and channel runs all keep summarized turns out of the next request, instead of re-deriving the cut from marker-row positions.
+- Added headless channel auto-reply: if no renderer window acknowledges a plugin task, Main runs the turn through the Worker hosted-session path and delivers the assistant text without an open window.
+- Added a plan-execution model picker (Auto or a specific provider/model) before Implement starts, including new-session execute.
+- Added a GPT 1M long-context toggle on desktop and CLI; off keeps the 272K short-context window and pricing tier.
+- Added prompt-size tiered pricing in provider settings so models billed by context brackets (for example MiniMax) resolve usage cost from the matching floor.
+- Added Native Worker tokens-per-second reporting that only counts reasoning tokens when they actually streamed inside the measured window.
+- Added first-party defaults for provider-native web search (OpenAI, Anthropic, Codex) and OpenAI Responses image generation, with per-model capability toggles.
+
+### Changed
+
+- Moved Native Worker and CI to .NET 11 Preview, and set packaged macOS builds to require macOS 14 or newer.
+- Shared compression-threshold and GPT context-length resolution across desktop, CLI, and Worker so auto-compact and the 1M toggle agree on the active window.
+- CLI `/compact` now compresses canonical context through Native Worker `agent/compress-context`, and the status line shows context ratio plus throughput.
+- Hardened SSH directory listing to a NUL-delimited shell walk that does not require remote Python, and fail clearly when a session has no SSH credentials.
+- Refreshed the model switcher and provider panel around 1M context, built-in search, image generation, and clearer pricing metadata.
+
+### Fixed
+
+- Fixed the renderer pinning a core at 100% CPU on launch (#155): failed project session-page loads no longer busy-retry, missing-session message selectors return a stable empty array, and runtime attach retries use capped exponential backoff.
+- Fixed compacted history coming back after headless or cron compressions by writing the cut from the durable event consumer instead of the renderer.
+- Fixed Implement ignoring the execution-dialog model selection.
+
 ## [1.3.10] - 2026-08-14
 
 ### Added

@@ -103,7 +103,11 @@ test('brackets describe the whole ladder for display', () => {
   }
   const brackets = resolveModelPricingBrackets(model)
   assert.deepEqual(
-    brackets.map((bracket) => [bracket.minPromptTokens, bracket.maxPromptTokens, bracket.inputPrice]),
+    brackets.map((bracket) => [
+      bracket.minPromptTokens,
+      bracket.maxPromptTokens,
+      bracket.inputPrice
+    ]),
     [
       [0, 200_000, 0.29],
       [200_000, 800_000, 2],

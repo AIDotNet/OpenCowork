@@ -6950,7 +6950,10 @@ export async function sendImplementPlan(
   }
 }
 
-export async function sendImplementPlanInNewSession(planId: string): Promise<void> {
+export async function sendImplementPlanInNewSession(
+  planId: string,
+  options?: { modelSelection?: PlanExecutionModelSelection }
+): Promise<void> {
   if (!_sendMessageFn) return
 
   const plan = ensurePlanAwaitingReview(planId)
@@ -6967,7 +6970,8 @@ export async function sendImplementPlanInNewSession(planId: string): Promise<voi
 
   const modelSelection = await confirmPlanExecution({
     sessionId: plan.sessionId,
-    newSession: true
+    newSession: true,
+    initialSelection: options?.modelSelection
   })
   if (!modelSelection) return
 

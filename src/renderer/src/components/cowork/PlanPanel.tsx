@@ -25,6 +25,11 @@ import {
   sendImplementPlanInNewSession,
   sendPlanRevision
 } from '@renderer/hooks/use-chat-actions'
+import {
+  PlanExecutionModelSelect,
+  resolvePlanExecutionDefaultModel,
+  type PlanExecutionModelSelection
+} from '@renderer/components/chat/PlanExecuteDialog'
 import { cn } from '@renderer/lib/utils'
 
 function StatusBadge({ status }: { status: PlanStatus }): React.JSX.Element {
@@ -79,6 +84,9 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
   const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
   const [rejectOpen, setRejectOpen] = useState(false)
   const [rejectFeedback, setRejectFeedback] = useState('')
+  const [executionModel, setExecutionModel] = useState<PlanExecutionModelSelection>(() =>
+    resolvePlanExecutionDefaultModel(plan.sessionId)
+  )
 
   const canExecute = !!content.trim() && plan.status === 'awaiting_review' && !isRunning
   const canReject = canExecute
@@ -88,11 +96,11 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
     ['awaiting_review', 'approved', 'implementing', 'rejected'].includes(plan.status)
 
   const handleConfirmExecute = (): void => {
-    void sendImplementPlan(plan.id)
+    void sendImplementPlan(plan.id, { modelSelection: executionModel })
   }
 
   const handleExecuteInNewSession = (): void => {
-    void sendImplementPlanInNewSession(plan.id)
+    void sendImplementPlanInNewSession(plan.id, { modelSelection: executionModel })
   }
 
   const handleEditPlan = (): void => {
@@ -146,7 +154,7 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
         {canExecute && (
           <>
             <Button
@@ -165,6 +173,12 @@ function PlanContent({ plan, content }: { plan: Plan; content: string }): React.
             >
               {t('plan.executeInNewSession', { defaultValue: 'New Session Execute' })}
             </Button>
+            <PlanExecutionModelSelect
+              sessionId={plan.sessionId}
+              value={executionModel}
+              onChange={setExecutionModel}
+              className="h-7 w-[11.5rem] shrink-0 text-xs"
+            />
             {canReject && (
               <Button
                 variant="outline"

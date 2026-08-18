@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef } from 'react'
+import { memo, useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BrainCircuit, ChevronRight, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
@@ -23,6 +23,32 @@ interface ThinkingBlockProps {
   isStreaming?: boolean
   startedAt?: number
   completedAt?: number
+}
+
+function stripThinkingPreviewDecorators(line: string): string {
+  return line
+    .replace(/\r/g, '')
+    .trim()
+    .replace(/^(?:#{1,6}|[-*+]|\d+\.)\s+/, '')
+    .replace(/^>\s?/, '')
+    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
+    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
+    .replace(/^`(.+?)`$/, '$1')
+    .trim()
+}
+
+/** Latest non-empty thinking line for the collapsed live header. */
+function getLiveThinkingPreview(thinking: string): string {
+  let cursor = thinking.length
+  while (cursor > 0) {
+    const newline = thinking.lastIndexOf('\n', cursor - 1)
+    const start = newline === -1 ? 0 : newline + 1
+    const cleaned = stripThinkingPreviewDecorators(thinking.slice(start, cursor))
+    if (cleaned) return cleaned
+    if (newline === -1) break
+    cursor = newline
+  }
+  return ''
 }
 
 export const ThinkingBlock = memo(function ThinkingBlock({
@@ -69,6 +95,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
     return () => clearInterval(interval)
   }, [completedAt, isThinking, startedAt])
 
+  const liveThinkingPreview = useMemo(
+    () => (isThinking ? getLiveThinkingPreview(thinking) : ''),
+    [isThinking, thinking]
+  )
+
   if (!isThinking && !hasThinkingContent) {
     return null
   }
@@ -86,11 +117,14 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   const headerLabel = isThinking
     ? t('thinking.deepThinking', { defaultValue: 'Thinking deeply' })
     : t('thinking.deepThought', { defaultValue: 'Thought deeply' })
-  const durationDisplay = isThinking
-    ? t('thinking.thinkingFor', { seconds: elapsedSeconds })
+  const metaDisplay = isThinking
+    ? liveThinkingPreview || durationLabel
     : hasDuration
       ? t('thinking.thoughtFor', { seconds: Math.max(1, elapsedSeconds) })
       : ''
+  const headerTitle = liveThinkingPreview
+    ? `${liveThinkingPreview} · ${durationLabel}`
+    : durationLabel
 
   return (
     <div className={`my-4 min-w-0${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
@@ -100,9 +134,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
           if (isThinking) return
           setCollapsed((value) => !value)
         }}
-        title={durationLabel}
+        title={headerTitle}
         aria-expanded={expanded}
-        className="group inline-flex max-w-full items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-[13px] text-muted-foreground/70 transition-colors hover:text-foreground"
+        className={`group inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-[13px] text-muted-foreground/70 transition-colors hover:text-foreground${
+          isThinking && liveThinkingPreview ? ' w-full' : ''
+        }`}
       >
         <span
           className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-violet-600 transition-colors group-hover:border-violet-500/30 group-hover:text-violet-500 dark:border-white/[0.08] dark:bg-white/[0.025] dark:text-violet-400 ${
@@ -114,14 +150,20 @@ export const ThinkingBlock = memo(function ThinkingBlock({
           <BrainCircuit className="size-3" />
         </span>
         <span
-          className={`min-w-0 truncate font-medium ${
+          className={`shrink-0 font-medium ${
             isThinking ? getLiveOutputShimmerClass(liveOutputAnimationStyle) : ''
           }`}
         >
           {headerLabel}
         </span>
-        {durationDisplay ? (
-          <span className="thinking-live-meta shrink-0 tabular-nums">{durationDisplay}</span>
+        {metaDisplay ? (
+          <span
+            className={`thinking-live-meta ${
+              liveThinkingPreview ? 'min-w-0 flex-1 truncate' : 'shrink-0 tabular-nums'
+            }`}
+          >
+            {metaDisplay}
+          </span>
         ) : null}
         {expanded ? (
           <ChevronDown className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />

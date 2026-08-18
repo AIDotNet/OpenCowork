@@ -237,14 +237,15 @@ interface MessageRowProps {
 const EMPTY_MESSAGES: UnifiedMessage[] = []
 const EMPTY_TEAM_HISTORY: ActiveTeam[] = []
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 24
-const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 80
+const STREAMING_AUTO_SCROLL_BOTTOM_THRESHOLD = 144
+const TURN_SPACER_MIN_HEIGHT = 64
 const TAIL_STATIC_MESSAGE_COUNT = 4
 const TAIL_LIVE_MESSAGE_COUNT = 6
 const FOLLOW_BOTTOM_SETTLE_FRAMES = 3
 const BOTTOM_SCROLL_CORRECTION_EPSILON = 2
 const AUTO_SCROLL_MIN_DELTA = 24
 const PROGRAMMATIC_SCROLL_GUARD_MS = 160
-const STREAMING_AUTO_SCROLL_POLL_MS = 500
+const STREAMING_AUTO_SCROLL_POLL_MS = 200
 const ASSISTANT_RAIL_PREVIEW_LIMIT = 120
 const ASSISTANT_RAIL_MAX_HEIGHT_PX = 416
 const OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD = 72
@@ -559,6 +560,39 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
 
 function getDistanceToBottom(ref: HTMLDivElement): number {
   return Math.max(0, ref.scrollHeight - ref.scrollTop - ref.clientHeight)
+}
+
+function measureRenderedTurnHeight(
+  list: HTMLElement,
+  lastUserMessageId: string
+): number | null {
+  const userEl = list.querySelector<HTMLElement>(
+    `[data-message-id="${CSS.escape(lastUserMessageId)}"]`
+  )
+  if (!userEl) return null
+
+  const userTop = userEl.getBoundingClientRect().top
+  let bottom = userEl.getBoundingClientRect().bottom
+  for (const el of list.querySelectorAll<HTMLElement>('[data-message-id]')) {
+    const rect = el.getBoundingClientRect()
+    if (rect.bottom <= userTop + 1) continue
+    bottom = Math.max(bottom, rect.bottom)
+  }
+  return Math.max(0, Math.round(bottom - userTop))
+}
+
+function estimateTurnHeight(
+  rows: MessageListRow[],
+  lastUserMessageId: string,
+  measuredHeights: Map<string, number>
+): number {
+  const start = rows.findIndex((row) => row.data.messageId === lastUserMessageId)
+  if (start < 0) return VIRTUAL_ROW_ESTIMATED_HEIGHT
+  let height = 0
+  for (let i = start; i < rows.length; i += 1) {
+    height += measuredHeights.get(rows[i].data.messageId) ?? VIRTUAL_ROW_ESTIMATED_HEIGHT
+  }
+  return height
 }
 
 function findPendingAskUserQuestion(
@@ -1418,6 +1452,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     pendingInitialScrollSessionIdRef.current = activeSessionId
   }
   const autoScrollModeRef = React.useRef<AutoScrollMode>('off')
+  const lastPinnedUserMessageIdRef = React.useRef<string | null | undefined>(undefined)
+  const [turnSpacerHeight, setTurnSpacerHeight] = React.useState(0)
   const initialPositionStableFramesRef = React.useRef(0)
   const initialPositionLastHeightRef = React.useRef<number | null>(null)
   const initialPositionFrameCountRef = React.useRef(0)
@@ -1643,6 +1679,23 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const hasLoadOlderRow = messageWindowPhase === 'ready' && hasOlder && loadedRangeStart > 0
   const virtualRowCount = rows.length + (hasLoadOlderRow ? 1 : 0)
 
+  const lastUserMessageId = transcriptAnalysis.lastRealUserMessageId
+
+  const syncTurnSpacer = React.useCallback(() => {
+    const viewport = listRef.current
+    if (!viewport || !lastUserMessageId || rows.length === 0) {
+      setTurnSpacerHeight((prev) => (prev === 0 ? prev : 0))
+      return
+    }
+
+    const renderedHeight = measureRenderedTurnHeight(viewport, lastUserMessageId)
+    const turnHeight =
+      renderedHeight ??
+      estimateTurnHeight(rows, lastUserMessageId, measuredMessageHeightsRef.current)
+    const next = Math.max(TURN_SPACER_MIN_HEIGHT, Math.round(viewport.clientHeight - turnHeight))
+    setTurnSpacerHeight((prev) => (Math.abs(prev - next) <= 2 ? prev : next))
+  }, [lastUserMessageId, rows])
+
   const canAutoScroll = React.useCallback(() => {
     const mode = autoScrollModeRef.current
     return (
@@ -1713,7 +1766,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       if (hasLoadOlderRow && index === 0) return `load-older:${activeSessionId ?? 'none'}`
       const row = rows[index - (hasLoadOlderRow ? 1 : 0)]
       return row?.key ?? `row:${index}`
-    }
+    },
+    // Extra space after the current turn so scrolling to the bottom pins the
+    // latest user bubble to the top of the viewport instead of the composer.
+    paddingEnd: turnSpacerHeight
     // Keep an estimated size for virtualization only. Initial positioning is
     // performed after real rows have been measured below.
   })
@@ -2203,6 +2259,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     programmaticScrollUntilRef.current = 0
     measuredMessageHeightsRef.current.clear()
     stalledOlderLoadStartRef.current = null
+    lastPinnedUserMessageIdRef.current = undefined
+    setTurnSpacerHeight(0)
     setAssistantRailMeasureVersion((version) => version + 1)
     setActiveAssistantRailIds(new Set())
   }, [activeSessionId, setActiveAssistantRailIds])
@@ -2268,6 +2326,37 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     virtualListTotalSize
   ])
 
+  React.useLayoutEffect(() => {
+    syncTurnSpacer()
+  }, [lastUserMessageId, messageWindowPhase, rows.length, syncTurnSpacer, virtualListTotalSize])
+
+  React.useLayoutEffect(() => {
+    if (messageWindowPhase !== 'ready') return
+
+    if (lastPinnedUserMessageIdRef.current === undefined) {
+      lastPinnedUserMessageIdRef.current = lastUserMessageId
+      return
+    }
+
+    if (lastUserMessageId === lastPinnedUserMessageIdRef.current) return
+
+    lastPinnedUserMessageIdRef.current = lastUserMessageId
+    if (!lastUserMessageId) return
+
+    autoScrollModeRef.current = isSessionOutputting ? 'stream' : 'user'
+    setIsAtBottom(true)
+    syncTurnSpacer()
+    scrollToBottomImmediate()
+    requestScrollToBottom({ force: true, maxFrames: FOLLOW_BOTTOM_SETTLE_FRAMES })
+  }, [
+    isSessionOutputting,
+    lastUserMessageId,
+    messageWindowPhase,
+    requestScrollToBottom,
+    scrollToBottomImmediate,
+    syncTurnSpacer
+  ])
+
   React.useEffect(() => {
     const viewport = listRef.current
     const content = virtualContentRef.current
@@ -2286,6 +2375,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
           initialPositionLastHeightRef.current = measuredHeight
           initialPositionStableFramesRef.current = 0
         }
+        syncTurnSpacer()
         scrollToBottomImmediate()
         const settledAtBottom = getDistanceToBottom(viewport) <= BOTTOM_SCROLL_CORRECTION_EPSILON
         if (
@@ -2324,6 +2414,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             // Composer hydration and async message rendering can change the viewport
             // or content after the initial virtual-list measurements have settled.
             // Keep following only until the user deliberately scrolls upward.
+            syncTurnSpacer()
             if (messageWindowPhase === 'positioning') {
               initialPositionStableFramesRef.current = 0
             } else if (canAutoScroll()) {
@@ -2348,7 +2439,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     messageWindowPhase,
     requestAssistantRailSync,
     scrollToBottomImmediate,
-    syncBottomState
+    syncBottomState,
+    syncTurnSpacer
   ])
 
   React.useEffect(() => {

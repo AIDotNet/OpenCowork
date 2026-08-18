@@ -157,7 +157,9 @@ jobs:
             native_worker_rid: win-x64
           # VS 2022 ARM64 link.exe (MSVC 14.44) fatals Native AOT with LNK1322
           # (Cortex-A53 errata 843419) on the large worker object. Windows on ARM
-          # PCs are not Cortex-A53; VS 2026 removed that linker check.
+          # PCs are not Cortex-A53; VS 2026 removed that linker check. Do not
+          # force LLVM lld-link here — .NET 11 ILCompiler emits /SOURCELINK and
+          # /NOEXP, which standalone lld-link treats as input files.
           - os: windows-11-vs2026-arm
             platform: win
             build_arch: arm64

@@ -13,10 +13,11 @@ All notable changes to this project will be documented in this file.
 
 - Removed the standalone Plan panel and folded review, implement, new-session execute, and revision into the chat review card.
 - Native Worker now provisions or repairs a session plan file on enter/exit instead of rejecting legacy rows without a path, and plan-mode turn context tells the model to finish through `ExitPlanMode` rather than printing the plan as ordinary reply text.
-- Windows ARM64 Native AOT publish prefers `lld-link` (and CI moved the ARM job to `windows-11-vs2026-arm`) so MSVC 14.44 no longer fails the large worker object with LNK1322.
+- Windows ARM64 Native AOT publish uses MSVC `link.exe` on Visual Studio 2026+ (CI is `windows-11-vs2026-arm`) and only falls back to `lld-link` on VS 2022, after dropping `/SOURCELINK` and `/NOEXP` that standalone LLVM rejects.
 
 ### Fixed
 
+- Fixed Windows ARM64 Native AOT publish failing on `windows-11-vs2026-arm` when standalone LLVM `lld-link` treated ILCompiler `/SOURCELINK` and `/NOEXP` as input files.
 - Fixed plan review cards that went blank after a dormant-memory content drop or a missed `plan/ui-update` by reading the plan file (including SSH) and reloading the SQLite row when the session returns to idle.
 - Fixed Request revision doing nothing when the in-memory plan entry was missing by reloading the session plan from SQLite first.
 

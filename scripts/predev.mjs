@@ -6,6 +6,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { winArm64AotLinkerArgs } from './win-arm64-aot-linker.mjs'
 
 const DEV_PORT = 5173
 
@@ -116,7 +117,8 @@ function publishAotWorker({
     tempOutputDir,
     '--nologo',
     '/p:PublishAot=true',
-    '/p:StripSymbols=true'
+    '/p:StripSymbols=true',
+    ...winArm64AotLinkerArgs(currentRid())
   ]
   const nugetSource = process.env.OPEN_COWORK_NUGET_SOURCE?.trim()
   if (nugetSource) args.push('--source', nugetSource)

@@ -9,12 +9,22 @@ import {
   Loader2,
   Maximize2,
   MessageSquarePlus,
+  PenLine,
   Play,
   TriangleAlert
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@renderer/components/ui/button'
 import { Badge } from '@renderer/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
+import { Textarea } from '@renderer/components/ui/textarea'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { usePlanStore, type Plan, type PlanStatus } from '@renderer/stores/plan-store'
@@ -25,13 +35,22 @@ import {
   decodeStructuredToolResult,
   isStructuredToolErrorText
 } from '@renderer/lib/tools/tool-result-format'
-import { sendImplementPlan, sendImplementPlanInNewSession } from '@renderer/hooks/use-chat-actions'
+import {
+  sendImplementPlan,
+  sendImplementPlanInNewSession,
+  sendPlanRevision
+} from '@renderer/hooks/use-chat-actions'
 import {
   PlanExecutionModelSelect,
   resolvePlanExecutionDefaultModel,
   type PlanExecutionModelSelection
 } from '@renderer/components/chat/PlanExecuteDialog'
-import { presentPlanReviewInRightPanel } from '@renderer/lib/plan-review-panel'
+import {
+  presentPlanReviewInRightPanel,
+  resolveSessionSshConnectionId
+} from '@renderer/lib/plan-review-panel'
+import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { IPC } from '@renderer/lib/ipc/channels'
 import { cn } from '@renderer/lib/utils'
 import {
   MARKDOWN_REHYPE_PLUGINS,
@@ -94,6 +113,26 @@ function buildPlanReviewPayloadFromPlan(plan: Plan | undefined): PlanReviewPaylo
     title: plan.title,
     content: plan.content ?? '',
     filePath: plan.filePath
+  }
+}
+
+/**
+ * The `plans` row never stores plan content — only the plan file does. So whenever the card falls
+ * back to store state (lost plan UI update, dormant-memory release, reopened transcript) the file
+ * is the only source for the plan body.
+ */
+async function readPlanFileContent(
+  filePath: string,
+  sshConnectionId: string | undefined
+): Promise<string> {
+  try {
+    const result = await ipcClient.invoke(
+      sshConnectionId ? IPC.SSH_FS_READ_FILE : IPC.FS_READ_FILE,
+      sshConnectionId ? { connectionId: sshConnectionId, path: filePath } : { path: filePath }
+    )
+    return typeof result === 'string' ? result : ''
+  } catch {
+    return ''
   }
 }
 
@@ -169,7 +208,7 @@ export function PlanReviewCard({
   isLive,
   sessionId
 }: PlanReviewCardProps): React.JSX.Element {
-  const { t } = useTranslation('chat')
+  const { t } = useTranslation(['chat', 'common'])
   const parsedPayload = React.useMemo(() => parsePlanReviewPayload(output), [output])
   const outputText = React.useMemo(() => outputAsText(output), [output])
   const activeSessionId = useChatStore((s) => s.activeSessionId)
@@ -197,14 +236,35 @@ export function PlanReviewCard({
     executionSessionId ? resolvePlanExecutionDefaultModel(executionSessionId) : { mode: 'auto' }
   )
   const [copied, setCopied] = React.useState(false)
+  const [revisionOpen, setRevisionOpen] = React.useState(false)
+  const [revisionFeedback, setRevisionFeedback] = React.useState('')
+  const [filePlanContent, setFilePlanContent] = React.useState('')
   const contentRef = React.useRef<HTMLDivElement | null>(null)
   const [contentTruncated, setContentTruncated] = React.useState(false)
-  const planContent = payload?.content ?? ''
+  const payloadContent = payload?.content ?? ''
+  const planContent = payloadContent || filePlanContent
+  const planFilePath = payload?.filePath
 
   React.useEffect(() => {
     if (!executionSessionId) return
     setExecutionModel(resolvePlanExecutionDefaultModel(executionSessionId))
   }, [executionSessionId, payload?.planId])
+
+  React.useEffect(() => {
+    if (payloadContent || !planFilePath) {
+      setFilePlanContent('')
+      return
+    }
+
+    let cancelled = false
+    const sshConnectionId = resolveSessionSshConnectionId(sessionId ?? activeSessionId)
+    void readPlanFileContent(planFilePath, sshConnectionId).then((loaded) => {
+      if (!cancelled) setFilePlanContent(loaded)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeSessionId, payloadContent, planFilePath, sessionId])
 
   React.useEffect(() => {
     const el = contentRef.current
@@ -286,6 +346,14 @@ export function PlanReviewCard({
     })
   }
 
+  const handleRequestRevision = (): void => {
+    const feedback = revisionFeedback.trim()
+    if (!feedback) return
+    setRevisionOpen(false)
+    setRevisionFeedback('')
+    void sendPlanRevision(payload.planId, feedback)
+  }
+
   return (
     <div className="my-3 rounded-2xl border border-border/70 bg-background/80 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -357,7 +425,7 @@ export function PlanReviewCard({
               remarkPlugins={MARKDOWN_REMARK_PLUGINS}
               rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
             >
-              {payload.content}
+              {planContent}
             </Markdown>
           </div>
           {contentTruncated && (
@@ -401,6 +469,16 @@ export function PlanReviewCard({
             >
               <MessageSquarePlus className="size-3.5" />
               {t('planReview.executeInNewSession', { defaultValue: 'Execute in new session' })}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setRevisionOpen(true)}
+              disabled={isRunning}
+            >
+              <PenLine className="size-3.5" />
+              {t('planReview.requestRevision', { defaultValue: 'Request revision' })}
             </Button>
             <PlanExecutionModelSelect
               sessionId={executionSessionId}
@@ -446,7 +524,49 @@ export function PlanReviewCard({
             </span>
           </div>
         )}
+        {displayStatus === 'rejected' && (
+          <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-300">
+            <PenLine className="size-3.5" />
+            <span>
+              {t('planReview.rejectedHint', {
+                defaultValue: 'Revision requested. The agent is reworking this plan.'
+              })}
+            </span>
+          </div>
+        )}
       </div>
+
+      <Dialog open={revisionOpen} onOpenChange={setRevisionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t('planReview.revisionTitle', { defaultValue: 'Request plan revision' })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('planReview.revisionDesc', {
+                defaultValue:
+                  'Describe what should change. The agent re-enters plan mode and rewrites the plan.'
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={revisionFeedback}
+            onChange={(event) => setRevisionFeedback(event.target.value)}
+            placeholder={t('planReview.revisionPlaceholder', {
+              defaultValue: 'For example: split step 3 into migration and rollout.'
+            })}
+            className="min-h-[120px]"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevisionOpen(false)}>
+              {t('action.cancel', { ns: 'common', defaultValue: 'Cancel' })}
+            </Button>
+            <Button onClick={handleRequestRevision} disabled={!revisionFeedback.trim()}>
+              {t('planReview.revisionSubmit', { defaultValue: 'Send revision request' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

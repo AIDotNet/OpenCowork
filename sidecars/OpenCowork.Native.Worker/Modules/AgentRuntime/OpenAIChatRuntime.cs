@@ -18,9 +18,14 @@ internal static class OpenAIChatRuntime
     // reactive compression before the error is surfaced to the caller.
     private const int MaxOverflowCompressionAttemptsPerRun = 2;
     private const int ContextSourceHeadMessageLimit = 12;
+    // Plan mode can be toggled from the UI, in which case the model never ran EnterPlanMode and
+    // has no plan file path. Spell out the handoff so the plan still reaches the review panel
+    // instead of being printed as ordinary assistant text.
     private const string PlanModeTurnContextText =
         "<turn-context>\n" +
-        "<plan-mode>enabled; inspect and write plans only unless implementation is explicitly approved for this turn.</plan-mode>\n" +
+        "<plan-mode>enabled; inspect and write plans only unless implementation is explicitly approved for this turn.\n" +
+        "The user only sees a plan after ExitPlanMode succeeds, so never end the turn with the plan in ordinary reply text.\n" +
+        "When the plan is ready, call ExitPlanMode and pass the complete plan markdown as the `plan` argument unless you already wrote the plan file.</plan-mode>\n" +
         "</turn-context>";
     private const string PlanRevisionInstruction =
         "Please revise the current plan file accordingly with Write/Edit, then call ExitPlanMode.";

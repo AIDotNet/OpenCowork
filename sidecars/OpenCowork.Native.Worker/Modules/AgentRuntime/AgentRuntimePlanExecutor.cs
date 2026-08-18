@@ -38,7 +38,7 @@ internal static class AgentRuntimePlanExecutor
         return call.Name switch
         {
             "EnterPlanMode" => await EnterPlanModeAsync(call.Input, parameters, runId, context, cancellationToken),
-            "ExitPlanMode" => await ExitPlanModeAsync(parameters, runId, context, cancellationToken),
+            "ExitPlanMode" => await ExitPlanModeAsync(call.Input, parameters, runId, context, cancellationToken),
             _ => EncodeError($"Native plan tool not registered: {call.Name}")
         };
     }
@@ -66,70 +66,47 @@ internal static class AgentRuntimePlanExecutor
             return EncodeError("No active session.");
         }
 
-        var workingFolder = JsonHelpers.GetString(parameters, "workingFolder")?.Trim() ?? string.Empty;
-        if (workingFolder.Length == 0)
+        PlanRow? existingPlan;
+        using (var connection = DbConnectionFactory.OpenReadWrite(parameters))
         {
-            return EncodeError("Plan mode requires an active working folder.");
+            existingPlan = LoadPlanBySession(connection, null, sessionId);
         }
 
         PlanRow plan;
         string status;
-        using (var connection = DbConnectionFactory.OpenReadWrite(parameters))
-        using (var transaction = connection.BeginTransaction())
+        if (existingPlan is { FilePath.Length: > 0 } && IsDraftPlanStatus(existingPlan.Status))
         {
-            var existingPlan = LoadPlanBySession(connection, transaction, sessionId);
-            if (existingPlan is not null && string.IsNullOrWhiteSpace(existingPlan.FilePath))
+            plan = existingPlan;
+            status = "resumed";
+            try
             {
-                transaction.Commit();
-                return EncodeError("Legacy plans without plan files are not supported. Create a new plan in a session with a working folder.");
+                await EnsurePlanFileAsync(plan.FilePath!, parameters, cancellationToken);
             }
-
-            if (existingPlan is { FilePath.Length: > 0 } &&
-                IsDraftPlanStatus(existingPlan.Status))
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                plan = existingPlan;
-                status = "resumed";
+                return AgentRuntimeToolError.Encode(ex);
             }
-            else
-            {
-                var reason = JsonHelpers.GetString(input, "reason")?.Trim();
-                if (string.IsNullOrEmpty(reason))
-                {
-                    reason = "Implementation planning";
-                }
-
-                var now = Now();
-                plan = new PlanRow
-                {
-                    Id = CreatePlanId(),
-                    SessionId = sessionId,
-                    Title = reason,
-                    Status = "drafting",
-                    FilePath = GetPlanFilePath(workingFolder, CreatePlanId()),
-                    Content = null,
-                    SpecJson = null,
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
-                plan.FilePath = GetPlanFilePath(workingFolder, plan.Id);
-                InsertPlan(connection, transaction, plan);
-                status = "entered";
-            }
-
-            transaction.Commit();
         }
-
-        try
+        else
         {
-            await EnsurePlanFileAsync(plan.FilePath!, parameters, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            if (status == "entered")
+            // A row without a plan file is repairable: give it a file instead of rejecting the
+            // whole session, which used to leave the agent with no way to reach plan review.
+            var repairTarget = existingPlan is not null && string.IsNullOrWhiteSpace(existingPlan.FilePath)
+                ? existingPlan
+                : null;
+            var provisioned = await ProvisionPlanAsync(
+                sessionId,
+                repairTarget,
+                JsonHelpers.GetString(input, "reason"),
+                parameters,
+                cancellationToken);
+            if (provisioned.Error is not null)
             {
-                DeletePlan(parameters, plan.Id);
+                return provisioned.Error;
             }
-            return AgentRuntimeToolError.Encode(ex);
+
+            plan = provisioned.Plan!;
+            status = "entered";
         }
 
         RunStates[runId] = new PlanRunState(true, plan.FilePath);
@@ -149,6 +126,7 @@ internal static class AgentRuntimePlanExecutor
     }
 
     private static async Task<string> ExitPlanModeAsync(
+        JsonElement input,
         JsonElement parameters,
         string runId,
         WorkerRequestContext context,
@@ -159,6 +137,8 @@ internal static class AgentRuntimePlanExecutor
         {
             return EncodeError("No active session.");
         }
+
+        var suppliedContent = JsonHelpers.GetString(input, "plan")?.Trim() ?? string.Empty;
 
         PlanRow? plan;
         using (var connection = DbConnectionFactory.OpenReadWrite(parameters))
@@ -190,15 +170,48 @@ internal static class AgentRuntimePlanExecutor
             });
         }
 
-        if (plan?.FilePath is not { Length: > 0 })
+        PlanRow activePlan;
+        if (plan?.FilePath is { Length: > 0 })
         {
-            return EncodeError("No active plan file for this session.");
+            activePlan = plan;
+        }
+        else
+        {
+            // Plan mode toggled from the UI never runs EnterPlanMode, so the agent was never
+            // handed a plan file. Provision one here so the review handoff still completes.
+            var provisioned = await ProvisionPlanAsync(
+                sessionId,
+                plan,
+                suppliedContent.Length > 0 ? InferTitleFromContent(suppliedContent) : null,
+                parameters,
+                cancellationToken);
+            if (provisioned.Error is not null)
+            {
+                return provisioned.Error;
+            }
+
+            activePlan = provisioned.Plan!;
+            RunStates[runId] = new PlanRunState(true, activePlan.FilePath);
+            await NotifyPlanUiAsync("enter", activePlan, null, parameters, context, cancellationToken);
+        }
+
+        var planFilePath = activePlan.FilePath!;
+        if (suppliedContent.Length > 0)
+        {
+            try
+            {
+                await WritePlanFileAsync(planFilePath, suppliedContent, parameters, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return EncodeError($"Failed to write the plan file '{planFilePath}': {ex.Message}");
+            }
         }
 
         string content;
         try
         {
-            content = await ReadPlanFileAsync(plan.FilePath, parameters, cancellationToken);
+            content = await ReadPlanFileAsync(planFilePath, parameters, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -207,24 +220,27 @@ internal static class AgentRuntimePlanExecutor
 
         if (string.IsNullOrWhiteSpace(content))
         {
-            return EncodeError("Plan file is empty. Write the plan file before exiting plan mode.");
+            return EncodeError(
+                $"Plan file '{planFilePath}' is empty. Write the plan into that file with Write/Edit, " +
+                "or pass the full plan markdown as the `plan` argument, then call ExitPlanMode again.");
         }
 
         var title = InferTitleFromContent(content);
         var now = Now();
-        plan.Title = title;
-        plan.Status = "awaiting_review";
-        plan.UpdatedAt = now;
-        UpdatePlanForReview(parameters, plan.Id, title, now);
-        RunStates[runId] = new PlanRunState(false, plan.FilePath);
-        await NotifyPlanUiAsync("exit", plan, content, parameters, context, cancellationToken);
+        var planId = activePlan.Id;
+        activePlan.Title = title;
+        activePlan.Status = "awaiting_review";
+        activePlan.UpdatedAt = now;
+        UpdatePlanForReview(parameters, planId, title, now);
+        RunStates[runId] = new PlanRunState(false, planFilePath);
+        await NotifyPlanUiAsync("exit", activePlan, content, parameters, context, cancellationToken);
 
         return EncodeJsonObject(writer =>
         {
             writer.WriteString("status", "awaiting_review");
             writer.WriteBoolean("awaiting_user_review", true);
-            writer.WriteString("plan_id", plan.Id);
-            writer.WriteString("plan_file_path", plan.FilePath);
+            writer.WriteString("plan_id", planId);
+            writer.WriteString("plan_file_path", planFilePath);
             writer.WriteString("title", title);
             writer.WriteString("content", content);
             writer.WriteString("message", "Plan finalized and ready for user review. Wait for approval before implementing.");
@@ -272,6 +288,79 @@ internal static class AgentRuntimePlanExecutor
         }
     }
 
+    /// <summary>
+    /// Guarantees the session has a plan row backed by a real plan file. Repairs a row that lost
+    /// its file path instead of creating a duplicate, so a session never ends up with a plan the
+    /// agent cannot finalize.
+    /// </summary>
+    private static async Task<PlanProvisionResult> ProvisionPlanAsync(
+        string sessionId,
+        PlanRow? repairTarget,
+        string? titleHint,
+        JsonElement parameters,
+        CancellationToken cancellationToken)
+    {
+        var workingFolder = JsonHelpers.GetString(parameters, "workingFolder")?.Trim() ?? string.Empty;
+        if (workingFolder.Length == 0)
+        {
+            return new PlanProvisionResult(
+                null,
+                EncodeError(
+                    "Plan mode requires an active working folder. Set a working folder for this session, " +
+                    "or present the plan directly in your reply instead of using the plan tools."));
+        }
+
+        PlanRow plan;
+        var created = false;
+        if (repairTarget is not null)
+        {
+            plan = repairTarget;
+            plan.FilePath = GetPlanFilePath(workingFolder, plan.Id);
+            plan.UpdatedAt = Now();
+            UpdatePlanFilePath(parameters, plan.Id, plan.FilePath, plan.UpdatedAt);
+        }
+        else
+        {
+            var title = titleHint?.Trim();
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Implementation planning";
+            }
+
+            var now = Now();
+            plan = new PlanRow
+            {
+                Id = CreatePlanId(),
+                SessionId = sessionId,
+                Title = title,
+                Status = "drafting",
+                FilePath = null,
+                Content = null,
+                SpecJson = null,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            plan.FilePath = GetPlanFilePath(workingFolder, plan.Id);
+            InsertPlanRow(parameters, plan);
+            created = true;
+        }
+
+        try
+        {
+            await EnsurePlanFileAsync(plan.FilePath!, parameters, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (created)
+            {
+                DeletePlan(parameters, plan.Id);
+            }
+            return new PlanProvisionResult(null, AgentRuntimeToolError.Encode(ex));
+        }
+
+        return new PlanProvisionResult(plan, null);
+    }
+
     private static async Task EnsurePlanFileAsync(
         string planFilePath,
         JsonElement parameters,
@@ -298,6 +387,46 @@ internal static class AgentRuntimePlanExecutor
         {
             await File.WriteAllTextAsync(planFilePath, string.Empty, cancellationToken);
         }
+    }
+
+    private static async Task WritePlanFileAsync(
+        string planFilePath,
+        string content,
+        JsonElement parameters,
+        CancellationToken cancellationToken)
+    {
+        var normalized = content.EndsWith('\n') ? content : content + "\n";
+        if (AgentRuntimeSshToolExecutor.ShouldRoute(parameters))
+        {
+            var command =
+                $"mkdir -p -- {SshOpenSsh.ShellPathExpr(PosixDirname(planFilePath))} && " +
+                $"cat > {SshOpenSsh.ShellPathExpr(planFilePath)}";
+            var result = await SshOpenSsh.ExecuteAsync(
+                parameters,
+                command,
+                60_000,
+                Encoding.UTF8.GetBytes(normalized));
+            cancellationToken.ThrowIfCancellationRequested();
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    result.Stderr.Length > 0 ? result.Stderr : $"Remote plan file write failed: {planFilePath}");
+            }
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(planFilePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+        await File.WriteAllTextAsync(planFilePath, normalized, cancellationToken);
+    }
+
+    private static string PosixDirname(string path)
+    {
+        var index = path.LastIndexOf('/');
+        return index <= 0 ? "/" : path[..index];
     }
 
     private static async Task<string> ReadPlanFileAsync(
@@ -373,6 +502,37 @@ internal static class AgentRuntimePlanExecutor
         command.Parameters.AddWithValue("$createdAt", plan.CreatedAt);
         command.Parameters.AddWithValue("$updatedAt", plan.UpdatedAt);
         command.ExecuteNonQuery();
+    }
+
+    private static void InsertPlanRow(JsonElement parameters, PlanRow plan)
+    {
+        using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+        using var transaction = connection.BeginTransaction();
+        InsertPlan(connection, transaction, plan);
+        transaction.Commit();
+    }
+
+    private static void UpdatePlanFilePath(
+        JsonElement parameters,
+        string planId,
+        string filePath,
+        long updatedAt)
+    {
+        using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE plans
+               SET file_path = $filePath,
+                   updated_at = $updatedAt
+             WHERE id = $id
+            """;
+        command.Parameters.AddWithValue("$filePath", filePath);
+        command.Parameters.AddWithValue("$updatedAt", updatedAt);
+        command.Parameters.AddWithValue("$id", planId);
+        command.ExecuteNonQuery();
+        transaction.Commit();
     }
 
     private static void UpdatePlanForReview(JsonElement parameters, string planId, string title, long updatedAt)
@@ -526,4 +686,6 @@ internal static class AgentRuntimePlanExecutor
     }
 
     private sealed record PlanRunState(bool Active, string? PlanFilePath);
+
+    private readonly record struct PlanProvisionResult(PlanRow? Plan, string? Error);
 }

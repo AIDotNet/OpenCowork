@@ -186,7 +186,13 @@
     "approvedHint": "该计划已批准。",
     "download": "下载计划",
     "copy": "复制计划",
-    "expand": "在右侧面板展开"
+    "expand": "在右侧面板展开",
+    "requestRevision": "要求修订",
+    "rejectedHint": "已提交修订意见，Agent 正在重写该计划。",
+    "revisionTitle": "要求修订计划",
+    "revisionDesc": "说明需要改什么。Agent 会重新进入计划模式并重写计划。",
+    "revisionPlaceholder": "例如：把第 3 步拆成数据迁移和灰度发布。",
+    "revisionSubmit": "发送修订意见"
   },
   "guide": {
     "title": "对话页新人引导",

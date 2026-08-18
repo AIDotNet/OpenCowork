@@ -186,7 +186,13 @@
     "approvedHint": "This plan has already been approved.",
     "download": "Download plan",
     "copy": "Copy plan",
-    "expand": "Expand in side panel"
+    "expand": "Expand in side panel",
+    "requestRevision": "Request revision",
+    "rejectedHint": "Revision requested. The agent is reworking this plan.",
+    "revisionTitle": "Request plan revision",
+    "revisionDesc": "Describe what should change. The agent re-enters plan mode and rewrites the plan.",
+    "revisionPlaceholder": "For example: split step 3 into migration and rollout.",
+    "revisionSubmit": "Send revision request"
   },
   "guide": {
     "title": "Conversation Onboarding",

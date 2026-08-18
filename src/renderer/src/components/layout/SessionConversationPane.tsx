@@ -123,6 +123,10 @@ export function SessionConversationPane({
   const pendingReviewPlan = usePlanStore((state) =>
     resolvedSessionId ? state.getPendingReviewPlan(resolvedSessionId) : undefined
   )
+  // Both gate the plan review auto-open below, so they must be reactive: a plan that lands while
+  // the user sits on another view has to surface as soon as they navigate into the session.
+  const chatView = useUIStore((state) => state.chatView)
+  const activeSessionId = useChatStore((state) => state.activeSessionId)
   const {
     sendMessage,
     stopStreaming,
@@ -176,12 +180,23 @@ export function SessionConversationPane({
     setTerminalDockFullscreen(false)
   }, [sessionView.projectId])
 
+  // A failed `plan/ui-update` reverse request leaves the plan row ahead of this window's store, so
+  // the panel would never appear. Re-read the row whenever the session settles back to idle.
+  const sessionBusy = isStreaming || isSessionActive
+  const previousSessionBusyRef = useRef(sessionBusy)
+  useEffect(() => {
+    const wasBusy = previousSessionBusyRef.current
+    previousSessionBusyRef.current = sessionBusy
+    if (!resolvedSessionId || !wasBusy || sessionBusy) return
+    void usePlanStore.getState().loadPlanForSession(resolvedSessionId, true)
+  }, [resolvedSessionId, sessionBusy])
+
   useEffect(() => {
     if (!resolvedSessionId || !pendingReviewPlan) return
-    if (isStreaming || isSessionActive) return
+    if (sessionBusy) return
     if (!pendingReviewPlan.filePath && !pendingReviewPlan.content?.trim()) return
-    if (useChatStore.getState().activeSessionId !== resolvedSessionId) return
-    if (useUIStore.getState().chatView !== 'session') return
+    if (activeSessionId !== resolvedSessionId) return
+    if (chatView !== 'session') return
 
     presentPlanReviewInRightPanel({
       presentKey: `${pendingReviewPlan.id}:${pendingReviewPlan.updatedAt}`,
@@ -190,7 +205,7 @@ export function SessionConversationPane({
       filePath: pendingReviewPlan.filePath,
       sessionId: resolvedSessionId
     })
-  }, [isSessionActive, isStreaming, pendingReviewPlan, resolvedSessionId])
+  }, [activeSessionId, chatView, pendingReviewPlan, resolvedSessionId, sessionBusy])
 
   const updateSessionProjectDirectory = useCallback(
     async (patch: Partial<{ workingFolder: string | null; sshConnectionId: string | null }>) => {

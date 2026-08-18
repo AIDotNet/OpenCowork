@@ -4162,7 +4162,7 @@ export function useChatActions(): {
 
         // Plan mode is entered only by the user toggle or the agent's EnterPlanMode tool.
         // An awaiting_review plan must not hijack normal sends — explicit revision goes
-        // through options.planRevisionContext (PlanPanel reject flow).
+        // through options.planRevisionContext (plan review card revision flow).
         const requestPlanRevisionContext =
           source !== 'continue' && options?.planRevisionContext
             ? {
@@ -6872,7 +6872,7 @@ export function useChatActions(): {
 
 /**
  * Trigger plan implementation by sending a message to the agent.
- * Called from PlanPanel "Implement" button — bypasses the input box.
+ * Called from the plan review card "Implement" button — bypasses the input box.
  */
 export async function sendImplementPlan(
   planId: string,
@@ -7045,15 +7045,24 @@ export async function sendImplementPlanInNewSession(
 
 /**
  * Trigger plan revision by sending feedback to the agent.
- * Called from PlanPanel when the user rejects a plan.
+ * Called from the plan review card when the user asks for changes.
  */
-export function sendPlanRevision(planId: string, feedback: string): void {
+export async function sendPlanRevision(planId: string, feedback: string): Promise<void> {
   if (!_sendMessageFn) return
 
-  const plan = usePlanStore.getState().plans[planId]
-  if (!plan) return
   const revisionFeedback = feedback.trim()
   if (!revisionFeedback) return
+
+  let plan = usePlanStore.getState().plans[planId]
+  if (!plan) {
+    // The card can outlive the store entry (reopened transcript, dropped plan UI update), so fall
+    // back to SQLite before giving up on the revision.
+    const sessionId = useChatStore.getState().activeSessionId
+    if (!sessionId) return
+    await usePlanStore.getState().loadPlanForSession(sessionId, true)
+    plan = usePlanStore.getState().plans[planId]
+    if (!plan) return
+  }
 
   // 1. Mark plan as rejected
   usePlanStore.getState().rejectPlan(planId)

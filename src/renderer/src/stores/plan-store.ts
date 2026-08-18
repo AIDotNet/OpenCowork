@@ -31,6 +31,11 @@ export interface Plan {
   specJson?: string
   createdAt: number
   updatedAt: number
+  /**
+   * Set when `content`/`specJson` were dropped to release memory for a dormant session. Such an
+   * entry must be re-read from SQLite before it is used as plan review content.
+   */
+  summaryOnly?: boolean
 }
 
 // --- DB persistence helpers (fire-and-forget) ---
@@ -89,7 +94,8 @@ function stripPlanPayload(plan: Plan): Plan {
   return {
     ...plan,
     content: undefined,
-    specJson: undefined
+    specJson: undefined,
+    summaryOnly: true
   }
 }
 
@@ -202,8 +208,11 @@ export const usePlanStore = create<PlanStore>()(
     loadPlanForSession: async (sessionId, force = false) => {
       const cached = get().plansBySession[sessionId]
       const activeCached = cached ? get().plans[cached.id] : undefined
-      if (cached && !force) {
-        return activeCached ?? cached
+      // A summary-only entry lost its content to dormant-memory release, and the row may also have
+      // moved on in SQLite while a plan UI update failed to reach this window. Both cases need a
+      // re-read, otherwise the cache pins a plan that can never be reviewed.
+      if (cached && !force && activeCached && !activeCached.summaryOnly) {
+        return activeCached
       }
 
       try {

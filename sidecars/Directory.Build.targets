@@ -1,0 +1,17 @@
+<Project>
+  <!-- VS 2022's ARM64 linker (MSVC 14.44) fatals on large Native AOT objects
+       with LNK1322 (Cortex-A53 errata 843419). The suggested /Gy flag is a
+       C/C++ COMDAT switch and does not apply to ILCompiler output. Windows on
+       ARM PCs are not Cortex-A53; VS 2026 removed the check. When the publish
+       scripts request lld-link, replace MSVC link.exe after Native AOT resolves
+       the VC toolchain so both workers (this tree and CodeGraph) pick it up. -->
+  <Target Name="OpenCoworkUseLldLinkOnWinArm64"
+          AfterTargets="SetupOSSpecificProps"
+          Condition="'$(RuntimeIdentifier)' == 'win-arm64' and '$(PublishAot)' == 'true' and '$(OpenCoworkWinArm64Linker)' != ''">
+    <PropertyGroup>
+      <CppLinker>$(OpenCoworkWinArm64Linker)</CppLinker>
+    </PropertyGroup>
+    <Message Importance="High"
+             Text="OpenCowork: linking win-arm64 Native AOT with $(CppLinker) to avoid MSVC LNK1322." />
+  </Target>
+</Project>

@@ -9,6 +9,7 @@ import {
   validateGrammarEntryPoints,
   resolveGrammarFiles
 } from './codegraph-grammar-manifest.mjs'
+import { winArm64AotLinkerArgs } from './win-arm64-aot-linker.mjs'
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const grammarManifest = loadGrammarManifest()
@@ -55,6 +56,7 @@ mkdirSync(tempOutputDir, { recursive: true })
 mkdirSync(codeGraphTempOutputDir, { recursive: true })
 
 const rid = process.env.OPEN_COWORK_NATIVE_WORKER_RID || currentRid()
+const winArm64LinkerArgs = winArm64AotLinkerArgs(rid)
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 function publishWorker(project, destination) {
@@ -72,7 +74,8 @@ function publishWorker(project, destination) {
       '-o',
       destination,
       '/p:PublishAot=true',
-      '/p:StripSymbols=true'
+      '/p:StripSymbols=true',
+      ...winArm64LinkerArgs
     ],
     {
       cwd: repoRoot,

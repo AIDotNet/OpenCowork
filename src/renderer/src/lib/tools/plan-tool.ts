@@ -39,10 +39,17 @@ const exitPlanModeHandler: ToolHandler = {
     name: 'ExitPlanMode',
     description:
       'Exit Plan Mode after writing the plan file. This signals that the plan is finalized and ready for user review. ' +
+      'If you have not written the plan file yet, pass the complete plan markdown as `plan` and this tool will write it for you. ' +
       'After calling this tool, you MUST STOP and wait for the user to review the plan; do NOT continue with any further actions.',
     inputSchema: {
       type: 'object',
-      properties: {}
+      properties: {
+        plan: {
+          type: 'string',
+          description:
+            'Optional. The complete plan in Markdown. Provide it when the plan file has not been written yet; it replaces the plan file content.'
+        }
+      }
     }
   },
   execute: async () => nativeOnlyPlanResult('ExitPlanMode'),

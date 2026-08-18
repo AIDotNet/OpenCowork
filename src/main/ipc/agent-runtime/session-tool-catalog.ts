@@ -260,8 +260,18 @@ const CORE_SESSION_TOOLS: SessionToolDefinition[] = [
   },
   {
     name: 'ExitPlanMode',
-    description: 'Finalize the current plan file and stop for user review.',
-    inputSchema: { type: 'object', properties: {} }
+    description:
+      'Finalize the current plan file and stop for user review. Pass the complete plan markdown as `plan` if the plan file has not been written yet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        plan: {
+          type: 'string',
+          description:
+            'Optional. The complete plan in Markdown; written to the plan file when provided.'
+        }
+      }
+    }
   },
   {
     name: 'Notify',

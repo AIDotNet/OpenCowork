@@ -405,10 +405,17 @@ const ENTER_PLAN_TOOL_DEFINITION: WorkerToolDefinition = {
 const EXIT_PLAN_TOOL_DEFINITION: WorkerToolDefinition = {
   name: 'ExitPlanMode',
   description:
-    'Finalize the current plan file and stop for user review. Do not implement changes after calling this tool.',
+    'Finalize the current plan file and stop for user review. Pass the complete plan markdown as `plan` if the plan file has not been written yet. ' +
+    'Do not implement changes after calling this tool.',
   inputSchema: {
     type: 'object',
-    properties: {},
+    properties: {
+      plan: {
+        type: 'string',
+        description:
+          'Optional. The complete plan in Markdown; written to the plan file when provided.'
+      }
+    },
     additionalProperties: false
   }
 }

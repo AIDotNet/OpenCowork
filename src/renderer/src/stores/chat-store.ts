@@ -240,6 +240,7 @@ type MessageUpsertReason =
   | 'message-update'
   | 'streaming-checkpoint'
   | 'streaming-final'
+  | 'tool-boundary'
   | 'strip-reminders'
 
 interface PendingMessageUpsert {
@@ -593,7 +594,7 @@ function buildPendingMessageUpsertKey(sessionId: string, messageId: string): str
 }
 
 function shouldCoalesceMessageUpsert(reason: MessageUpsertReason): boolean {
-  return reason !== 'streaming-final'
+  return reason !== 'streaming-final' && reason !== 'tool-boundary'
 }
 
 function dispatchMessageUpsert(pendingUpsert: PendingMessageUpsert): void {
@@ -912,13 +913,22 @@ function rememberScheduledMessagePersist(messageId: string, persistKey: string):
   }
 }
 
+// 'checkpoint' is the coarse periodic write; 'tool-boundary' is the crash-safety write
+// taken the moment a tool finishes; 'final' closes out the stream. The latter two bypass
+// the dirty flag and the content-delta threshold — a tool_use block can be far smaller
+// than the threshold, and skipping it would leave the assistant row on disk without the
+// call its tool_result pairs with.
+type StreamingFlushMode = 'checkpoint' | 'tool-boundary' | 'final'
+
 function flushStreamingMessageIfDirty(
   sessionId: string,
   msgId: string,
   getState: () => ChatStore,
-  force = false
+  mode: StreamingFlushMode = 'checkpoint'
 ): void {
-  if (!force) {
+  const force = mode !== 'checkpoint'
+  // 'final' and 'tool-boundary' order the deferred-add flush themselves.
+  if (mode === 'checkpoint') {
     flushDeferredMessageAdds(sessionId)
   }
 
@@ -961,19 +971,19 @@ function flushStreamingMessageIfDirty(
   }
 
   _streamingDirtyMessageIds.delete(msgId)
-  dbUpsertMessage(
-    sessionId,
-    msg,
-    resolveMessageSortOrder(session, msgId),
-    undefined,
-    force ? 'streaming-final' : 'streaming-checkpoint'
-  )
+  const upsertReason: MessageUpsertReason =
+    mode === 'final'
+      ? 'streaming-final'
+      : mode === 'tool-boundary'
+        ? 'tool-boundary'
+        : 'streaming-checkpoint'
+  dbUpsertMessage(sessionId, msg, resolveMessageSortOrder(session, msgId), undefined, upsertReason)
   rememberPersistedMessageRevision(msg)
   _lastPersistedMessageContentSizes.set(msg.id, contentSize)
   logMessageUpsertDebug('[ChatStore] streaming flush persisted', {
     sessionId,
     msgId,
-    force,
+    mode,
     revision: getMessageRevision(msg),
     intervalMs: STREAMING_PERIODIC_FLUSH_MS
   })
@@ -1520,6 +1530,12 @@ interface ChatStore {
   /** Per-session streaming message map — allows concurrent agents across sessions */
   streamingMessages: Record<string, string>
   setStreamingMessageId: (sessionId: string, id: string | null) => void
+  /**
+   * Crash-safety checkpoint for a tool boundary: persists the streaming assistant
+   * message (carrying the tool_use blocks) and any tool_result messages still sitting in
+   * the deferred-add queue, without waiting for the 30s checkpoint or run end.
+   */
+  flushToolBoundary: (sessionId: string) => void
   /** Image generation state (per-message) - using Record instead of Set for Immer compatibility */
   generatingImageMessages: Record<string, boolean>
   imageGenerationTimings: Record<string, ImageGenerationTiming>
@@ -6329,6 +6345,24 @@ export const useChatStore = create<ChatStore>()(
       dbUpdateSession(sessionId, { updatedAt: session.updatedAt })
     },
 
+    flushToolBoundary: (sessionId) => {
+      const streamingMsgId = get().streamingMessages[sessionId]
+      if (!streamingMsgId) {
+        // Not streaming: addMessage already wrote the tool_result row directly.
+        flushDeferredMessageAdds(sessionId)
+        return
+      }
+      // Pending text/thinking deltas have to land in the message before it is written,
+      // otherwise the checkpoint persists a row that is behind what the UI shows.
+      flushPendingStreamDeltasForMessage(sessionId, streamingMsgId)
+      // Assistant row first, tool_result rows second. Both writes are serialized on the
+      // session's write chain, so this ordering is what reaches SQLite: a crash in
+      // between leaves a dangling tool_use (healable) rather than an orphan tool_result
+      // (which providers reject outright).
+      flushStreamingMessageIfDirty(sessionId, streamingMsgId, get, 'tool-boundary')
+      flushDeferredMessageAdds(sessionId)
+    },
+
     setStreamingMessageId: (sessionId, id) => {
       const prevStreamingMsgId = get().streamingMessages[sessionId]
       const stateBefore = get()
@@ -6364,7 +6398,7 @@ export const useChatStore = create<ChatStore>()(
           flushPendingStreamDeltasForMessage(sessionId, prevStreamingMsgId)
           _activeStreamingMessageIds.delete(prevStreamingMsgId)
           flushDeferredMessageAdds(sessionId)
-          flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, true)
+          flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, 'final')
         }
         return
       }
@@ -6374,7 +6408,7 @@ export const useChatStore = create<ChatStore>()(
         stopStreamingPeriodicFlush(sessionId)
         _activeStreamingMessageIds.delete(prevStreamingMsgId)
         flushDeferredMessageAdds(sessionId)
-        flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, true)
+        flushStreamingMessageIfDirty(sessionId, prevStreamingMsgId, get, 'final')
         dbUpdateSession(sessionId, { updatedAt: Date.now() })
       }
     },

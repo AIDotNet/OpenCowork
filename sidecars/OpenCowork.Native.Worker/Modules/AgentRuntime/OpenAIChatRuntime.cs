@@ -294,6 +294,9 @@ internal static class OpenAIChatRuntime
                 uncompressedWireConversation?.Add(planModeWireMessage.Clone());
                 runtimePlanModeContextInjected = true;
             }
+            // Checkpoint the hosted session now that the batch is fully answered, so a
+            // crash before loop end cannot roll the history back past these tool calls.
+            SnapshotHostedSession(state, uncompressedWireConversation ?? wireConversation);
             await AgentRuntimeTools.EmitAsync(
                 state,
                 context,
@@ -419,11 +422,28 @@ internal static class OpenAIChatRuntime
             WorkerLog.Warn(
                 $"stop hook requested block runId={state.RunId} reason={stopHook.Reason}; emitting loop_end without recursive continuation");
         }
-        AgentRuntimeSessionHost.OnRunCompleted(state.SessionId, wireConversation);
+        SnapshotHostedSession(state, wireConversation);
         await AgentRuntimeTools.EmitAsync(
             state,
             context,
             BuildLoopEndEvent(reason, includeMessages, wireConversation));
+    }
+
+    /// <summary>
+    /// Persists the hosted session's canonical history. Child runs (sub-agents, context
+    /// compression) borrow the parent's sessionId while owning a completely unrelated
+    /// conversation, so their history must never replace the hosted one;
+    /// SuppressTransportEvents is exactly that "internal child run" marker.
+    /// </summary>
+    private static void SnapshotHostedSession(
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        IReadOnlyList<JsonElement> wireConversation)
+    {
+        if (state.SuppressTransportEvents)
+        {
+            return;
+        }
+        AgentRuntimeSessionHost.ReplaceHistory(state.SessionId, wireConversation);
     }
 
     private static string NormalizeStopReason(string reason)

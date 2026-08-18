@@ -843,6 +843,27 @@ internal static class DbSchemaMigrator
 
             CREATE INDEX IF NOT EXISTS idx_runtime_hosted_sessions_updated
               ON runtime_hosted_sessions(updated_at);
+
+            -- Per-tool durable journal, written the instant a tool finishes. It is the
+            -- reconciliation source for a tool_use whose tool_result never reached the
+            -- `messages` table (renderer crash, app kill, worker recycle mid-turn).
+            -- Deliberately no FK on run_id: it must outlive runtime_jobs cleanup, and
+            -- sub-agent runs use synthetic run ids that are not Job ids.
+            CREATE TABLE IF NOT EXISTS runtime_tool_results (
+              session_id TEXT NOT NULL,
+              tool_use_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              tool_name TEXT NOT NULL,
+              status TEXT NOT NULL,
+              content_json TEXT NOT NULL,
+              is_error INTEGER NOT NULL DEFAULT 0,
+              started_at INTEGER,
+              completed_at INTEGER NOT NULL,
+              PRIMARY KEY (session_id, tool_use_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_runtime_tool_results_retention
+              ON runtime_tool_results(completed_at);
             """);
     }
 

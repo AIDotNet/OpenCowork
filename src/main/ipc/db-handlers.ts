@@ -8,6 +8,7 @@ import * as tasksDao from '../db/tasks-dao'
 import * as goalsDao from '../db/goals-dao'
 import * as drawRunsDao from '../db/draw-runs-dao'
 import * as usageEventsDao from '../db/usage-events-dao'
+import * as toolResultsDao from '../db/tool-results-dao'
 import { getGoalRuntimeService } from '../goals/goal-runtime'
 import { emitGoalCleared, emitGoalEventAdded, emitGoalUpdated } from '../goals/goal-sync'
 import { safeSendMessagePackToAllWindows } from '../window-ipc'
@@ -70,6 +71,7 @@ import {
   DB_TASKS_LIST_ALL_MSGPACK_CHANNEL,
   DB_TASKS_LIST_BY_SESSION_MSGPACK_CHANNEL,
   DB_TASKS_UPDATE_MSGPACK_CHANNEL,
+  DB_TOOL_RESULTS_LOOKUP_MSGPACK_CHANNEL,
   USAGE_ACTIVITY_BY_MODEL_MSGPACK_CHANNEL,
   USAGE_ACTIVITY_BY_PROVIDER_MSGPACK_CHANNEL,
   USAGE_ACTIVITY_DAILY_MSGPACK_CHANNEL,
@@ -616,6 +618,11 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
   ipcMain.handle(DB_MESSAGES_COUNT_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
     const sessionId = decodeMessagePackPayload<string>(bytes)
     return encodeMessagePackPayload(await messagesDao.getMessageCount(sessionId))
+  })
+
+  ipcMain.handle(DB_TOOL_RESULTS_LOOKUP_MSGPACK_CHANNEL, async (_event, bytes: Uint8Array) => {
+    const args = decodeMessagePackPayload<{ sessionId: string; toolUseIds: string[] }>(bytes)
+    return encodeMessagePackPayload(await toolResultsDao.lookupToolResults(args))
   })
 
   // --- Goals ---

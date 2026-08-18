@@ -172,11 +172,14 @@ internal static class AgentRuntimeSessionHost
     }
 
     /// <summary>
-    /// Called from the loop-end path with the final wire conversation. Replaces the hosted
-    /// history so the next session-send starts from the completed turn. Empty conversations
-    /// (error paths that never built one) are ignored to avoid wiping valid history.
+    /// Replaces the hosted history with the run's wire conversation and snapshots it, so
+    /// the next session-send starts from it. Called at loop end and at every tool-batch
+    /// boundary — the mid-run checkpoints are what keep a worker crash from rolling the
+    /// history back past tools that already ran. Empty conversations (error paths that
+    /// never built one) are ignored to avoid wiping valid history.
+    /// Callers must skip child runs (see OpenAIChatRuntime.SnapshotHostedSession).
     /// </summary>
-    public static void OnRunCompleted(
+    public static void ReplaceHistory(
         string? sessionId,
         IReadOnlyList<JsonElement> wireConversation)
     {

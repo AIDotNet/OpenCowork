@@ -53,11 +53,16 @@ import { filterTeamToolDefinitions } from '@renderer/lib/agent/teams/register'
 import { teamEvents } from '@renderer/lib/agent/teams/events'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
-import { decodeIpcMessagePack, invokeMessagePack } from '@renderer/lib/ipc/messagepack-ipc-client'
+import {
+  decodeIpcMessagePack,
+  invokeMessagePack,
+  invokeMessagePackBinary
+} from '@renderer/lib/ipc/messagepack-ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { resolveSidecarApprovalRequest } from '@renderer/lib/ipc/sidecar-approval-registry'
 import {
   DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL,
+  DB_TOOL_RESULTS_LOOKUP_MSGPACK_CHANNEL,
   SIDECAR_APPROVAL_REQUEST_MSGPACK_CHANNEL,
   SIDECAR_APPROVAL_RESPONSE_MSGPACK_CHANNEL
 } from '../../../shared/messagepack/binary-ipc'
@@ -2616,9 +2621,43 @@ function getStoredToolCallResult(
   return null
 }
 
+/**
+ * Reads the Worker's durable tool-result journal. The in-memory tool-call cache above
+ * only survives as long as the renderer does, so after an app restart it is empty and a
+ * tool that really finished looks interrupted. The Worker writes the journal the instant
+ * each tool completes, which makes it the authoritative recovery source in that case.
+ */
+async function fetchJournaledToolResults(
+  sessionId: string,
+  toolUseIds: string[]
+): Promise<Map<string, { content: ToolResultContent; isError: boolean }>> {
+  const resolved = new Map<string, { content: ToolResultContent; isError: boolean }>()
+  if (toolUseIds.length === 0) return resolved
+
+  try {
+    const rows = await invokeMessagePackBinary<
+      Array<{ toolUseId: string; contentJson: string; isError: boolean }>
+    >(DB_TOOL_RESULTS_LOOKUP_MSGPACK_CHANNEL, { sessionId, toolUseIds })
+    for (const row of rows ?? []) {
+      if (!row?.toolUseId || typeof row.contentJson !== 'string') continue
+      try {
+        const content = JSON.parse(row.contentJson) as ToolResultContent | null
+        if (content === null || content === undefined) continue
+        resolved.set(row.toolUseId, { content, isError: row.isError === true })
+      } catch {
+        // A row we cannot parse is treated as absent rather than poisoning the turn.
+      }
+    }
+  } catch (error) {
+    console.warn('[ChatActions] Tool result journal lookup failed', error)
+  }
+  return resolved
+}
+
 function collectAvailableContinuationToolResults(
   sessionId: string,
-  tailToolExecution: TailToolExecutionState
+  tailToolExecution: TailToolExecutionState,
+  journaledResults?: Map<string, { content: ToolResultContent; isError: boolean }>
 ): {
   toolResultsById: Map<string, { content: ToolResultContent; isError?: boolean }>
   missingToolUses: TailToolExecutionState['toolUseBlocks']
@@ -2629,7 +2668,8 @@ function collectAvailableContinuationToolResults(
   for (const toolUse of tailToolExecution.toolUseBlocks) {
     if (toolResultsById.has(toolUse.id)) continue
 
-    const cachedResult = getStoredToolCallResult(sessionId, toolUse.id)
+    const cachedResult =
+      getStoredToolCallResult(sessionId, toolUse.id) ?? journaledResults?.get(toolUse.id) ?? null
     if (cachedResult) {
       toolResultsById.set(toolUse.id, {
         content: cachedResult.content,
@@ -2644,27 +2684,42 @@ function collectAvailableContinuationToolResults(
   return { toolResultsById, missingToolUses }
 }
 
+/** Tool_use ids in the tail assistant message that still have no persisted tool_result. */
+function findUnresolvedTailToolUses(
+  tailToolExecution: TailToolExecutionState
+): TailToolExecutionState['toolUseBlocks'] {
+  return tailToolExecution.toolUseBlocks.filter(
+    (toolUse) => !tailToolExecution.toolResultMap.has(toolUse.id)
+  )
+}
+
 /**
  * Self-heal dangling tool_use blocks after a run terminates (stop, error, worker
  * crash). A tail assistant message whose tool_use has no persisted tool_result is
  * poison: the provider input writer strips the unpaired tool_use on the next
  * request, so the model forgets the call ever happened and silently re-executes
  * it — most painfully re-running a long sub-agent Task from scratch. Bridge the
- * real output from the tool-call cache when it exists (the tool actually
- * finished, only the result message was lost); otherwise persist an explicit
- * "interrupted" error result so the model knows the call did not complete.
+ * real output from the tool-call cache (or the Worker journal, via `journaledResults`)
+ * when it exists — the tool actually finished, only the result message was lost;
+ * otherwise persist an explicit "interrupted" error result so the model knows the call
+ * did not complete.
  */
-function healDanglingTailToolUses(sessionId: string): boolean {
+function healDanglingTailToolUses(
+  sessionId: string,
+  journaledResults?: Map<string, { content: ToolResultContent; isError: boolean }>
+): boolean {
   const messages = useChatStore.getState().getSessionMessages(sessionId)
   const tailToolExecution = getTailToolExecutionState(messages)
   if (!tailToolExecution) return false
 
-  const unresolved = tailToolExecution.toolUseBlocks.filter(
-    (toolUse) => !tailToolExecution.toolResultMap.has(toolUse.id)
-  )
+  const unresolved = findUnresolvedTailToolUses(tailToolExecution)
   if (unresolved.length === 0) return false
 
-  const { toolResultsById } = collectAvailableContinuationToolResults(sessionId, tailToolExecution)
+  const { toolResultsById } = collectAvailableContinuationToolResults(
+    sessionId,
+    tailToolExecution,
+    journaledResults
+  )
   const healedResults = unresolved.map((toolUse) => {
     const saved = toolResultsById.get(toolUse.id)
     if (saved) {
@@ -2697,6 +2752,29 @@ function healDanglingTailToolUses(sessionId: string): boolean {
     toolUseIds: unresolved.map((toolUse) => toolUse.id)
   })
   return true
+}
+
+/**
+ * Same healing, but consults the Worker's durable journal first. Use this whenever the
+ * run that left the dangling tool_use did not happen in this renderer session — after an
+ * app restart the in-memory tool-call cache is empty, and without the journal every
+ * finished tool would be reported to the model as interrupted.
+ */
+async function healDanglingTailToolUsesWithJournal(sessionId: string): Promise<boolean> {
+  const messages = useChatStore.getState().getSessionMessages(sessionId)
+  const tailToolExecution = getTailToolExecutionState(messages)
+  if (!tailToolExecution) return false
+
+  const unresolved = findUnresolvedTailToolUses(tailToolExecution)
+  if (unresolved.length === 0) return false
+
+  const journaledResults = await fetchJournaledToolResults(
+    sessionId,
+    unresolved
+      .filter((toolUse) => !getStoredToolCallResult(sessionId, toolUse.id))
+      .map((toolUse) => toolUse.id)
+  )
+  return healDanglingTailToolUses(sessionId, journaledResults)
 }
 
 // ── Team lead auto-trigger: teammate messages → new agent turn ──
@@ -4052,8 +4130,10 @@ export function useChatActions(): {
       ) {
         // Heal dangling tool_use left behind by an earlier crash (e.g. the app was
         // killed mid-run) before the request is built: an unpaired tool_use gets
-        // stripped from provider input and silently replayed by the model.
-        healDanglingTailToolUses(sessionId)
+        // stripped from provider input and silently replayed by the model. The crash may
+        // predate this renderer, so go through the durable journal rather than trusting
+        // the in-memory tool-call cache.
+        await healDanglingTailToolUsesWithJournal(sessionId)
       }
 
       if (options?.enablePlanMode) {
@@ -5961,6 +6041,14 @@ export function useChatActions(): {
                       },
                       sessionId!
                     )
+                    // The tool is done: get its tool_use block onto disk now instead of
+                    // waiting for the periodic checkpoint, so the tool_result that follows
+                    // always has a persisted call to pair with. The tool_use append and
+                    // settled-input update are RAF-queued, so they have to be applied to
+                    // the store first. Background sessions buffer their messages elsewhere
+                    // and rely on the Worker-side journal instead.
+                    flushRuntimeForegroundMutations()
+                    useChatStore.getState().flushToolBoundary(sessionId!)
                     if (
                       event.toolCall.status === 'completed' ||
                       event.toolCall.status === 'error'
@@ -6043,6 +6131,14 @@ export function useChatActions(): {
                       createdAt: Date.now()
                     }
                     addRuntimeMessage(sessionId!, toolResultMsg)
+                    // Take the tool_result out of the deferred-add queue right away. Left
+                    // there it would only reach SQLite at the next 30s checkpoint or at
+                    // run end, so any hard failure in between drops a result whose tool
+                    // already ran and makes the next turn re-execute it.
+                    if (isSessionForeground(sessionId!)) {
+                      flushRuntimeForegroundMutations()
+                      useChatStore.getState().flushToolBoundary(sessionId!)
+                    }
                   }
                   if (hasPendingSessionMessages(sessionId!)) {
                     if (isPendingSessionDispatchPaused(sessionId!)) {
@@ -6524,9 +6620,18 @@ export function useChatActions(): {
     agentStore.setRunning(true)
 
     try {
+      // Continue after a restart finds an empty in-memory cache, so fall back to the
+      // Worker's durable journal before declaring the results unrecoverable.
+      const journaledResults = await fetchJournaledToolResults(
+        sessionId,
+        findUnresolvedTailToolUses(tailToolExecution)
+          .filter((toolUse) => !getStoredToolCallResult(sessionId, toolUse.id))
+          .map((toolUse) => toolUse.id)
+      )
       const { toolResultsById, missingToolUses } = collectAvailableContinuationToolResults(
         sessionId,
-        tailToolExecution
+        tailToolExecution,
+        journaledResults
       )
 
       // Continue must only bridge saved tool results back to the model; replaying historical

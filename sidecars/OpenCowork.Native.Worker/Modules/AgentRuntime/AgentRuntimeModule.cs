@@ -25,6 +25,7 @@ internal sealed class AgentRuntimeModule : IWorkerModule
         context.Register("agent/cancel-subagent", AgentRuntimeTools.CancelSubAgent);
         context.Register("agent/request-stop", AgentRuntimeTools.RequestStop);
         context.Register("agent/append-messages", AgentRuntimeTools.AppendMessages);
+        context.Register("agent/tool-results-lookup", AgentRuntimeToolResultJournal.Lookup);
         context.RegisterJob(
             "agent/compress-context",
             AgentRuntimeContextCompression.CompressAsync,

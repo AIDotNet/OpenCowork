@@ -9,6 +9,10 @@ internal static class RuntimeJobCoordinator
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan EventRetention = TimeSpan.FromHours(24);
+    // The tool-result journal only has to survive "crash, restart, continue". Keeping
+    // it longer than a few days would accumulate the full tool output of every run for
+    // rows that are dead weight the moment the tool_result reaches the messages table.
+    private static readonly TimeSpan ToolResultRetention = TimeSpan.FromDays(3);
     private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromHours(1);
     private static readonly TimeSpan HostedSessionRetention = TimeSpan.FromDays(14);
     private const int HostedSessionMaxRows = 256;
@@ -191,6 +195,34 @@ internal static class RuntimeJobCoordinator
         Wake();
     }
 
+    /// <summary>
+    /// Journals a finished tool call. Unlike <see cref="PersistEvent"/> this needs no
+    /// scheduler wake — nothing consumes the journal as a stream; it is read on demand
+    /// when a tool_use has to be reconciled with a result that never got persisted.
+    /// </summary>
+    public static void PersistToolResult(
+        string sessionId,
+        string toolUseId,
+        string runId,
+        string toolName,
+        string status,
+        string contentJson,
+        bool isError,
+        long? startedAt,
+        long? completedAt)
+    {
+        RuntimeJobStore.UpsertToolResult(
+            sessionId,
+            toolUseId,
+            runId,
+            toolName,
+            status,
+            contentJson,
+            isError,
+            startedAt,
+            completedAt ?? Now());
+    }
+
     public static void Ack(string consumerId, string jobId, long throughSeq)
     {
         RuntimeJobStore.Ack(consumerId, jobId, throughSeq, Now());
@@ -264,6 +296,7 @@ internal static class RuntimeJobCoordinator
                     $"runtime jobs marked interrupted hostId={hostId} count={interrupted}");
             }
             RuntimeJobStore.CleanupEvents(now - (long)EventRetention.TotalMilliseconds);
+            RuntimeJobStore.CleanupToolResults(now - (long)ToolResultRetention.TotalMilliseconds);
             RuntimeJobStore.CleanupHostedSessions(
                 now - (long)HostedSessionRetention.TotalMilliseconds,
                 HostedSessionMaxRows);
@@ -294,6 +327,8 @@ internal static class RuntimeJobCoordinator
                 {
                     RuntimeJobStore.CleanupEvents(
                         now - (long)EventRetention.TotalMilliseconds);
+                    RuntimeJobStore.CleanupToolResults(
+                        now - (long)ToolResultRetention.TotalMilliseconds);
                     nextMaintenance = now + (long)MaintenanceInterval.TotalMilliseconds;
                 }
 

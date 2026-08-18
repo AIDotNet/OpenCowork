@@ -28,6 +28,7 @@ export const DB_MESSAGES_DELETE_MSGPACK_CHANNEL = 'db:messages:delete:msgpack'
 export const DB_MESSAGES_REPLACE_MSGPACK_CHANNEL = 'db:messages:replace:msgpack'
 export const DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL = 'db:messages:truncate-from:msgpack'
 export const DB_MESSAGES_COUNT_MSGPACK_CHANNEL = 'db:messages:count:msgpack'
+export const DB_TOOL_RESULTS_LOOKUP_MSGPACK_CHANNEL = 'db:tool-results:lookup:msgpack'
 
 export const DB_PROJECTS_LIST_MSGPACK_CHANNEL = 'db:projects:list:msgpack'
 export const DB_PROJECTS_GET_MSGPACK_CHANNEL = 'db:projects:get:msgpack'

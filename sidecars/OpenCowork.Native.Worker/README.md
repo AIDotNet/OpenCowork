@@ -62,10 +62,20 @@ of a Job route, so clients cannot accidentally move slow execution back onto a C
 - A client timeout stops only that client's wait. It does not stop the committed Job. Explicit
   cancellation uses `jobs/cancel`.
 - On restart, `queued` Jobs for the same host resume. Jobs that were `running` or `cancelling` are
-  failed with `worker_interrupted` because checkpoint/tool reconciliation is not yet available.
+  failed with `worker_interrupted`: an interrupted run is not resumed mid-loop, because provider
+  checkpoint recovery is not yet available.
 - Agent stream envelopes are written to `runtime_event_batches` before Event IPC publication.
   Clients replay with `events/subscribe` / `events/replay` and advance durable cursors with
   `events/ack` only after applying an envelope.
+- Every finished tool call is journaled to `runtime_tool_results` on the emit path, before the
+  stream envelope is published and before the loop appends the result to the conversation. A host
+  that lost a tool_result — renderer crash, app kill, worker recycle mid-turn — recovers the real
+  output with `agent/tool-results-lookup` instead of reporting the call as interrupted and letting
+  the model re-run it. Rows expire after 3 days.
+- Hosted sessions snapshot their canonical history at every tool-batch boundary, not only at loop
+  end, so an interrupted turn does not roll back past tools that already ran. Snapshots are taken
+  only where every call in the batch has a result, since a conversation carrying an unanswered
+  tool_use is rejected by providers.
 - Event IPC uses a count-and-byte-bounded in-memory wake queue and a write deadline. Dropped or
   disconnected Agent stream wakes are recovered from the durable outbox and never inherit Control
   IPC health.

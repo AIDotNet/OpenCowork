@@ -390,6 +390,7 @@ internal static class AgentRuntimeTools
             return;
         }
 
+        JournalToolResults(state, events);
         var messagePackEvent = AgentStreamMessagePackEmitter.Encode(envelope);
         var terminal = events.Any(static streamEvent =>
             streamEvent.Type is "loop_end" or "error");
@@ -403,6 +404,58 @@ internal static class AgentRuntimeTools
             WorkerLog.Debug(
                 $"agent stream committed transport=durable-outbox runId={state.RunId} seq={envelope.Seq} " +
                 $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
+        }
+    }
+
+    /// <summary>
+    /// Writes every finished tool call to the durable journal on the emit path, so the
+    /// result is on disk the moment the tool completes — before the loop appends it to
+    /// the in-memory conversation and long before the renderer persists the paired
+    /// tool_result message. A crash anywhere after this point can recover the real
+    /// output instead of telling the model the call was interrupted.
+    /// Journaling failures must never break the run: the stream event is still emitted.
+    /// </summary>
+    private static void JournalToolResults(
+        AgentRuntimeRunState state,
+        AgentRuntimeStreamEvent[] events)
+    {
+        if (string.IsNullOrEmpty(state.SessionId))
+        {
+            return;
+        }
+
+        foreach (var streamEvent in events)
+        {
+            if (streamEvent.Type is not "tool_call_result" || streamEvent.ToolCall is null)
+            {
+                continue;
+            }
+
+            var toolCall = streamEvent.ToolCall;
+            if (string.IsNullOrEmpty(toolCall.Id))
+            {
+                continue;
+            }
+
+            try
+            {
+                RuntimeJobCoordinator.PersistToolResult(
+                    state.SessionId,
+                    toolCall.Id,
+                    state.RunId,
+                    toolCall.Name,
+                    toolCall.Status,
+                    toolCall.Output?.GetRawText() ?? "null",
+                    string.Equals(toolCall.Status, "error", StringComparison.Ordinal),
+                    toolCall.StartedAt,
+                    toolCall.CompletedAt);
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Warn(
+                    $"tool result journal failed sessionId={state.SessionId} " +
+                    $"toolUseId={toolCall.Id} error={ex.Message}");
+            }
         }
     }
 
@@ -422,7 +475,7 @@ internal static class AgentRuntimeTools
                 DurableEvents: true,
                 DurableInbox: true,
                 CheckpointRecovery: false,
-                ToolReconciliation: false,
+                ToolReconciliation: true,
                 LaneScheduler: true),
             new WorkerCompatibility(
                 AcceptsV1RunRequest: false,

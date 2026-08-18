@@ -216,6 +216,111 @@ internal static class RuntimeJobStore
         return deleted;
     }
 
+    /// <summary>
+    /// Journals one finished tool call. Called synchronously on the tool's own
+    /// completion path so the result is on disk before the loop moves on — a crash
+    /// after this point can still recover the output instead of replaying the tool.
+    /// </summary>
+    public static void UpsertToolResult(
+        string sessionId,
+        string toolUseId,
+        string runId,
+        string toolName,
+        string status,
+        string contentJson,
+        bool isError,
+        long? startedAt,
+        long completedAt)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO runtime_tool_results (
+              session_id, tool_use_id, run_id, tool_name, status, content_json,
+              is_error, started_at, completed_at
+            ) VALUES (
+              $sessionId, $toolUseId, $runId, $toolName, $status, $content,
+              $isError, $startedAt, $completedAt
+            )
+            ON CONFLICT(session_id, tool_use_id) DO UPDATE SET
+              run_id = excluded.run_id,
+              tool_name = excluded.tool_name,
+              status = excluded.status,
+              content_json = excluded.content_json,
+              is_error = excluded.is_error,
+              started_at = excluded.started_at,
+              completed_at = excluded.completed_at;
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        command.Parameters.AddWithValue("$toolUseId", toolUseId);
+        command.Parameters.AddWithValue("$runId", runId);
+        command.Parameters.AddWithValue("$toolName", toolName);
+        command.Parameters.AddWithValue("$status", status);
+        command.Parameters.AddWithValue("$content", contentJson);
+        command.Parameters.AddWithValue("$isError", isError ? 1 : 0);
+        command.Parameters.AddWithValue("$startedAt", (object?)startedAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("$completedAt", completedAt);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Reads journaled results for the given tool_use ids (reconciliation lookup).</summary>
+    public static List<RuntimeToolResultRecord> ListToolResults(
+        string sessionId,
+        IReadOnlyList<string> toolUseIds)
+    {
+        if (toolUseIds.Count == 0)
+        {
+            return [];
+        }
+
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        var placeholders = new string[toolUseIds.Count];
+        for (var index = 0; index < toolUseIds.Count; index++)
+        {
+            placeholders[index] = $"$id{index}";
+            command.Parameters.AddWithValue($"$id{index}", toolUseIds[index]);
+        }
+        command.CommandText = $"""
+            SELECT session_id, tool_use_id, run_id, tool_name, status, content_json,
+                   is_error, started_at, completed_at
+              FROM runtime_tool_results
+             WHERE session_id = $sessionId
+               AND tool_use_id IN ({string.Join(", ", placeholders)});
+            """;
+        command.Parameters.AddWithValue("$sessionId", sessionId);
+        using var reader = command.ExecuteReader();
+        var rows = new List<RuntimeToolResultRecord>();
+        while (reader.Read())
+        {
+            rows.Add(new RuntimeToolResultRecord
+            {
+                SessionId = reader.GetString(0),
+                ToolUseId = reader.GetString(1),
+                RunId = reader.GetString(2),
+                ToolName = reader.GetString(3),
+                Status = reader.GetString(4),
+                ContentJson = reader.GetString(5),
+                IsError = reader.GetInt64(6) != 0,
+                StartedAt = reader.IsDBNull(7) ? null : reader.GetInt64(7),
+                CompletedAt = reader.GetInt64(8)
+            });
+        }
+        return rows;
+    }
+
+    public static int CleanupToolResults(long cutoff)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM runtime_tool_results WHERE completed_at < $cutoff;";
+        command.Parameters.AddWithValue("$cutoff", cutoff);
+        return command.ExecuteNonQuery();
+    }
+
     public static RuntimeJobSubmission Submit(
         string jobId,
         string hostId,

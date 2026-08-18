@@ -189,4 +189,5 @@ using System.Text.Json.Serialization;
 [JsonSerializable(typeof(DbSyncMutationResult))]
 [JsonSerializable(typeof(QqWakeupEligibilityResult))]
 [JsonSerializable(typeof(QqWakeupMutationResult))]
+[JsonSerializable(typeof(List<RuntimeToolResultRecord>), TypeInfoPropertyName = "ListRuntimeToolResultRecord")]
 internal sealed partial class WorkerJsonContext : JsonSerializerContext;

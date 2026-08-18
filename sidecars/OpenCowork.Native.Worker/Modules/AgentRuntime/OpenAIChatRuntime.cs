@@ -2048,8 +2048,12 @@ internal static class OpenAIChatRuntime
             if (message.Role == "user")
             {
                 var allowPromptCacheBreakpoint = messageIndex < messages.Count - 1;
-                if (promptCacheState.SupportsPromptCacheOptions &&
-                    message.ContentBlocks is { Count: > 0 } blocks &&
+                // Array-form content is required to carry images, but some OpenAI-compatible
+                // providers handle a plain string better, so text-only turns keep the string
+                // form unless prompt-cache breakpoints need the parts shape anyway.
+                if (message.ContentBlocks is { Count: > 0 } blocks &&
+                    (promptCacheState.SupportsPromptCacheOptions ||
+                        AgentRuntimeProviderSupport.HasImageBlock(blocks)) &&
                     WriteChatUserPartsMessage(
                         writer,
                         blocks,

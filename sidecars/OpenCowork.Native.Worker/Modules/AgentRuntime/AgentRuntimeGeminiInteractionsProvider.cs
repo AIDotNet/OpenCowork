@@ -786,16 +786,31 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             }
 
             var isAssistant = message.Role == "assistant";
-            if (!string.IsNullOrEmpty(message.Text))
+            var imageBlocks = !isAssistant && message.ContentBlocks is { Count: > 0 } blocks &&
+                AgentRuntimeProviderSupport.HasImageBlock(blocks)
+                    ? blocks
+                    : null;
+            var hasText = !string.IsNullOrEmpty(message.Text);
+            if (hasText || imageBlocks is not null)
             {
                 writer.WriteStartObject();
                 writer.WriteString("type", isAssistant ? "model_output" : "user_input");
                 writer.WritePropertyName("content");
                 writer.WriteStartArray();
-                writer.WriteStartObject();
-                writer.WriteString("type", "text");
-                writer.WriteString("text", message.Text);
-                writer.WriteEndObject();
+                if (hasText)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("type", "text");
+                    writer.WriteString("text", message.Text);
+                    writer.WriteEndObject();
+                }
+                if (imageBlocks is not null)
+                {
+                    foreach (var block in imageBlocks)
+                    {
+                        WriteImageContent(writer, block);
+                    }
+                }
                 writer.WriteEndArray();
                 writer.WriteEndObject();
             }
@@ -827,6 +842,37 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             }
         }
         writer.WriteEndArray();
+    }
+
+    /// <summary>
+    /// Interactions uses one image block shape for both directions: inline bytes under
+    /// `data`/`mime_type`. The timeline has no remote-file part, so a URL that cannot be
+    /// inlined degrades to text rather than being dropped silently.
+    /// </summary>
+    private static void WriteImageContent(Utf8JsonWriter writer, JsonElement block)
+    {
+        if (!AgentRuntimeProviderSupport.TryReadImageSource(
+                block,
+                out var mediaType,
+                out var base64Data,
+                out var url))
+        {
+            return;
+        }
+
+        writer.WriteStartObject();
+        if (base64Data.Length > 0)
+        {
+            writer.WriteString("type", "image");
+            writer.WriteString("mime_type", mediaType);
+            writer.WriteString("data", base64Data);
+        }
+        else
+        {
+            writer.WriteString("type", "text");
+            writer.WriteString("text", $"[image] {url}");
+        }
+        writer.WriteEndObject();
     }
 
     private static void WriteToolResultContent(Utf8JsonWriter writer, JsonElement content)

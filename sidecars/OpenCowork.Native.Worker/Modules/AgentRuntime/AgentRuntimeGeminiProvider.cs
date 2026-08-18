@@ -358,6 +358,14 @@ internal static class AgentRuntimeGeminiProvider
                 wroteContent = true;
             }
 
+            if (message.Role != "assistant" && message.ContentBlocks is { Count: > 0 } blocks)
+            {
+                foreach (var block in blocks)
+                {
+                    wroteContent |= WriteImagePart(writer, block);
+                }
+            }
+
             foreach (var toolUse in message.ToolUses)
             {
                 toolNameById[toolUse.Id] = toolUse.Name;
@@ -403,6 +411,44 @@ internal static class AgentRuntimeGeminiProvider
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+    }
+
+    /// <summary>
+    /// Maps a wire image block onto a generateContent part: inline bytes become
+    /// <c>inlineData</c>, a remote reference becomes <c>fileData</c>.
+    /// </summary>
+    private static bool WriteImagePart(Utf8JsonWriter writer, JsonElement block)
+    {
+        if (!AgentRuntimeProviderSupport.TryReadImageSource(
+                block,
+                out var mediaType,
+                out var base64Data,
+                out var url))
+        {
+            return false;
+        }
+
+        writer.WriteStartObject();
+        if (base64Data.Length > 0)
+        {
+            writer.WritePropertyName("inlineData");
+            writer.WriteStartObject();
+            writer.WriteString("mimeType", mediaType);
+            writer.WriteString("data", base64Data);
+        }
+        else
+        {
+            writer.WritePropertyName("fileData");
+            writer.WriteStartObject();
+            if (mediaType.Length > 0)
+            {
+                writer.WriteString("mimeType", mediaType);
+            }
+            writer.WriteString("fileUri", url);
+        }
+        writer.WriteEndObject();
+        writer.WriteEndObject();
+        return true;
     }
 
     private static void WriteToolResultContent(Utf8JsonWriter writer, JsonElement content)

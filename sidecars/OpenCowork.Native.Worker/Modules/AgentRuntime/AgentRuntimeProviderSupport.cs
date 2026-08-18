@@ -335,6 +335,88 @@ internal static class AgentRuntimeProviderSupport
         });
     }
 
+    public static bool HasImageBlock(IReadOnlyList<JsonElement> blocks)
+    {
+        foreach (var block in blocks)
+        {
+            if (JsonHelpers.GetString(block, "type") == "image" &&
+                block.TryGetProperty("source", out var source) &&
+                source.ValueKind == JsonValueKind.Object)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Normalizes a wire image block into either inline base64 bytes or a remote URL.
+    /// A data URL arriving as <c>source.type == "url"</c> is unwrapped into base64 so that
+    /// providers which cannot fetch a URL still receive the image.
+    /// </summary>
+    public static bool TryReadImageSource(
+        JsonElement block,
+        out string mediaType,
+        out string base64Data,
+        out string url)
+    {
+        mediaType = string.Empty;
+        base64Data = string.Empty;
+        url = string.Empty;
+
+        if (JsonHelpers.GetString(block, "type") != "image" ||
+            !block.TryGetProperty("source", out var source) ||
+            source.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var declaredMediaType = JsonHelpers.GetString(source, "mediaType");
+        var sourceType = JsonHelpers.GetString(source, "type");
+        if (sourceType == "base64")
+        {
+            var data = JsonHelpers.GetString(source, "data");
+            if (string.IsNullOrWhiteSpace(data))
+            {
+                return false;
+            }
+            base64Data = StripDataUrlPrefix(data);
+            mediaType = declaredMediaType ?? DetectImageMediaTypeFromBase64(data) ?? "image/png";
+            return base64Data.Length > 0;
+        }
+
+        if (sourceType != "url" ||
+            JsonHelpers.GetString(source, "url") is not { Length: > 0 } sourceUrl)
+        {
+            return false;
+        }
+
+        if (!sourceUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            url = sourceUrl;
+            mediaType = declaredMediaType ?? string.Empty;
+            return true;
+        }
+
+        base64Data = StripDataUrlPrefix(sourceUrl);
+        if (base64Data.Length == 0)
+        {
+            return false;
+        }
+        mediaType = declaredMediaType ??
+            ReadDataUrlMediaType(sourceUrl) ??
+            DetectImageMediaTypeFromBase64(base64Data) ??
+            "image/png";
+        return true;
+    }
+
+    private static string? ReadDataUrlMediaType(string dataUrl)
+    {
+        const string prefix = "data:";
+        var separator = dataUrl.IndexOf(';', prefix.Length);
+        return separator > prefix.Length ? dataUrl[prefix.Length..separator] : null;
+    }
+
     public static JsonElement CreateObjectElement(Action<Utf8JsonWriter> writeProperties)
     {
         var buffer = new ArrayBufferWriter<byte>();

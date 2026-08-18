@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.13] - 2026-08-18
+
+### Added
+
+- Added a Native Worker per-tool durable journal (`runtime_tool_results`, 3-day retention) written on the emit path the instant a tool finishes, exposed as `agent/tool-results-lookup`, so a `tool_result` that never reached the messages table is recovered from disk.
+
+### Changed
+
+- Renderer persists the assistant row and its `tool_result` at every tool boundary instead of waiting for the 30s streaming checkpoint or run end, writing the assistant row first so an interrupted write leaves a healable dangling `tool_use` rather than an orphan `tool_result`.
+- Hosted sessions snapshot their canonical history after each fully answered tool batch instead of only at loop end, so an interrupted turn does not roll back past tools that already ran.
+- Dangling-`tool_use` healing and Continue consult the Worker journal before falling back to the in-memory tool-call cache, which is empty after a restart.
+
+### Fixed
+
+- Fixed a finished tool being silently re-executed on the next turn after a crash, app kill, or worker recycle mid-turn: its unpaired `tool_use` was stripped from provider input, so the model forgot the call happened and re-ran it — worst case replaying a long sub-agent Task from scratch.
+- Fixed sub-agent and context-compression child runs overwriting the parent hosted session's history, which they could do because they borrow the parent `sessionId` while owning an unrelated conversation.
+
 ## [1.3.12] - 2026-08-18
 
 ### Added

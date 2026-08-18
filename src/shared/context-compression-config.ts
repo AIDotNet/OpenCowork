@@ -144,7 +144,11 @@ export function buildLoopCompressionConfig(args: {
     const persisted = args.persistedContextLength
     contextLength = typeof persisted === 'number' && persisted > 0 ? persisted : 0
   }
-  if (contextLength <= 0) return null
+  // Models without a configured context length fall back to the same default
+  // window the input-area usage gauge assumes. Returning null here would
+  // silently disable auto-compression while the gauge keeps showing a
+  // percentage against that default.
+  if (contextLength <= 0) contextLength = DEFAULT_CONTEXT_COMPRESSION_LIMIT
 
   return {
     enabled: true,

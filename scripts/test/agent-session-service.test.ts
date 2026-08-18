@@ -846,6 +846,16 @@ test('assembler keeps Write in the ACP sub-agent catalog but not the lead tool l
           }
         },
         {
+          name: 'Skill',
+          description: 'Load a skill',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              SkillName: { type: 'string' }
+            }
+          }
+        },
+        {
           name: 'Task',
           description: 'Launch a sub-agent',
           inputSchema: {
@@ -861,20 +871,20 @@ test('assembler keeps Write in the ACP sub-agent catalog but not the lead tool l
   )
   assert.deepEqual(
     (assembled.openTemplate.tools as Array<{ name: string }>).map((tool) => tool.name),
-    ['Read', 'Task']
+    ['Read', 'Skill', 'Task']
   )
   assert.deepEqual(
     (assembled.openTemplate.subAgentToolCatalog as Array<{ name: string }>).map(
       (tool) => tool.name
     ),
-    ['Read', 'Task', 'Write']
+    ['Read', 'Skill', 'Task', 'Write']
   )
   const snapshot = assembled.openTemplate.capabilitySnapshot as {
     authorizedTools?: Array<{ wireName: string }>
   }
   assert.deepEqual(
     snapshot.authorizedTools?.map((tool) => tool.wireName),
-    ['Read', 'Task']
+    ['Read', 'Skill', 'Task']
   )
 })
 
@@ -1378,6 +1388,37 @@ test('assembler attaches compression config and copies message usage onto the wi
     contextTokens: 120_000
   })
   assert.match(assembled.prefixIdentity, /\0on:200000:0.8:16000:prov-compress:compress-1\0/)
+})
+
+test('assembler falls back to the default window when the model context length is unknown', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      readRunSettings: () => ({
+        ...assemblerDeps().readRunSettings(),
+        contextCompressionEnabled: true,
+        contextCompressionThreshold: 0.62
+      }),
+      resolveCompressionModel: () => null
+    }
+  )
+
+  assert.deepEqual(assembled.openTemplate.compression, {
+    enabled: true,
+    contextLength: 200_000,
+    threshold: 0.62,
+    preCompressThreshold: 0.65,
+    reservedOutputBudget: 20_000
+  })
 })
 
 test('assembler omits compression when the setting is disabled', async () => {

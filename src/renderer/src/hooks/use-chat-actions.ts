@@ -123,6 +123,7 @@ import { parseSelectFileText } from '@renderer/lib/select-file-tags'
 import { type AgentEvent, type ToolCallState } from '@renderer/lib/agent/types'
 import { recordUsageEvent } from '@renderer/lib/usage-analytics'
 import {
+  DEFAULT_CONTEXT_COMPRESSION_LIMIT,
   resolveCompressionContextLength,
   resolveCompressionReservedOutputBudget,
   resolveCompressionThreshold
@@ -5183,6 +5184,11 @@ export function useChatActions(): {
 
             if (compressionContextLength <= 0) {
               compressionContextLength = findPersistedContextLength(messagesToSend)
+            }
+            if (compressionContextLength <= 0) {
+              // Match the input-area gauge: an unknown model window assumes the
+              // default limit instead of silently disabling auto-compression.
+              compressionContextLength = DEFAULT_CONTEXT_COMPRESSION_LIMIT
             }
             compressionConfig =
               contextCompressionAllowed && compressionContextLength > 0

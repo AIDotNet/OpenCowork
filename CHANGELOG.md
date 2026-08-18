@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.12] - 2026-08-18
+
+### Added
+
+- Added an optional `plan` argument on `ExitPlanMode` (desktop, CLI, and Native Worker) so the agent can hand off complete plan markdown when the plan file has not been written yet, including UI-toggled plan mode that never ran `EnterPlanMode`.
+- Added a Request revision dialog on the in-chat plan review card so users can send feedback, mark the plan rejected, and send the agent back into plan mode without a separate side panel.
+
+### Changed
+
+- Removed the standalone Plan panel and folded review, implement, new-session execute, and revision into the chat review card.
+- Native Worker now provisions or repairs a session plan file on enter/exit instead of rejecting legacy rows without a path, and plan-mode turn context tells the model to finish through `ExitPlanMode` rather than printing the plan as ordinary reply text.
+- Windows ARM64 Native AOT publish prefers `lld-link` (and CI moved the ARM job to `windows-11-vs2026-arm`) so MSVC 14.44 no longer fails the large worker object with LNK1322.
+
+### Fixed
+
+- Fixed plan review cards that went blank after a dormant-memory content drop or a missed `plan/ui-update` by reading the plan file (including SSH) and reloading the SQLite row when the session returns to idle.
+- Fixed Request revision doing nothing when the in-memory plan entry was missing by reloading the session plan from SQLite first.
+
 ## [1.3.11] - 2026-08-17
 
 ### Added

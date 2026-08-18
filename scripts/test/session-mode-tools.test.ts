@@ -8,9 +8,19 @@ import {
 test('ACP lead tools exclude Write Edit and Bash', () => {
   assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Task'), true)
   assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Read'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Skill'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('MemoryRead'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('codegraph_explore'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('WebSearch'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('WebFetch'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('TeamCreate'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('SendMessage'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('CronList'), true)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Notify'), true)
   assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Write'), false)
   assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Edit'), false)
   assert.equal(ACP_MODE_ALLOWED_TOOLS.has('Bash'), false)
+  assert.equal(ACP_MODE_ALLOWED_TOOLS.has('CronAdd'), false)
 })
 
 test('ACP splits parent orchestration tools from the sub-agent catalog', () => {
@@ -19,6 +29,12 @@ test('ACP splits parent orchestration tools from the sub-agent catalog', () => {
     { name: 'Write' },
     { name: 'Edit' },
     { name: 'Bash' },
+    { name: 'Skill' },
+    { name: 'MemorySearch' },
+    { name: 'codegraph_explore' },
+    { name: 'WebSearch' },
+    { name: 'TeamCreate' },
+    { name: 'CronAdd' },
     { name: 'Task' }
   ]
   const { parentTools, subAgentToolCatalog } = splitToolsForSubAgentCatalog({
@@ -27,11 +43,11 @@ test('ACP splits parent orchestration tools from the sub-agent catalog', () => {
   })
   assert.deepEqual(
     parentTools.map((tool) => tool.name),
-    ['Read', 'Task']
+    ['Read', 'Skill', 'MemorySearch', 'codegraph_explore', 'WebSearch', 'TeamCreate', 'Task']
   )
   assert.deepEqual(
     subAgentToolCatalog.map((tool) => tool.name),
-    ['Read', 'Write', 'Edit', 'Bash', 'Task']
+    availableTools.map((tool) => tool.name)
   )
 })
 

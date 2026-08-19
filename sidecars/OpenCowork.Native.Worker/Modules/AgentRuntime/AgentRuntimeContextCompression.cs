@@ -384,7 +384,7 @@ internal static partial class AgentRuntimeContextCompression
             return ValueTask.CompletedTask;
         }
 
-        return AgentRuntimeTools.EmitAsync(progressState, context, streamEvent);
+        return new ValueTask(AgentRuntimeTools.EmitAsync(progressState, context, streamEvent));
     }
 
     private static AgentRuntimeContextCompressionResponse BuildCompressedResult(

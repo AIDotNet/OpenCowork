@@ -212,8 +212,11 @@ export function PlanReviewCard({
   const parsedPayload = React.useMemo(() => parsePlanReviewPayload(output), [output])
   const outputText = React.useMemo(() => outputAsText(output), [output])
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  // The plan actions are gated on the session that owns this card, not on whichever session
+  // happens to be in the foreground, so a run elsewhere cannot disable them.
+  const cardSessionId = sessionId ?? activeSessionId
   const hasStreamingMessage = useChatStore((s) =>
-    activeSessionId ? Boolean(s.streamingMessages[activeSessionId]) : false
+    cardSessionId ? Boolean(s.streamingMessages[cardSessionId]) : false
   )
   const fallbackPlan = usePlanStore((s) =>
     parsedPayload?.planId
@@ -229,7 +232,7 @@ export function PlanReviewCard({
   const executionSession = useChatStore((s) =>
     payload?.planId ? s.getLatestSessionByPlanId(payload.planId) : undefined
   )
-  const isRunning = useAgentStore((s) => s.isSessionActive(activeSessionId)) || hasStreamingMessage
+  const isRunning = useAgentStore((s) => s.isSessionActive(cardSessionId)) || hasStreamingMessage
 
   const executionSessionId = sessionId ?? activeSessionId ?? plan?.sessionId ?? ''
   const [executionModel, setExecutionModel] = React.useState<PlanExecutionModelSelection>(() =>

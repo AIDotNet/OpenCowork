@@ -4221,11 +4221,43 @@ export function useChatActions(): {
       }
 
       let preflightIndicatorActive = false
+      // Set once the turn owns the session's streaming pointer, and cleared again when the
+      // run's own try/finally takes over teardown.
+      let preflightStreamingMessageId: string | null = null
+      let runOwnsTeardown = false
       const clearPreflightIndicator = (): void => {
         if (!preflightIndicatorActive) return
         clearRequestRetryState(sessionId)
         agentStore.setSessionStatus(sessionId, null)
         preflightIndicatorActive = false
+      }
+      /**
+       * Release every marker that says "this session is busy" after a preflight that threw
+       * before the run's own try/finally could take over. Clearing only the status indicator
+       * left the streaming pointer set, which wedges the session permanently: `isSessionActive`
+       * keeps reporting busy so the plan review actions stay disabled, and `hasActiveSessionRun`
+       * keeps queueing every later send instead of dispatching it.
+       */
+      const abandonPreflight = (): void => {
+        if (runOwnsTeardown) return
+        preflightIndicatorActive = false
+        clearRequestRetryState(sessionId)
+        agentStore.setSessionStatus(sessionId, null)
+        if (
+          preflightStreamingMessageId &&
+          useChatStore.getState().streamingMessages[sessionId] === preflightStreamingMessageId
+        ) {
+          setStreamingMessageIdWithSync(sessionId, null)
+        }
+        preflightStreamingMessageId = null
+        sessionAbortControllers.delete(sessionId)
+        sessionSidecarRunIds.delete(sessionId)
+        agentStore.setRunning(
+          Object.values(useAgentStore.getState().runningSessions).some(
+            (status) => status === 'running' || status === 'retrying'
+          )
+        )
+        dispatchNextQueuedMessage(sessionId)
       }
 
       agentStore.setSessionStatus(sessionId, 'running')
@@ -4624,6 +4656,7 @@ export function useChatActions(): {
         } else {
           setStreamingMessageIdWithSync(sessionId, assistantMsgId)
         }
+        preflightStreamingMessageId = assistantMsgId
         setGeneratingImagePreviewWithSync(assistantMsgId, null)
 
         const sshPreflightFailure = await ensureSshSessionReadyForRequest(sessionId)
@@ -4814,6 +4847,9 @@ export function useChatActions(): {
             })
           )
           try {
+            // runSimpleChat clears the streaming pointer in its own finally, and the finally
+            // below releases the rest, so preflight teardown must stand down from here.
+            runOwnsTeardown = true
             await runSimpleChat(sessionId, assistantMsgId, chatConfig, abortController.signal, {
               includeTrailingAssistantPlaceholder: !!existingAssistantMessage,
               expectedUserMessage: expectedUserRequestMessage,
@@ -5166,6 +5202,9 @@ export function useChatActions(): {
           }
 
           try {
+            // From here the finally below is guaranteed to run, so it — not abandonPreflight —
+            // owns releasing the session's busy state.
+            runOwnsTeardown = true
             const contextCompressionAllowed =
               settings.contextCompressionEnabled && options?.skipAutoContextCompression !== true
             let messagesToSend = await useChatStore
@@ -6549,7 +6588,30 @@ export function useChatActions(): {
           }
         }
       } catch (error) {
-        clearPreflightIndicator()
+        // A preflight that throws never opened a stream, so no error frame will arrive and
+        // nothing else would tell the user why the turn disappeared. Report it on the pending
+        // assistant bubble before the teardown removes the streaming pointer.
+        const failedAssistantMsgId = preflightStreamingMessageId
+        if (!runOwnsTeardown && failedAssistantMsgId) {
+          const errorContent = resolveRuntimeErrorContent(
+            readRuntimeErrorMessage(error),
+            readRuntimeErrorType(error),
+            readRuntimeErrorDetails(error)
+          )
+          if (!shouldSuppressTransientRuntimeError(errorContent.message)) {
+            appendRuntimeErrorCard({
+              sessionId,
+              assistantMsgId: failedAssistantMsgId,
+              message: errorContent.message,
+              errorType: errorContent.errorType,
+              details: errorContent.details
+            })
+            if (isSessionForeground(sessionId)) {
+              toast.error(errorContent.toastTitle, { description: errorContent.message })
+            }
+          }
+        }
+        abandonPreflight()
         throw error
       }
     },

@@ -68,7 +68,12 @@ function statusBadgeVariant(
   return 'secondary'
 }
 
-export function MigrationPanel(): React.JSX.Element {
+interface MigrationPanelProps {
+  /** Hides the panel's own heading when hosted inside another settings page. */
+  embedded?: boolean
+}
+
+export function MigrationPanel({ embedded = false }: MigrationPanelProps = {}): React.JSX.Element {
   const { t } = useTranslation('settings')
   const [preview, setPreview] = useState<MigrationPreviewResult | null>(null)
   const [decisions, setDecisions] = useState<Record<string, MigrationAction>>({})
@@ -176,10 +181,12 @@ export function MigrationPanel(): React.JSX.Element {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold">{t('migration.title')}</h2>
-        <p className="text-sm text-muted-foreground">{t('migration.subtitle')}</p>
-      </div>
+      {embedded ? null : (
+        <div>
+          <h2 className="text-lg font-semibold">{t('migration.title')}</h2>
+          <p className="text-sm text-muted-foreground">{t('migration.subtitle')}</p>
+        </div>
+      )}
 
       <section className="rounded-lg border border-border/60 bg-muted/20 p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

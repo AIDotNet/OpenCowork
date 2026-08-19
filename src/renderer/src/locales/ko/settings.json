@@ -9,8 +9,15 @@
       "ai": "AI 기능",
       "extensions": "확장 및 연동",
       "about": "정보",
-      "aiCoding": "AI 코딩"
-    }
+      "aiCoding": "AI 코딩",
+      "account": "계정 및 모양",
+      "agent": "에이전트",
+      "more": "더 보기"
+    },
+    "back": "뒤로",
+    "searchPlaceholder": "설정 검색",
+    "searchClear": "지우기",
+    "searchEmpty": "일치하는 설정이 없습니다"
   },
   "pet": {
     "title": "데스크톱 펫",
@@ -249,7 +256,11 @@
       "cleared": "{{count}} 세션 삭제",
       "noSessions": "이용안내"
     },
-    "autoUpdateGreenDesc": "무설치 빌드는 새 버전을 확인하지만 자동으로 다운로드하거나 설치하지 않습니다. 최신 버전을 수동으로 다운로드해 현재 폴더를 교체하세요."
+    "autoUpdateGreenDesc": "무설치 빌드는 새 버전을 확인하지만 자동으로 다운로드하거나 설치하지 않습니다. 최신 버전을 수동으로 다운로드해 현재 폴더를 교체하세요.",
+    "sections": {
+      "interface": "인터페이스",
+      "editor": "편집기"
+    }
   },
   "sync": {
     "title": "Sync의",
@@ -615,7 +626,16 @@
     "creative": "회사 소개",
     "random": "이름 *",
     "maxTokens": "최대 토큰",
-    "maxTokensDesc": "응답 당 최대 토큰 제한"
+    "maxTokensDesc": "응답 당 최대 토큰 제한",
+    "sections": {
+      "chat": "채팅 모델",
+      "chatDesc": "세션 모드별 기본 모델",
+      "auxiliary": "보조 모델",
+      "auxiliaryDesc": "제목, 요약 등 백그라운드 작업에 사용하는 모델",
+      "sampling": "샘플링",
+      "samplingDesc": "온도, Top-P, 추론 강도"
+    },
+    "selectProvider": "공급자 선택"
   },
   "plugin": {
     "title": "플러그인",
@@ -1594,7 +1614,9 @@
       "providerMissing": "공급자 없음",
       "ready": "준비됨",
       "unsupportedAuth": "지원되지 않는 인증"
-    }
+    },
+    "title": "AI 코딩",
+    "subtitle": "Claude Code 및 Codex 구성"
   },
   "codegraph": {
     "subtitle": "프로젝트별 인덱스 시각화: 통계, 파일, 심볼 그래프",
@@ -1771,5 +1793,23 @@
       "title": "도구 화이트리스트"
     },
     "wildcardHelp": "와일드카드 패턴은 명령 전체와 일치해야 하며 *는 임의의 텍스트와 일치합니다 — 예: npm run *. 정규식 화이트리스트 규칙은 명령 전체와 일치해야 하며, 정규식 블랙리스트 규칙은 어디든 일치하면 적용됩니다. 복합 명령(&&, ;, |)의 각 부분이 모두 화이트리스트에 등록되어야 합니다. 대소문자는 구분하지 않습니다."
+  },
+  "runtime": {
+    "title": "실행 및 성능",
+    "subtitle": "동시성, 타임아웃, 컨텍스트 압축",
+    "sections": {
+      "concurrency": "동시성",
+      "concurrencyDesc": "병렬 도구 호출 및 서브 에이전트 제한",
+      "tooling": "도구 출력",
+      "toolingDesc": "도구 결과를 모델에 반환하는 방식",
+      "advanced": "고급",
+      "advancedDesc": "개발자 모드 및 진단"
+    }
+  },
+  "data": {
+    "title": "업데이트 및 데이터",
+    "subtitle": "앱 업데이트, 백업, 마이그레이션, 초기화",
+    "dangerZone": "위험 구역",
+    "dangerZoneDesc": "이 작업은 되돌릴 수 없습니다"
   }
 }

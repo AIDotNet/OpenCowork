@@ -9,8 +9,15 @@
       "ai": "AI 機能",
       "extensions": "拡張と連携",
       "about": "情報",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "アカウントと外観",
+      "agent": "エージェント",
+      "more": "その他"
+    },
+    "back": "戻る",
+    "searchPlaceholder": "設定を検索",
+    "searchClear": "クリア",
+    "searchEmpty": "一致する設定がありません"
   },
   "pet": {
     "title": "デスクトップペット",
@@ -249,7 +256,11 @@
       "cleared": "削除された{{count}}セッション",
       "noSessions": "セッションなし"
     },
-    "autoUpdateGreenDesc": "インストール不要版は新しいバージョンを確認しますが、自動的にはダウンロード・インストールしません。最新バージョンを手動でダウンロードし、現在のフォルダを置き換えてください。"
+    "autoUpdateGreenDesc": "インストール不要版は新しいバージョンを確認しますが、自動的にはダウンロード・インストールしません。最新バージョンを手動でダウンロードし、現在のフォルダを置き換えてください。",
+    "sections": {
+      "interface": "インターフェース",
+      "editor": "エディタ"
+    }
   },
   "sync": {
     "title": "同期",
@@ -615,7 +626,16 @@
     "creative": "クリエイティブ",
     "random": "ランダム",
     "maxTokens": "最高のトークン",
-    "maxTokensDesc": "応答ごとの最大トークン上限"
+    "maxTokensDesc": "応答ごとの最大トークン上限",
+    "sections": {
+      "chat": "チャットモデル",
+      "chatDesc": "各セッションモードの既定モデル",
+      "auxiliary": "補助モデル",
+      "auxiliaryDesc": "タイトルや要約などのバックグラウンド処理に使うモデル",
+      "sampling": "サンプリング",
+      "samplingDesc": "温度、Top-P、推論の強度"
+    },
+    "selectProvider": "プロバイダーを選択"
   },
   "plugin": {
     "title": "プラグイン",
@@ -1594,7 +1614,9 @@
       "providerMissing": "プロバイダーがありません",
       "ready": "準備完了",
       "unsupportedAuth": "サポートされていない認証"
-    }
+    },
+    "title": "AI コーディング",
+    "subtitle": "Claude Code と Codex の設定"
   },
   "codegraph": {
     "subtitle": "プロジェクトごとのインデックス可視化: 統計、ファイル、シンボルグラフ",
@@ -1771,5 +1793,23 @@
       "title": "ツールホワイトリスト"
     },
     "wildcardHelp": "ワイルドカードパターンはコマンド全体に一致し、* は任意のテキストに一致します（例: npm run *）。正規表現のホワイトリストルールはコマンド全体に一致する必要があり、正規表現のブラックリストルールは任意の位置に一致します。複合コマンド（&&、;、|）の各部分はすべてホワイトリストに登録する必要があります。マッチングは大文字小文字を区別しません。"
+  },
+  "runtime": {
+    "title": "実行とパフォーマンス",
+    "subtitle": "並列実行、タイムアウト、コンテキスト圧縮",
+    "sections": {
+      "concurrency": "並列実行",
+      "concurrencyDesc": "並列ツール呼び出しとサブエージェントの上限",
+      "tooling": "ツール出力",
+      "toolingDesc": "ツール結果をモデルに返す形式",
+      "advanced": "詳細設定",
+      "advancedDesc": "開発者モードと診断"
+    }
+  },
+  "data": {
+    "title": "更新とデータ",
+    "subtitle": "アプリの更新、バックアップ、移行、リセット",
+    "dangerZone": "危険な操作",
+    "dangerZoneDesc": "これらの操作は取り消せません"
   }
 }

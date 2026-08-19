@@ -9,8 +9,15 @@
       "ai": "Capacités d'IA",
       "extensions": "Extensions et intégrations",
       "about": "À propos",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Compte et apparence",
+      "agent": "Agent",
+      "more": "Plus"
+    },
+    "back": "Retour",
+    "searchPlaceholder": "Rechercher dans les paramètres",
+    "searchClear": "Effacer",
+    "searchEmpty": "Aucun paramètre correspondant"
   },
   "pet": {
     "title": "Animal de bureau",
@@ -249,7 +256,11 @@
       "cleared": "Supprimé {{count}} Séances",
       "noSessions": "Aucune session disponible"
     },
-    "autoUpdateGreenDesc": "La version sans installation vérifie la disponibilité de nouvelles versions, mais ne les télécharge ni ne les installe automatiquement. Téléchargez la dernière version manuellement et remplacez le dossier actuel."
+    "autoUpdateGreenDesc": "La version sans installation vérifie la disponibilité de nouvelles versions, mais ne les télécharge ni ne les installe automatiquement. Téléchargez la dernière version manuellement et remplacez le dossier actuel.",
+    "sections": {
+      "interface": "Interface",
+      "editor": "Éditeur"
+    }
   },
   "sync": {
     "title": "Synchronisation",
@@ -615,7 +626,16 @@
     "creative": "Créatif",
     "random": "Aléatoire",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Limite maximale de jeton par réponse"
+    "maxTokensDesc": "Limite maximale de jeton par réponse",
+    "sections": {
+      "chat": "Modèles de conversation",
+      "chatDesc": "Modèle par défaut pour chaque mode de session",
+      "auxiliary": "Modèles auxiliaires",
+      "auxiliaryDesc": "Modèles utilisés pour les titres, résumés et autres tâches en arrière-plan",
+      "sampling": "Échantillonnage",
+      "samplingDesc": "Température, top-p et effort de raisonnement"
+    },
+    "selectProvider": "Choisir un fournisseur"
   },
   "plugin": {
     "title": "Greffons",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Fournisseur manquant",
       "ready": "Prêt",
       "unsupportedAuth": "Authentification non prise en charge"
-    }
+    },
+    "title": "Codage IA",
+    "subtitle": "Configuration de Claude Code et Codex"
   },
   "codegraph": {
     "subtitle": "Visualisation de l'index par projet : statistiques, fichiers et graphe de symboles",
@@ -1771,5 +1793,23 @@
       "title": "Liste blanche d'outils"
     },
     "wildcardHelp": "Les modèles génériques correspondent à la commande entière et * correspond à n'importe quel texte — par ex. npm run *. Les règles regex de liste blanche doivent correspondre à la commande entière ; les règles regex de liste noire correspondent n'importe où. Chaque partie d'une commande composée (&&, ;, |) doit être en liste blanche. La correspondance ne tient pas compte de la casse."
+  },
+  "runtime": {
+    "title": "Exécution et performances",
+    "subtitle": "Concurrence, délais et compression du contexte",
+    "sections": {
+      "concurrency": "Concurrence",
+      "concurrencyDesc": "Appels d'outils parallèles et limites des sous-agents",
+      "tooling": "Sortie des outils",
+      "toolingDesc": "Façon dont les résultats d'outils sont renvoyés au modèle",
+      "advanced": "Avancé",
+      "advancedDesc": "Mode développeur et diagnostics"
+    }
+  },
+  "data": {
+    "title": "Mises à jour et données",
+    "subtitle": "Mises à jour, sauvegardes, migration et réinitialisation",
+    "dangerZone": "Zone sensible",
+    "dangerZoneDesc": "Ces actions sont irréversibles"
   }
 }

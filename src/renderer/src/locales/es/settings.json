@@ -9,8 +9,15 @@
       "ai": "Capacidades de inteligencia",
       "extensions": "Extensiones & integraciones",
       "about": "Acerca de",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Cuenta y apariencia",
+      "agent": "Agente",
+      "more": "Más"
+    },
+    "back": "Atrás",
+    "searchPlaceholder": "Buscar ajustes",
+    "searchClear": "Borrar",
+    "searchEmpty": "No hay ajustes coincidentes"
   },
   "pet": {
     "title": "Mascota de escritorio",
@@ -249,7 +256,11 @@
       "cleared": "Suprimido {{count}} períodos de sesiones",
       "noSessions": "No hay sesiones disponibles"
     },
-    "autoUpdateGreenDesc": "La compilación sin instalación comprueba si hay nuevas versiones, pero no las descarga ni instala automáticamente. Descargue la última versión manualmente y reemplace la carpeta actual."
+    "autoUpdateGreenDesc": "La compilación sin instalación comprueba si hay nuevas versiones, pero no las descarga ni instala automáticamente. Descargue la última versión manualmente y reemplace la carpeta actual.",
+    "sections": {
+      "interface": "Interfaz",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Sync",
@@ -615,7 +626,16 @@
     "creative": "Creativo",
     "random": "Aleatorio",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Límite máximo de token por respuesta"
+    "maxTokensDesc": "Límite máximo de token por respuesta",
+    "sections": {
+      "chat": "Modelos de chat",
+      "chatDesc": "Modelo predeterminado para cada modo de sesión",
+      "auxiliary": "Modelos auxiliares",
+      "auxiliaryDesc": "Modelos usados para títulos, resúmenes y otras tareas en segundo plano",
+      "sampling": "Muestreo",
+      "samplingDesc": "Temperatura, top-p y esfuerzo de razonamiento"
+    },
+    "selectProvider": "Seleccionar proveedor"
   },
   "plugin": {
     "title": "Plugins",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Falta el proveedor",
       "ready": "Listo",
       "unsupportedAuth": "Autenticación no compatible"
-    }
+    },
+    "title": "Programación con IA",
+    "subtitle": "Configuración de Claude Code y Codex"
   },
   "codegraph": {
     "subtitle": "Visualización del índice por proyecto: estadísticas, archivos y un grafo de símbolos",
@@ -1771,5 +1793,23 @@
       "title": "Lista blanca de herramientas"
     },
     "wildcardHelp": "Los patrones comodín coinciden con el comando completo y * coincide con cualquier texto — p. ej., npm run *. Las reglas de lista blanca con regex deben coincidir con el comando completo; las reglas de lista negra con regex coinciden en cualquier parte. Cada parte de un comando compuesto (&&, ;, |) debe estar en la lista blanca. La coincidencia no distingue mayúsculas de minúsculas."
+  },
+  "runtime": {
+    "title": "Ejecución y rendimiento",
+    "subtitle": "Concurrencia, tiempos de espera y compresión de contexto",
+    "sections": {
+      "concurrency": "Concurrencia",
+      "concurrencyDesc": "Llamadas de herramientas en paralelo y límites de subagentes",
+      "tooling": "Salida de herramientas",
+      "toolingDesc": "Cómo se devuelven los resultados de las herramientas al modelo",
+      "advanced": "Avanzado",
+      "advancedDesc": "Modo desarrollador y diagnósticos"
+    }
+  },
+  "data": {
+    "title": "Actualizaciones y datos",
+    "subtitle": "Actualizaciones, copias de seguridad, migración y restablecimiento",
+    "dangerZone": "Zona de riesgo",
+    "dangerZoneDesc": "Estas acciones no se pueden deshacer"
   }
 }

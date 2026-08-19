@@ -19,6 +19,8 @@ import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { useExtensionStore, type ExtensionAggregateInfo } from '@renderer/stores/extension-store'
 import { refreshExtensionTools } from '@renderer/lib/extensions/extension-tools'
+import { SettingsPanel } from './settings-primitives'
+import { SkillsMarketPanel } from './SkillsMarketPanel'
 import type { ExtensionInstance } from '../../../../shared/extension-types'
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string
@@ -604,33 +606,25 @@ export function ExtensionPanel(): React.JSX.Element {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col px-6 py-6">
-      <div className="flex shrink-0 items-start justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">
-            {t('extension.title', { defaultValue: 'Extensions' })}
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-            {t('extension.subtitle', {
-              defaultValue:
-                'Install local extensions that add custom Agent tools and response UI components.'
-            })}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button className="gap-2" onClick={() => void handleInstall()}>
-            <FolderPlus className="size-4" />
-            {t('extension.installFolder', { defaultValue: 'Install folder' })}
-          </Button>
-        </div>
-      </div>
-
+    <SettingsPanel
+      title={t('extension.title', { defaultValue: 'Extensions' })}
+      description={t('extension.subtitle', {
+        defaultValue:
+          'Install local extensions that add custom Agent tools and response UI components.'
+      })}
+      actions={
+        <Button className="gap-2" onClick={() => void handleInstall()}>
+          <FolderPlus className="size-4" />
+          {t('extension.installFolder', { defaultValue: 'Install folder' })}
+        </Button>
+      }
+    >
       {!loaded ? (
-        <div className="mt-5 rounded-xl border border-border/60 bg-background p-6 text-sm text-muted-foreground">
+        <div className="rounded-xl border border-border/60 bg-background p-6 text-sm text-muted-foreground">
           {t('extension.loading', { defaultValue: 'Loading extensions...' })}
         </div>
       ) : extensions.length === 0 ? (
-        <div className="mt-5 rounded-xl border border-dashed border-border/70 bg-background p-8 text-center">
+        <div className="rounded-xl border border-dashed border-border/70 bg-background p-8 text-center">
           <Puzzle className="mx-auto size-8 text-muted-foreground/60" />
           <div className="mt-3 text-sm font-medium text-foreground">
             {t('extension.emptyTitle', { defaultValue: 'No extensions installed' })}
@@ -643,7 +637,7 @@ export function ExtensionPanel(): React.JSX.Element {
           </p>
         </div>
       ) : (
-        <div className="-mx-1 mt-5 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+        <div>
           <div className="grid gap-3 sm:grid-cols-2">
             {extensions.map((extension) => (
               <ExtensionCard
@@ -656,6 +650,8 @@ export function ExtensionPanel(): React.JSX.Element {
         </div>
       )}
 
+      <SkillsMarketPanel />
+
       {openExtension ? (
         <ExtensionDetailDialog
           extension={openExtension}
@@ -663,6 +659,6 @@ export function ExtensionPanel(): React.JSX.Element {
           onOpenChange={(next) => setOpenId(next ? openExtension.id : null)}
         />
       ) : null}
-    </div>
+    </SettingsPanel>
   )
 }

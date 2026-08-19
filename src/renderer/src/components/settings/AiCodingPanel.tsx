@@ -449,7 +449,14 @@ function CodexEditor({
   )
 }
 
-export function AiCodingPanel({ kind }: { kind: AiCodingPanelKind }): React.JSX.Element {
+export function AiCodingPanel({
+  kind,
+  hideHeader = false
+}: {
+  kind: AiCodingPanelKind
+  /** Set when a host page already renders the title, e.g. the merged AI Coding tab. */
+  hideHeader?: boolean
+}): React.JSX.Element {
   const { t } = useTranslation('settings')
   const settings = useSettingsStore()
   const providers = useProviderStore((state) => state.providers)
@@ -537,14 +544,16 @@ export function AiCodingPanel({ kind }: { kind: AiCodingPanelKind }): React.JSX.
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">
-          {kind === 'claude' ? t('aiCoding.claudeTitle') : t('aiCoding.codexTitle')}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {kind === 'claude' ? t('aiCoding.claudeSubtitle') : t('aiCoding.codexSubtitle')}
-        </p>
-      </div>
+      {hideHeader ? null : (
+        <div>
+          <h2 className="text-lg font-semibold">
+            {kind === 'claude' ? t('aiCoding.claudeTitle') : t('aiCoding.codexTitle')}
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {kind === 'claude' ? t('aiCoding.claudeSubtitle') : t('aiCoding.codexSubtitle')}
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)]">
         <ConfigList

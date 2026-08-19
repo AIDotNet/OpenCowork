@@ -9,8 +9,15 @@
       "ai": "AI Yetenekleri",
       "extensions": "Extensions & Integrations",
       "about": "About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About About",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Hesap ve Görünüm",
+      "agent": "Ajan",
+      "more": "Daha Fazla"
+    },
+    "back": "Geri",
+    "searchPlaceholder": "Ayarlarda ara",
+    "searchClear": "Temizle",
+    "searchEmpty": "Eşleşen ayar yok"
   },
   "pet": {
     "title": "Masaüstü Evcil Hayvanı",
@@ -249,7 +256,11 @@
       "cleared": "Deleted {{count}} seans seans oturumları",
       "noSessions": "Hiçbir seans mevcut"
     },
-    "autoUpdateGreenDesc": "Kurulumsuz sürüm yeni sürümleri kontrol eder ancak bunları otomatik olarak indirmez veya kurmaz. En son sürümü manuel olarak indirin ve mevcut klasörü değiştirin."
+    "autoUpdateGreenDesc": "Kurulumsuz sürüm yeni sürümleri kontrol eder ancak bunları otomatik olarak indirmez veya kurmaz. En son sürümü manuel olarak indirin ve mevcut klasörü değiştirin.",
+    "sections": {
+      "interface": "Arayüz",
+      "editor": "Düzenleyici"
+    }
   },
   "sync": {
     "title": "Sen",
@@ -615,7 +626,16 @@
     "creative": "Creative Creative Creative",
     "random": "Random",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "En fazla token limit per response"
+    "maxTokensDesc": "En fazla token limit per response",
+    "sections": {
+      "chat": "Sohbet Modelleri",
+      "chatDesc": "Her oturum modu için varsayılan model",
+      "auxiliary": "Yardımcı Modeller",
+      "auxiliaryDesc": "Başlık, özet ve diğer arka plan görevleri için kullanılan modeller",
+      "sampling": "Örnekleme",
+      "samplingDesc": "Sıcaklık, top-p ve akıl yürütme düzeyi"
+    },
+    "selectProvider": "Sağlayıcı seç"
   },
   "plugin": {
     "title": "Plugins",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Sağlayıcı eksik",
       "ready": "Hazır",
       "unsupportedAuth": "Desteklenmeyen kimlik doğrulama"
-    }
+    },
+    "title": "AI ile Kodlama",
+    "subtitle": "Claude Code ve Codex yapılandırması"
   },
   "codegraph": {
     "subtitle": "Proje başına dizin görselleştirmesi: istatistikler, dosyalar ve sembol grafiği",
@@ -1771,5 +1793,23 @@
       "title": "Araç beyaz listesi"
     },
     "wildcardHelp": "Joker karakter desenleri komutun tamamıyla eşleşir ve * herhangi bir metinle eşleşir — örn. npm run *. Regex beyaz liste kuralları komutun tamamıyla eşleşmelidir; regex kara liste kuralları herhangi bir yerde eşleşebilir. Bileşik bir komutun (&&, ;, |) her parçası beyaz listede olmalıdır. Eşleştirme büyük/küçük harfe duyarlı değildir."
+  },
+  "runtime": {
+    "title": "Çalışma ve Performans",
+    "subtitle": "Eşzamanlılık, zaman aşımı ve bağlam sıkıştırma",
+    "sections": {
+      "concurrency": "Eşzamanlılık",
+      "concurrencyDesc": "Paralel araç çağrıları ve alt ajan sınırları",
+      "tooling": "Araç Çıktısı",
+      "toolingDesc": "Araç sonuçlarının modele nasıl döndürüleceği",
+      "advanced": "Gelişmiş",
+      "advancedDesc": "Geliştirici modu ve tanılama"
+    }
+  },
+  "data": {
+    "title": "Güncellemeler ve Veriler",
+    "subtitle": "Uygulama güncellemeleri, yedekleme, taşıma ve sıfırlama",
+    "dangerZone": "Tehlikeli Bölge",
+    "dangerZoneDesc": "Bu işlemler geri alınamaz"
   }
 }

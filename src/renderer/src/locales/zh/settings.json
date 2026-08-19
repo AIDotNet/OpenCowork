@@ -9,8 +9,15 @@
       "ai": "AI 能力",
       "aiCoding": "AI Coding",
       "extensions": "扩展与集成",
-      "about": "关于"
-    }
+      "about": "关于",
+      "account": "账户与外观",
+      "agent": "智能体",
+      "more": "更多"
+    },
+    "back": "返回",
+    "searchPlaceholder": "搜索设置",
+    "searchClear": "清除",
+    "searchEmpty": "没有匹配的设置"
   },
   "pet": {
     "title": "桌面宠物",
@@ -378,6 +385,10 @@
       "clearConfirm": "确定删除全部 {{count}} 个会话？该操作不可撤销。",
       "cleared": "已删除 {{count}} 个会话",
       "noSessions": "没有可用的会话"
+    },
+    "sections": {
+      "interface": "界面",
+      "editor": "编辑器"
     }
   },
   "sync": {
@@ -744,7 +755,16 @@
     "creative": "创意",
     "random": "随机",
     "maxTokens": "最大 Token 数",
-    "maxTokensDesc": "单次响应的最大 Token 限制"
+    "maxTokensDesc": "单次响应的最大 Token 限制",
+    "sections": {
+      "chat": "对话模型",
+      "chatDesc": "各会话模式的默认模型",
+      "auxiliary": "辅助模型",
+      "auxiliaryDesc": "用于标题、摘要等后台任务的模型",
+      "sampling": "采样参数",
+      "samplingDesc": "温度、Top-P 与推理强度"
+    },
+    "selectProvider": "选择服务商"
   },
   "codegraph": {
     "title": "代码图谱",
@@ -1760,7 +1780,9 @@
       "baseUrlMissing": "Base URL 缺失",
       "modelMissing": "模型缺失",
       "protocolUnsupported": "协议不匹配"
-    }
+    },
+    "title": "AI 编程",
+    "subtitle": "Claude Code 与 Codex 配置"
   },
   "shortcuts": {
     "title": "键盘快捷键",
@@ -1797,5 +1819,23 @@
     "copyConversation": "复制对话",
     "allowTool": "允许工具执行",
     "denyTool": "拒绝工具执行"
+  },
+  "runtime": {
+    "title": "运行与性能",
+    "subtitle": "并发、超时与上下文压缩",
+    "sections": {
+      "concurrency": "并发",
+      "concurrencyDesc": "并行工具调用与子智能体上限",
+      "tooling": "工具输出",
+      "toolingDesc": "工具结果返回给模型的方式",
+      "advanced": "高级",
+      "advancedDesc": "开发者模式与诊断"
+    }
+  },
+  "data": {
+    "title": "更新与数据",
+    "subtitle": "应用更新、备份、迁移与重置",
+    "dangerZone": "危险操作",
+    "dangerZoneDesc": "这些操作不可撤销"
   }
 }

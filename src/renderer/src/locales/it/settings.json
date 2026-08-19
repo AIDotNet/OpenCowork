@@ -9,8 +9,15 @@
       "ai": "Capacità AI",
       "extensions": "Estensioni e integrazioni",
       "about": "Informazioni su",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Account e aspetto",
+      "agent": "Agente",
+      "more": "Altro"
+    },
+    "back": "Indietro",
+    "searchPlaceholder": "Cerca nelle impostazioni",
+    "searchClear": "Cancella",
+    "searchEmpty": "Nessuna impostazione corrispondente"
   },
   "pet": {
     "title": "Animale da scrivania",
@@ -249,7 +256,11 @@
       "cleared": "Eliminato {{count}} sessioni",
       "noSessions": "Nessuna sessione disponibile"
     },
-    "autoUpdateGreenDesc": "La build senza installazione controlla la disponibilità di nuove versioni, ma non le scarica né le installa automaticamente. Scarica manualmente l'ultima versione e sostituisci la cartella corrente."
+    "autoUpdateGreenDesc": "La build senza installazione controlla la disponibilità di nuove versioni, ma non le scarica né le installa automaticamente. Scarica manualmente l'ultima versione e sostituisci la cartella corrente.",
+    "sections": {
+      "interface": "Interfaccia",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Traduzione:",
@@ -615,7 +626,16 @@
     "creative": "Creativo",
     "random": "Random",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Limite massimo di token per risposta"
+    "maxTokensDesc": "Limite massimo di token per risposta",
+    "sections": {
+      "chat": "Modelli di chat",
+      "chatDesc": "Modello predefinito per ogni modalità di sessione",
+      "auxiliary": "Modelli ausiliari",
+      "auxiliaryDesc": "Modelli usati per titoli, riepiloghi e altre attività in background",
+      "sampling": "Campionamento",
+      "samplingDesc": "Temperatura, top-p e livello di ragionamento"
+    },
+    "selectProvider": "Seleziona provider"
   },
   "plugin": {
     "title": "Plugin",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Provider mancante",
       "ready": "Pronto",
       "unsupportedAuth": "Autenticazione non supportata"
-    }
+    },
+    "title": "Programmazione con IA",
+    "subtitle": "Configurazione di Claude Code e Codex"
   },
   "codegraph": {
     "subtitle": "Visualizzazione dell'indice per progetto: statistiche, file e grafo dei simboli",
@@ -1771,5 +1793,23 @@
       "title": "Whitelist degli strumenti"
     },
     "wildcardHelp": "I pattern wildcard corrispondono all'intero comando e * corrisponde a qualsiasi testo — ad es. npm run *. Le regole regex in whitelist devono corrispondere all'intero comando; le regole regex in blacklist corrispondono ovunque. Ogni parte di un comando composto (&&, ;, |) deve essere in whitelist. La corrispondenza non distingue maiuscole/minuscole."
+  },
+  "runtime": {
+    "title": "Esecuzione e prestazioni",
+    "subtitle": "Concorrenza, timeout e compressione del contesto",
+    "sections": {
+      "concurrency": "Concorrenza",
+      "concurrencyDesc": "Chiamate di strumenti in parallelo e limiti dei sub-agenti",
+      "tooling": "Output degli strumenti",
+      "toolingDesc": "Come i risultati degli strumenti vengono restituiti al modello",
+      "advanced": "Avanzate",
+      "advancedDesc": "Modalità sviluppatore e diagnostica"
+    }
+  },
+  "data": {
+    "title": "Aggiornamenti e dati",
+    "subtitle": "Aggiornamenti dell'app, backup, migrazione e ripristino",
+    "dangerZone": "Zona pericolosa",
+    "dangerZoneDesc": "Queste azioni non possono essere annullate"
   }
 }

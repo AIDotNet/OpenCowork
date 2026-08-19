@@ -9,8 +9,15 @@
       "ai": "AI Mogelijkheden",
       "extensions": "Uitbreidingen en integraties",
       "about": "Info",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Account en weergave",
+      "agent": "Agent",
+      "more": "Meer"
+    },
+    "back": "Terug",
+    "searchPlaceholder": "Instellingen zoeken",
+    "searchClear": "Wissen",
+    "searchEmpty": "Geen overeenkomende instellingen"
   },
   "pet": {
     "title": "Bureaublad-huisdier",
@@ -249,7 +256,11 @@
       "cleared": "Verwijderd {{count}} zittingen",
       "noSessions": "Geen sessies beschikbaar"
     },
-    "autoUpdateGreenDesc": "De installatievrije build controleert op nieuwe versies, maar downloadt of installeert ze niet automatisch. Download de nieuwste versie handmatig en vervang de huidige map."
+    "autoUpdateGreenDesc": "De installatievrije build controleert op nieuwe versies, maar downloadt of installeert ze niet automatisch. Download de nieuwste versie handmatig en vervang de huidige map.",
+    "sections": {
+      "interface": "Interface",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Synchroniseren",
@@ -615,7 +626,16 @@
     "creative": "Creatief",
     "random": "Willekeurig",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Maximum tokenlimiet per respons"
+    "maxTokensDesc": "Maximum tokenlimiet per respons",
+    "sections": {
+      "chat": "Chatmodellen",
+      "chatDesc": "Standaardmodel voor elke sessiemodus",
+      "auxiliary": "Hulpmodellen",
+      "auxiliaryDesc": "Modellen voor titels, samenvattingen en andere achtergrondtaken",
+      "sampling": "Sampling",
+      "samplingDesc": "Temperatuur, top-p en redeneerinspanning"
+    },
+    "selectProvider": "Provider selecteren"
   },
   "plugin": {
     "title": "Plugins",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Provider ontbreekt",
       "ready": "Gereed",
       "unsupportedAuth": "Niet-ondersteunde authenticatie"
-    }
+    },
+    "title": "AI-coderen",
+    "subtitle": "Configuratie van Claude Code en Codex"
   },
   "codegraph": {
     "subtitle": "Visualisatie van de index per project: statistieken, bestanden en een symbolengraaf",
@@ -1771,5 +1793,23 @@
       "title": "Hulpmiddelenwhitelist"
     },
     "wildcardHelp": "Jokertekenpatronen komen overeen met de volledige opdracht en * komt overeen met elke tekst — bijv. npm run *. Regex-whitelistregels moeten overeenkomen met de volledige opdracht; regex-blacklistregels komen overal overeen. Elk onderdeel van een samengestelde opdracht (&&, ;, |) moet op de whitelist staan. Overeenkomsten zijn niet hoofdlettergevoelig."
+  },
+  "runtime": {
+    "title": "Uitvoering en prestaties",
+    "subtitle": "Gelijktijdigheid, time-outs en contextcompressie",
+    "sections": {
+      "concurrency": "Gelijktijdigheid",
+      "concurrencyDesc": "Parallelle toolaanroepen en limieten voor subagents",
+      "tooling": "Tooluitvoer",
+      "toolingDesc": "Hoe toolresultaten aan het model worden teruggegeven",
+      "advanced": "Geavanceerd",
+      "advancedDesc": "Ontwikkelaarsmodus en diagnostiek"
+    }
+  },
+  "data": {
+    "title": "Updates en gegevens",
+    "subtitle": "App-updates, back-ups, migratie en resetten",
+    "dangerZone": "Gevarenzone",
+    "dangerZoneDesc": "Deze acties kunnen niet ongedaan worden gemaakt"
   }
 }

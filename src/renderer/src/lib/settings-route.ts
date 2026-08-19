@@ -1,34 +1,16 @@
-import type { SettingsTab } from '@renderer/stores/ui-store'
+import {
+  DEFAULT_SETTINGS_TAB,
+  resolveSettingsTab,
+  type SettingsTabId
+} from '@renderer/lib/settings-tabs'
+
+export { DEFAULT_SETTINGS_TAB } from '@renderer/lib/settings-tabs'
 
 export interface SettingsRouteState {
-  tab: SettingsTab
+  tab: SettingsTabId
   explicitTab: boolean
   canonicalHash: string
 }
-
-export const DEFAULT_SETTINGS_TAB: SettingsTab = 'profile'
-
-const VALID_SETTINGS_TABS: ReadonlySet<SettingsTab> = new Set([
-  'profile',
-  'general',
-  'system',
-  'memory',
-  'analytics',
-  'migration',
-  'provider',
-  'modelManagement',
-  'model',
-  'aiCodingClaudeCode',
-  'aiCodingCodex',
-  'plugin',
-  'extension',
-  'hooks',
-  'channel',
-  'mcp',
-  'websearch',
-  'skillsmarket',
-  'about'
-])
 
 function normalizeHash(hash: string): string {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
@@ -37,15 +19,11 @@ function normalizeHash(hash: string): string {
   return path.startsWith('/') ? path : `/${path}`
 }
 
-export function isSettingsTab(value: string): value is SettingsTab {
-  return VALID_SETTINGS_TABS.has(value as SettingsTab)
+export function buildSettingsRoute(tab?: string | null): string {
+  return `#/settings/${encodeURIComponent(resolveSettingsTab(tab) ?? DEFAULT_SETTINGS_TAB)}`
 }
 
-export function buildSettingsRoute(tab?: SettingsTab | null): string {
-  return `#/settings/${encodeURIComponent(tab ?? DEFAULT_SETTINGS_TAB)}`
-}
-
-export function replaceSettingsRoute(tab?: SettingsTab | null): void {
+export function replaceSettingsRoute(tab?: string | null): void {
   const nextHash = buildSettingsRoute(tab)
   if (window.location.hash === nextHash) return
   window.history.replaceState(null, '', nextHash)
@@ -58,19 +36,13 @@ export function parseSettingsRoute(hash: string): SettingsRouteState | null {
   if (segments[0] !== 'settings') return null
 
   const rawTab = decodeURIComponent(segments[1] ?? '')
-  if (!rawTab) {
-    return {
-      tab: DEFAULT_SETTINGS_TAB,
-      explicitTab: false,
-      canonicalHash: buildSettingsRoute(DEFAULT_SETTINGS_TAB)
-    }
-  }
+  const resolved = resolveSettingsTab(rawTab)
 
-  if (isSettingsTab(rawTab)) {
+  if (resolved) {
     return {
-      tab: rawTab,
+      tab: resolved,
       explicitTab: true,
-      canonicalHash: buildSettingsRoute(rawTab)
+      canonicalHash: buildSettingsRoute(resolved)
     }
   }
 

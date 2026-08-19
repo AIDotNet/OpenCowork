@@ -1,17 +1,21 @@
 import { useState, useCallback } from 'react'
-import { Key, ExternalLink, Wand2, RefreshCw } from 'lucide-react'
+import { ExternalLink, Key, RefreshCw, Wand2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
-import { Separator } from '@renderer/components/ui/separator'
 import { toast } from 'sonner'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { SettingHint, SettingRow, SettingsSection } from './settings-primitives'
 
 const SKILLS_MARKET_DOCS_URL = 'https://skills.open-cowork.shop/docs'
 const SKILLS_MARKET_DASHBOARD_URL = 'https://skills.open-cowork.shop/dashboard'
 const SKILLS_MARKET_BASE_URL = 'https://skills.open-cowork.shop'
 
+/**
+ * Renders as a section rather than a page: the skills market is only an API key
+ * plus a connectivity check, so it lives inside the Extensions tab.
+ */
 export function SkillsMarketPanel(): React.JSX.Element {
   const { t } = useTranslation('settings')
   const settings = useSettingsStore()
@@ -42,21 +46,34 @@ export function SkillsMarketPanel(): React.JSX.Element {
   }, [settings, t])
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold">{t('skillsmarket.title')}</h2>
-        <p className="text-sm text-muted-foreground">{t('skillsmarket.subtitle')}</p>
-      </div>
-
-      <Separator />
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <label className="text-sm font-medium">{t('skillsmarket.apiKey')}</label>
-            <p className="text-xs text-muted-foreground">{t('skillsmarket.apiKeyDesc')}</p>
-          </div>
-          <Key className="size-4 text-muted-foreground" />
-        </div>
+    <SettingsSection
+      id="skills-market"
+      icon={<Wand2 className="size-4" />}
+      title={t('skillsmarket.title')}
+      description={t('skillsmarket.subtitle')}
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => void handleTestConnection()}
+          disabled={testing}
+        >
+          <RefreshCw className={`size-3.5 ${testing ? 'animate-spin' : ''}`} />
+          {testing ? t('skillsmarket.testing') : t('skillsmarket.test')}
+        </Button>
+      }
+    >
+      <SettingRow
+        layout="stack"
+        label={
+          <span className="flex items-center gap-2">
+            <Key className="size-3.5 text-muted-foreground" />
+            {t('skillsmarket.apiKey')}
+          </span>
+        }
+        description={t('skillsmarket.apiKeyDesc')}
+      >
         <Input
           type="password"
           placeholder={t('skillsmarket.apiKeyPlaceholder')}
@@ -64,7 +81,7 @@ export function SkillsMarketPanel(): React.JSX.Element {
           onChange={(e) => settings.updateSettings({ skillsMarketApiKey: e.target.value })}
           className="max-w-sm"
         />
-        <div className="flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -84,57 +101,25 @@ export function SkillsMarketPanel(): React.JSX.Element {
             {t('skillsmarket.openDocs')}
           </Button>
         </div>
+      </SettingRow>
 
-        {/* Info card */}
-        <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Wand2 className="size-4 text-primary" />
-            OpenCoWork Skills
-          </div>
-          <p className="text-xs text-muted-foreground">{t('skillsmarket.skillsmpInfo')}</p>
-          <Button
-            variant="link"
-            size="sm"
-            className="h-auto p-0 text-xs text-primary"
-            onClick={() => window.open(SKILLS_MARKET_BASE_URL, '_blank', 'noopener')}
-          >
-            skills.open-cowork.shop <ExternalLink className="ml-1 size-2.5" />
-          </Button>
-        </div>
-      </section>
-
-      <Separator />
-
-      {/* Test Connection */}
-      <section className="space-y-3">
+      <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
+        <p className="text-xs text-muted-foreground">{t('skillsmarket.skillsmpInfo')}</p>
         <Button
-          variant="outline"
+          variant="link"
           size="sm"
-          className="gap-1.5 text-xs"
-          onClick={() => void handleTestConnection()}
-          disabled={testing}
+          className="h-auto p-0 text-xs text-primary"
+          onClick={() => window.open(SKILLS_MARKET_BASE_URL, '_blank', 'noopener')}
         >
-          <RefreshCw className={`size-3.5 ${testing ? 'animate-spin' : ''}`} />
-          {testing ? t('skillsmarket.testing') : t('skillsmarket.test')}
+          skills.open-cowork.shop <ExternalLink className="ml-1 size-2.5" />
         </Button>
-        <p className="text-xs text-muted-foreground/70">{t('skillsmarket.testDesc')}</p>
-      </section>
+        <p className="mt-2 text-xs text-muted-foreground">
+          <strong>{t('skillsmarket.apiKey')}:</strong>{' '}
+          {settings.skillsMarketApiKey ? '********' : t('skillsmarket.notSet')}
+        </p>
+      </div>
 
-      <Separator />
-
-      {/* Configuration Summary */}
-      <section className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-4">
-        <h3 className="text-sm font-medium">{t('skillsmarket.configSummary')}</h3>
-        <div className="text-xs space-y-1 text-muted-foreground">
-          <p>
-            <strong>{t('skillsmarket.provider')}:</strong> OpenCoWork Skills
-          </p>
-          <p>
-            <strong>{t('skillsmarket.apiKey')}:</strong>{' '}
-            {settings.skillsMarketApiKey ? '********' : t('skillsmarket.notSet')}
-          </p>
-        </div>
-      </section>
-    </div>
+      <SettingHint>{t('skillsmarket.testDesc')}</SettingHint>
+    </SettingsSection>
   )
 }

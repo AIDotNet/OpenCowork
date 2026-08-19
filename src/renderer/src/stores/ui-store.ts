@@ -11,11 +11,13 @@ import {
 import { ipcStorage } from '@renderer/lib/ipc/ipc-storage'
 import { parseChatRoute, replaceChatRoute } from '@renderer/lib/chat-route'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { parseSettingsRoute, replaceSettingsRoute } from '@renderer/lib/settings-route'
 import {
   DEFAULT_SETTINGS_TAB,
-  parseSettingsRoute,
-  replaceSettingsRoute
-} from '@renderer/lib/settings-route'
+  resolveSettingsTab,
+  type LegacySettingsTab,
+  type SettingsTabId
+} from '@renderer/lib/settings-tabs'
 
 export type AppMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
 
@@ -211,29 +213,11 @@ export interface BrowserPanelSessionState {
   errorInfo: BrowserErrorInfo | null
 }
 
-export type SettingsTab =
-  | 'profile'
-  | 'general'
-  | 'permission'
-  | 'system'
-  | 'memory'
-  | 'analytics'
-  | 'migration'
-  | 'provider'
-  | 'modelManagement'
-  | 'model'
-  | 'aiCodingClaudeCode'
-  | 'aiCodingCodex'
-  | 'plugin'
-  | 'codegraph'
-  | 'extension'
-  | 'hooks'
-  | 'channel'
-  | 'mcp'
-  | 'websearch'
-  | 'skillsmarket'
-  | 'pet'
-  | 'about'
+/**
+ * Canonical settings tabs live in `settings-nav`. Legacy ids are still accepted
+ * so persisted state and old deep links resolve instead of throwing.
+ */
+export type SettingsTab = SettingsTabId | LegacySettingsTab
 
 export type DetailPanelContent =
   | { type: 'team' }
@@ -392,10 +376,8 @@ interface UIStore {
   setIsHoveringRightPanel: (hovering: boolean) => void
   runtimeStatusPanelTriggerHovered: boolean
   setRuntimeStatusPanelTriggerHovered: (hovering: boolean) => void
-  settingsOpen: boolean
-  setSettingsOpen: (open: boolean) => void
   settingsPageOpen: boolean
-  settingsTab: SettingsTab
+  settingsTab: SettingsTabId
   openSettingsPage: (tab?: SettingsTab) => void
   closeSettingsPage: () => void
   setSettingsTab: (tab: SettingsTab) => void
@@ -1405,15 +1387,12 @@ export const useUIStore = create<UIStore>()(
       runtimeStatusPanelTriggerHovered: false,
       setRuntimeStatusPanelTriggerHovered: (hovering) =>
         set({ runtimeStatusPanelTriggerHovered: hovering }),
-      settingsOpen: false,
-      setSettingsOpen: (open) => set({ settingsOpen: open }),
       settingsPageOpen: false,
       settingsTab: DEFAULT_SETTINGS_TAB,
       openSettingsPage: (tab) => {
-        const nextTab = tab ?? DEFAULT_SETTINGS_TAB
+        const nextTab = resolveSettingsTab(tab) ?? DEFAULT_SETTINGS_TAB
         set({
           settingsPageOpen: true,
-          settingsOpen: false,
           settingsTab: nextTab,
           skillsPageOpen: false,
           soulsPageOpen: false,
@@ -1435,9 +1414,10 @@ export const useUIStore = create<UIStore>()(
         }
       },
       setSettingsTab: (tab) => {
-        set({ settingsTab: tab })
+        const nextTab = resolveSettingsTab(tab) ?? DEFAULT_SETTINGS_TAB
+        set({ settingsTab: nextTab })
         if (get().settingsPageOpen || parseSettingsRoute(window.location.hash)) {
-          replaceSettingsRoute(tab)
+          replaceSettingsRoute(nextTab)
         }
       },
       skillsPageOpen: false,
@@ -2142,8 +2122,7 @@ export const useUIStore = create<UIStore>()(
         if (settingsRoute) {
           set({
             settingsPageOpen: true,
-            settingsOpen: false,
-            settingsTab: settingsRoute.tab,
+              settingsTab: settingsRoute.tab,
             skillsPageOpen: false,
             soulsPageOpen: false,
             syncPageOpen: false,

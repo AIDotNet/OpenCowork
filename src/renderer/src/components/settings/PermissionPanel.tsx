@@ -13,7 +13,9 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
+import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { useSettingsStore } from '@renderer/stores/settings-store'
+import { SettingsPanel, SettingsSection } from './settings-primitives'
 import {
   createPermissionRuleId,
   isCommandRuleTool,
@@ -28,6 +30,7 @@ const SUGGESTED_WHITELIST_TOOLS = ['Write', 'Edit', 'Delete', 'NotebookEdit']
 export function PermissionPanel(): React.JSX.Element {
   const { t } = useTranslation('settings')
   const policy = useSettingsStore((state) => state.permissionPolicy)
+  const autoApprove = useSettingsStore((state) => state.autoApprove)
   const updateSettings = useSettingsStore((state) => state.updateSettings)
   const [toolInput, setToolInput] = useState('')
 
@@ -61,45 +64,60 @@ export function PermissionPanel(): React.JSX.Element {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('permission.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('permission.subtitle')}</p>
-      </div>
+    <SettingsPanel title={t('permission.title')} description={t('permission.subtitle')}>
+      <SettingsSection
+        id="auto-approve"
+        tone={autoApprove ? 'danger' : 'default'}
+        title={t('general.autoApprove')}
+        description={t('general.autoApproveDesc')}
+        actions={
+          <Switch
+            checked={autoApprove}
+            onCheckedChange={async (checked) => {
+              if (checked) {
+                const ok = await confirm({ title: t('general.autoApproveWarning') })
+                if (!ok) return
+              }
+              updateSettings({ autoApprove: checked })
+            }}
+          />
+        }
+      >
+        {autoApprove ? (
+          <p className="text-xs text-destructive">{t('general.autoApproveWarning')}</p>
+        ) : null}
+      </SettingsSection>
 
-      <section className="rounded-2xl border bg-card p-4 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="font-medium">{t('permission.master.title')}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t('permission.master.description')}
-            </p>
-          </div>
+      <SettingsSection
+        id="whitelist-master"
+        title={t('permission.master.title')}
+        description={t('permission.master.description')}
+        actions={
           <Switch
             checked={policy.enabled}
             onCheckedChange={(checked) => setPolicy({ ...policy, enabled: checked })}
           />
+        }
+      >
+        <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+          <p>{t('permission.precedence.description')}</p>
+          <p className="mt-2">{t('permission.wildcardHelp')}</p>
         </div>
-      </section>
+      </SettingsSection>
 
-      <div className="rounded-2xl border bg-muted/20 p-4 text-sm text-muted-foreground">
-        <p>{t('permission.precedence.description')}</p>
-        <p className="mt-2">{t('permission.wildcardHelp')}</p>
-      </div>
-
-      <section className="rounded-2xl border bg-card p-4 shadow-sm">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
-          <h2 className="font-medium">{t('permission.tools.title')}</h2>
-          <Badge variant="secondary">{policy.whitelistedTools.length}</Badge>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">{t('permission.tools.description')}</p>
+      <SettingsSection
+        id="whitelist"
+        icon={<ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />}
+        title={t('permission.tools.title')}
+        description={t('permission.tools.description')}
+        actions={<Badge variant="secondary">{policy.whitelistedTools.length}</Badge>}
+      >
         {hasCommandToolWhitelisted && (
-          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
             {t('permission.tools.commandToolWarning')}
           </p>
         )}
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {policy.whitelistedTools.length === 0 && (
             <span className="text-sm text-muted-foreground">{t('permission.tools.empty')}</span>
           )}
@@ -117,7 +135,7 @@ export function PermissionPanel(): React.JSX.Element {
             </Badge>
           ))}
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="flex gap-2">
           <Input
             value={toolInput}
             placeholder={t('permission.tools.placeholder')}
@@ -133,7 +151,7 @@ export function PermissionPanel(): React.JSX.Element {
           </Button>
         </div>
         {suggestions.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">
               {t('permission.tools.suggestions')}
             </span>
@@ -146,9 +164,10 @@ export function PermissionPanel(): React.JSX.Element {
             ))}
           </div>
         )}
-      </section>
+      </SettingsSection>
 
       <RuleListSection
+        sectionId="bash-rules"
         icon={<CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" />}
         title={t('permission.bashAllow.title')}
         description={t('permission.bashAllow.description')}
@@ -157,17 +176,19 @@ export function PermissionPanel(): React.JSX.Element {
       />
 
       <RuleListSection
+        sectionId="bash-deny-rules"
         icon={<Ban className="size-4 text-red-600 dark:text-red-400" />}
         title={t('permission.bashDeny.title')}
         description={t('permission.bashDeny.description')}
         rules={policy.bashDenyRules}
         onChange={(rules) => setPolicy({ ...policy, bashDenyRules: rules })}
       />
-    </div>
+    </SettingsPanel>
   )
 }
 
 function RuleListSection(props: {
+  sectionId: string
   icon: React.ReactNode
   title: string
   description: string
@@ -189,20 +210,22 @@ function RuleListSection(props: {
   }
 
   return (
-    <section className="rounded-2xl border bg-card p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          {props.icon}
-          <h2 className="font-medium">{props.title}</h2>
+    <SettingsSection
+      id={props.sectionId}
+      icon={props.icon}
+      title={props.title}
+      description={props.description}
+      actions={
+        <>
           <Badge variant="secondary">{props.rules.length}</Badge>
-        </div>
-        <Button variant="outline" size="sm" onClick={addRule}>
-          <Plus className="mr-1 size-4" />
-          {t('permission.rules.add')}
-        </Button>
-      </div>
-      <p className="mt-1 text-sm text-muted-foreground">{props.description}</p>
-      <div className="mt-3 flex flex-col divide-y">
+          <Button variant="outline" size="sm" onClick={addRule}>
+            <Plus className="mr-1 size-4" />
+            {t('permission.rules.add')}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col divide-y">
         {props.rules.length === 0 && (
           <span className="py-2 text-sm text-muted-foreground">{t('permission.rules.empty')}</span>
         )}
@@ -210,7 +233,7 @@ function RuleListSection(props: {
           <RuleRow key={rule.id} rule={rule} onChange={updateRule} onDelete={deleteRule} />
         ))}
       </div>
-    </section>
+    </SettingsSection>
   )
 }
 

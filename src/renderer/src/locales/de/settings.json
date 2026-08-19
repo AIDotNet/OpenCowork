@@ -9,8 +9,15 @@
       "ai": "KI-Fähigkeiten",
       "extensions": "Erweiterungen & Integrationen",
       "about": "Über",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Konto & Darstellung",
+      "agent": "Agent",
+      "more": "Mehr"
+    },
+    "back": "Zurück",
+    "searchPlaceholder": "Einstellungen durchsuchen",
+    "searchClear": "Löschen",
+    "searchEmpty": "Keine passenden Einstellungen"
   },
   "pet": {
     "title": "Desktop-Haustier",
@@ -249,7 +256,11 @@
       "cleared": "Gelöscht {{count}} Sitzungen",
       "noSessions": "Keine Sitzungen verfügbar"
     },
-    "autoUpdateGreenDesc": "Der Build ohne Installation prüft auf neue Versionen, lädt sie aber nicht automatisch herunter oder installiert sie. Laden Sie die neueste Version manuell herunter und ersetzen Sie den aktuellen Ordner."
+    "autoUpdateGreenDesc": "Der Build ohne Installation prüft auf neue Versionen, lädt sie aber nicht automatisch herunter oder installiert sie. Laden Sie die neueste Version manuell herunter und ersetzen Sie den aktuellen Ordner.",
+    "sections": {
+      "interface": "Oberfläche",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Sync",
@@ -615,7 +626,16 @@
     "creative": "Kreativ",
     "random": "Zufällig",
     "maxTokens": "Max-Token",
-    "maxTokensDesc": "Maximales Token-Limit pro Antwort"
+    "maxTokensDesc": "Maximales Token-Limit pro Antwort",
+    "sections": {
+      "chat": "Chat-Modelle",
+      "chatDesc": "Standardmodell für jeden Sitzungsmodus",
+      "auxiliary": "Hilfsmodelle",
+      "auxiliaryDesc": "Modelle für Titel, Zusammenfassungen und andere Hintergrundaufgaben",
+      "sampling": "Sampling",
+      "samplingDesc": "Temperatur, Top-P und Reasoning-Aufwand"
+    },
+    "selectProvider": "Anbieter auswählen"
   },
   "plugin": {
     "title": "Plugins",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Anbieter fehlt",
       "ready": "Bereit",
       "unsupportedAuth": "Nicht unterstützte Authentifizierung"
-    }
+    },
+    "title": "KI-Coding",
+    "subtitle": "Konfiguration von Claude Code und Codex"
   },
   "codegraph": {
     "subtitle": "Index-Visualisierung pro Projekt: Statistiken, Dateien und ein Symbolgraph",
@@ -1771,5 +1793,23 @@
       "title": "Tool-Whitelist"
     },
     "wildcardHelp": "Platzhaltermuster entsprechen dem gesamten Befehl, und * entspricht beliebigem Text — z. B. npm run *. Regex-Whitelist-Regeln müssen dem gesamten Befehl entsprechen; Regex-Blacklist-Regeln passen an beliebiger Stelle. Jeder Teil eines zusammengesetzten Befehls (&&, ;, |) muss auf der Whitelist stehen. Der Abgleich unterscheidet nicht zwischen Groß- und Kleinschreibung."
+  },
+  "runtime": {
+    "title": "Laufzeit & Leistung",
+    "subtitle": "Nebenläufigkeit, Zeitlimits und Kontextkomprimierung",
+    "sections": {
+      "concurrency": "Nebenläufigkeit",
+      "concurrencyDesc": "Parallele Tool-Aufrufe und Sub-Agent-Limits",
+      "tooling": "Tool-Ausgabe",
+      "toolingDesc": "Wie Tool-Ergebnisse an das Modell zurückgegeben werden",
+      "advanced": "Erweitert",
+      "advancedDesc": "Entwicklermodus und Diagnose"
+    }
+  },
+  "data": {
+    "title": "Updates & Daten",
+    "subtitle": "App-Updates, Backups, Migration und Zurücksetzen",
+    "dangerZone": "Gefahrenzone",
+    "dangerZoneDesc": "Diese Aktionen können nicht rückgängig gemacht werden"
   }
 }

@@ -9,8 +9,15 @@
       "ai": "Capacidades AI",
       "extensions": "Extensões e Integrações",
       "about": "Sobre",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Conta e aparência",
+      "agent": "Agente",
+      "more": "Mais"
+    },
+    "back": "Voltar",
+    "searchPlaceholder": "Pesquisar configurações",
+    "searchClear": "Limpar",
+    "searchEmpty": "Nenhuma configuração correspondente"
   },
   "pet": {
     "title": "Mascote de desktop",
@@ -249,7 +256,11 @@
       "cleared": "Removido {{count}} sessões",
       "noSessions": "Nenhuma sessão disponível"
     },
-    "autoUpdateGreenDesc": "A compilação sem instalação verifica se há novas versões, mas não as transfere nem instala automaticamente. Transfira manualmente a versão mais recente e substitua a pasta atual."
+    "autoUpdateGreenDesc": "A compilação sem instalação verifica se há novas versões, mas não as transfere nem instala automaticamente. Transfira manualmente a versão mais recente e substitua a pasta atual.",
+    "sections": {
+      "interface": "Interface",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Sincronizar",
@@ -615,7 +626,16 @@
     "creative": "Criativo",
     "random": "Aleatório",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Limite máximo de token por resposta"
+    "maxTokensDesc": "Limite máximo de token por resposta",
+    "sections": {
+      "chat": "Modelos de conversa",
+      "chatDesc": "Modelo padrão para cada modo de sessão",
+      "auxiliary": "Modelos auxiliares",
+      "auxiliaryDesc": "Modelos usados para títulos, resumos e outras tarefas em segundo plano",
+      "sampling": "Amostragem",
+      "samplingDesc": "Temperatura, top-p e esforço de raciocínio"
+    },
+    "selectProvider": "Selecionar provedor"
   },
   "plugin": {
     "title": "Plugins",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Fornecedor em falta",
       "ready": "Pronto",
       "unsupportedAuth": "Autenticação não suportada"
-    }
+    },
+    "title": "Programação com IA",
+    "subtitle": "Configuração do Claude Code e do Codex"
   },
   "codegraph": {
     "subtitle": "Visualização do índice por projeto: estatísticas, ficheiros e um grafo de símbolos",
@@ -1771,5 +1793,23 @@
       "title": "Whitelist de ferramentas"
     },
     "wildcardHelp": "Os padrões wildcard correspondem ao comando inteiro e * corresponde a qualquer texto — por exemplo, npm run *. As regras de whitelist com regex têm de corresponder ao comando inteiro; as regras de blacklist com regex correspondem em qualquer parte. Cada parte de um comando composto (&&, ;, |) tem de estar na whitelist. A correspondência não é sensível a maiúsculas/minúsculas."
+  },
+  "runtime": {
+    "title": "Execução e desempenho",
+    "subtitle": "Concorrência, tempos limite e compressão de contexto",
+    "sections": {
+      "concurrency": "Concorrência",
+      "concurrencyDesc": "Chamadas de ferramentas em paralelo e limites de subagentes",
+      "tooling": "Saída das ferramentas",
+      "toolingDesc": "Como os resultados das ferramentas são devolvidos ao modelo",
+      "advanced": "Avançado",
+      "advancedDesc": "Modo desenvolvedor e diagnósticos"
+    }
+  },
+  "data": {
+    "title": "Atualizações e dados",
+    "subtitle": "Atualizações do app, backups, migração e redefinição",
+    "dangerZone": "Zona de risco",
+    "dangerZoneDesc": "Estas ações não podem ser desfeitas"
   }
 }

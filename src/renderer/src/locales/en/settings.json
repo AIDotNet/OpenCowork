@@ -9,8 +9,15 @@
       "ai": "AI Capabilities",
       "aiCoding": "AI Coding",
       "extensions": "Extensions & Integrations",
-      "about": "About"
-    }
+      "about": "About",
+      "account": "Account & Appearance",
+      "agent": "Agent",
+      "more": "More"
+    },
+    "back": "Back",
+    "searchPlaceholder": "Search settings",
+    "searchClear": "Clear",
+    "searchEmpty": "No matching settings"
   },
   "pet": {
     "title": "Desktop Pet",
@@ -378,6 +385,10 @@
       "clearConfirm": "Delete all {{count}} sessions? This cannot be undone.",
       "cleared": "Deleted {{count}} sessions",
       "noSessions": "No sessions available"
+    },
+    "sections": {
+      "interface": "Interface",
+      "editor": "Editor"
     }
   },
   "sync": {
@@ -744,7 +755,16 @@
     "creative": "Creative",
     "random": "Random",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Maximum token limit per response"
+    "maxTokensDesc": "Maximum token limit per response",
+    "sections": {
+      "chat": "Chat Models",
+      "chatDesc": "Default model for each session mode",
+      "auxiliary": "Auxiliary Models",
+      "auxiliaryDesc": "Models used for titles, summaries and other background tasks",
+      "sampling": "Sampling",
+      "samplingDesc": "Temperature, top-p and reasoning effort"
+    },
+    "selectProvider": "Select provider"
   },
   "codegraph": {
     "title": "CodeGraph",
@@ -1760,7 +1780,9 @@
       "baseUrlMissing": "Base URL missing",
       "modelMissing": "Model missing",
       "protocolUnsupported": "Protocol mismatch"
-    }
+    },
+    "title": "AI Coding",
+    "subtitle": "Claude Code and Codex configuration"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -1797,5 +1819,23 @@
     "copyConversation": "Copy conversation",
     "allowTool": "Allow tool execution",
     "denyTool": "Deny tool execution"
+  },
+  "runtime": {
+    "title": "Runtime & Performance",
+    "subtitle": "Concurrency, timeouts and context compression",
+    "sections": {
+      "concurrency": "Concurrency",
+      "concurrencyDesc": "Parallel tool calls and sub-agent limits",
+      "tooling": "Tool Output",
+      "toolingDesc": "How tool results are returned to the model",
+      "advanced": "Advanced",
+      "advancedDesc": "Developer mode and diagnostics"
+    }
+  },
+  "data": {
+    "title": "Updates & Data",
+    "subtitle": "App updates, backups, migration and reset",
+    "dangerZone": "Danger Zone",
+    "dangerZoneDesc": "These actions cannot be undone"
   }
 }

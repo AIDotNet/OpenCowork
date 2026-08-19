@@ -9,8 +9,15 @@
       "ai": "Kapasitas AI",
       "extensions": "Ekstensi & Integrasi",
       "about": "Tentang",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Akun & Tampilan",
+      "agent": "Agen",
+      "more": "Lainnya"
+    },
+    "back": "Kembali",
+    "searchPlaceholder": "Cari pengaturan",
+    "searchClear": "Hapus",
+    "searchEmpty": "Tidak ada pengaturan yang cocok"
   },
   "pet": {
     "title": "Peliharaan Desktop",
@@ -249,7 +256,11 @@
       "cleared": "Dihapus {{count}} sesi",
       "noSessions": "Tak tersedia sesi"
     },
-    "autoUpdateGreenDesc": "Build no-install memeriksa versi baru, tapi tidak mengunduh atau memasangnya secara otomatis. Unduh versi terbaru secara manual dan ganti folder saat ini."
+    "autoUpdateGreenDesc": "Build no-install memeriksa versi baru, tapi tidak mengunduh atau memasangnya secara otomatis. Unduh versi terbaru secara manual dan ganti folder saat ini.",
+    "sections": {
+      "interface": "Antarmuka",
+      "editor": "Editor"
+    }
   },
   "sync": {
     "title": "Selaraskan",
@@ -615,7 +626,16 @@
     "creative": "Kreatif",
     "random": "Acak",
     "maxTokens": "Max Tokens",
-    "maxTokensDesc": "Batas token maksimum per respon"
+    "maxTokensDesc": "Batas token maksimum per respon",
+    "sections": {
+      "chat": "Model Obrolan",
+      "chatDesc": "Model bawaan untuk setiap mode sesi",
+      "auxiliary": "Model Pendukung",
+      "auxiliaryDesc": "Model untuk judul, ringkasan, dan tugas latar belakang lainnya",
+      "sampling": "Sampling",
+      "samplingDesc": "Temperature, top-p, dan tingkat penalaran"
+    },
+    "selectProvider": "Pilih penyedia"
   },
   "plugin": {
     "title": "Pengaya",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Penyedia hilang",
       "ready": "Siap",
       "unsupportedAuth": "Auth tidak didukung"
-    }
+    },
+    "title": "Coding dengan AI",
+    "subtitle": "Konfigurasi Claude Code dan Codex"
   },
   "codegraph": {
     "subtitle": "Visualisasi indeks per proyek: statistik, berkas, dan graf simbol",
@@ -1771,5 +1793,23 @@
       "title": "Whitelist alat"
     },
     "wildcardHelp": "Pola wildcard mencocokkan seluruh perintah dan * mencocokkan teks apa pun — mis. npm run *. Aturan whitelist regex harus mencocokkan seluruh perintah; aturan blacklist regex mencocokkan di mana saja. Setiap bagian dari perintah gabungan (&&, ;, |) harus di-whitelist. Pencocokan tidak peka huruf besar/kecil."
+  },
+  "runtime": {
+    "title": "Eksekusi & Performa",
+    "subtitle": "Konkurensi, batas waktu, dan kompresi konteks",
+    "sections": {
+      "concurrency": "Konkurensi",
+      "concurrencyDesc": "Panggilan alat paralel dan batas sub-agen",
+      "tooling": "Keluaran Alat",
+      "toolingDesc": "Cara hasil alat dikembalikan ke model",
+      "advanced": "Lanjutan",
+      "advancedDesc": "Mode pengembang dan diagnostik"
+    }
+  },
+  "data": {
+    "title": "Pembaruan & Data",
+    "subtitle": "Pembaruan aplikasi, cadangan, migrasi, dan reset",
+    "dangerZone": "Zona Berbahaya",
+    "dangerZoneDesc": "Tindakan ini tidak dapat dibatalkan"
   }
 }

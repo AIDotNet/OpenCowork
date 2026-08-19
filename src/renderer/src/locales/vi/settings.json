@@ -9,8 +9,15 @@
       "ai": "Các khả năng Al",
       "extensions": "Hợp nhất phần mở rộng",
       "about": "Giới thiệu",
-      "aiCoding": "AI Coding"
-    }
+      "aiCoding": "AI Coding",
+      "account": "Tài khoản & Giao diện",
+      "agent": "Tác nhân",
+      "more": "Khác"
+    },
+    "back": "Quay lại",
+    "searchPlaceholder": "Tìm trong cài đặt",
+    "searchClear": "Xóa",
+    "searchEmpty": "Không có cài đặt phù hợp"
   },
   "pet": {
     "title": "Thú cưng màn hình",
@@ -249,7 +256,11 @@
       "cleared": "Xóa {{count}} phiên chạy",
       "noSessions": "Không có phiên chạy"
     },
-    "autoUpdateGreenDesc": "Bản không cài đặt (no-install) kiểm tra phiên bản mới nhưng không tự động tải hoặc cài đặt. Hãy tải phiên bản mới nhất theo cách thủ công và thay thế thư mục hiện tại."
+    "autoUpdateGreenDesc": "Bản không cài đặt (no-install) kiểm tra phiên bản mới nhưng không tự động tải hoặc cài đặt. Hãy tải phiên bản mới nhất theo cách thủ công và thay thế thư mục hiện tại.",
+    "sections": {
+      "interface": "Giao diện",
+      "editor": "Trình soạn thảo"
+    }
   },
   "sync": {
     "title": "Đồng bộ",
@@ -615,7 +626,16 @@
     "creative": "Sáng tạo",
     "random": "Ngẫu nhiên",
     "maxTokens": "Sắc thái tối đa",
-    "maxTokensDesc": "Giới hạn hiệu ứng tối đa mỗi lần trả lời"
+    "maxTokensDesc": "Giới hạn hiệu ứng tối đa mỗi lần trả lời",
+    "sections": {
+      "chat": "Mô hình trò chuyện",
+      "chatDesc": "Mô hình mặc định cho từng chế độ phiên",
+      "auxiliary": "Mô hình phụ trợ",
+      "auxiliaryDesc": "Mô hình dùng cho tiêu đề, tóm tắt và các tác vụ nền khác",
+      "sampling": "Lấy mẫu",
+      "samplingDesc": "Temperature, Top-P và mức độ suy luận"
+    },
+    "selectProvider": "Chọn nhà cung cấp"
   },
   "plugin": {
     "title": "Bổ sung",
@@ -1594,7 +1614,9 @@
       "providerMissing": "Thiếu nhà cung cấp",
       "ready": "Sẵn sàng",
       "unsupportedAuth": "Xác thực không được hỗ trợ"
-    }
+    },
+    "title": "Lập trình với AI",
+    "subtitle": "Cấu hình Claude Code và Codex"
   },
   "codegraph": {
     "subtitle": "Trực quan hoá chỉ mục theo từng dự án: thống kê, tập tin và đồ thị ký hiệu",
@@ -1771,5 +1793,23 @@
       "title": "Danh sách trắng công cụ"
     },
     "wildcardHelp": "Mẫu ký tự đại diện khớp toàn bộ lệnh và * khớp với bất kỳ văn bản nào — vd. npm run *. Quy tắc regex trong danh sách trắng phải khớp toàn bộ lệnh; quy tắc regex trong danh sách đen khớp ở bất kỳ vị trí nào. Mỗi phần của một lệnh ghép (&&, ;, |) đều phải nằm trong danh sách trắng. Việc so khớp không phân biệt hoa thường."
+  },
+  "runtime": {
+    "title": "Thực thi & Hiệu năng",
+    "subtitle": "Đồng thời, thời gian chờ và nén ngữ cảnh",
+    "sections": {
+      "concurrency": "Đồng thời",
+      "concurrencyDesc": "Gọi công cụ song song và giới hạn tác nhân con",
+      "tooling": "Đầu ra công cụ",
+      "toolingDesc": "Cách kết quả công cụ được trả về cho mô hình",
+      "advanced": "Nâng cao",
+      "advancedDesc": "Chế độ nhà phát triển và chẩn đoán"
+    }
+  },
+  "data": {
+    "title": "Cập nhật & Dữ liệu",
+    "subtitle": "Cập nhật ứng dụng, sao lưu, di chuyển và đặt lại",
+    "dangerZone": "Vùng nguy hiểm",
+    "dangerZoneDesc": "Các thao tác này không thể hoàn tác"
   }
 }

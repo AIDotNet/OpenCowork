@@ -596,7 +596,9 @@ internal static class OpenAIChatRuntime
                 focusPrompt: null,
                 preTokens: preTokens,
                 preserveCount,
-                trigger: "auto");
+                trigger: "auto",
+                pinnedContext: null,
+                progressState: state);
             if (compressed.Result.Compressed)
             {
                 var compressedMessages = compressed.Messages

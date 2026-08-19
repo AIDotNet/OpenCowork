@@ -366,7 +366,10 @@ export class NativeWorkerClient {
     const source = isRecord(params) ? params : {}
     // Run-addressed jobs must use jobId === params.runId so durable events can address
     // the job. agent/session-send shares agent/run's stream and cancel semantics.
-    const runAddressed = method === 'agent/run' || method === 'agent/session-send'
+    const runAddressed =
+      method === 'agent/run' ||
+      method === 'agent/session-send' ||
+      method === 'agent/compress-context'
     const runId = runAddressed
       ? (typeof source.runId === 'string' && source.runId.trim()) || randomUUID()
       : null

@@ -90,24 +90,23 @@ export class AgentStreamReceiver {
     }
 
     const lastSeq = this.lastSeqByRun.get(envelope.runId)
-    // Idempotency: an envelope whose seq we've already applied is a duplicate —
-    // e.g. journal replay on reattach overlapping frames the window already saw.
-    // Terminal batches follow the same rule: finalizing a run twice can duplicate
-    // messages and state transitions. Main owns the Worker durable cursor; this
-    // map is only a per-window apply cursor.
-    if (lastSeq !== undefined && envelope.seq <= lastSeq) {
-      return
-    }
-    if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
-      console.warn(
-        `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
-      )
-      // Event reconnect already requests durable replay. Never apply past a gap:
-      // the window cursor must not skip a missing envelope.
-      return
-    }
-    if (lastSeq === undefined || envelope.seq > lastSeq) {
-      this.rememberSequence(envelope.runId, envelope.seq)
+    const live = envelope.live === true
+    // Live frames are not part of the durable cursor. Applying them through the
+    // seq gate would either drop draft tokens or create a hole before the
+    // completed context_compressed event.
+    if (!live) {
+      if (lastSeq !== undefined && envelope.seq <= lastSeq) {
+        return
+      }
+      if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
+        console.warn(
+          `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
+        )
+        return
+      }
+      if (lastSeq === undefined || envelope.seq > lastSeq) {
+        this.rememberSequence(envelope.runId, envelope.seq)
+      }
     }
 
     if (shouldLogMessagePackTrace()) {

@@ -800,7 +800,17 @@ export function CliApp({
     }
 
     if (event.type === 'context-compression.start') {
-      setActivity(t('cli.statuses.compressing', 'Compressing context?'))
+      setActivity(t('cli.statuses.compressing', 'Compressing context…'))
+      return
+    }
+
+    if (event.type === 'context-compression.delta') {
+      const preview = event.text.replace(/\s+/g, ' ').trim()
+      if (preview) {
+        setActivity(
+          `${t('cli.statuses.compressing', 'Compressing context…')} ${preview.slice(-48)}`
+        )
+      }
       return
     }
 

@@ -11,6 +11,7 @@ export function toAgentEvent(e: AgentStreamEvent): AgentEvent | null {
     case 'translation_buffer_update':
     case 'image_generation_started':
     case 'context_compression_start':
+    case 'context_compression_delta':
     case 'tool_use_args_delta':
     case 'request_retry':
       return e as AgentEvent

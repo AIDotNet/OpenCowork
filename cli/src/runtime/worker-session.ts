@@ -83,6 +83,8 @@ export interface WorkerCompressionRequest extends JsonRecord {
   preserveCount: 0
   provider: JsonRecord
   trigger: 'manual'
+  sessionId?: string
+  runId?: string
 }
 
 export interface WorkerTitleRequest extends JsonRecord {

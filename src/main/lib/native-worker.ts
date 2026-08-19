@@ -542,12 +542,19 @@ class NativeWorkerManager {
     signal?: AbortSignal
   ): Promise<T> {
     const source = isRecord(params) ? params : {}
-    const runAddressed = method === 'agent/run' || method === 'agent/session-send'
+    const runAddressed =
+      method === 'agent/run' ||
+      method === 'agent/session-send' ||
+      method === 'agent/compress-context'
     const sourceRunId =
       typeof source.runId === 'string' && source.runId.trim() ? source.runId.trim() : null
     // Legacy agent/run still accepts a Main-generated runId. Hosted session-send omits
-    // runId so the Worker can allocate the durable job identity.
-    const requestedRunId = method === 'agent/run' ? (sourceRunId ?? randomUUID()) : sourceRunId
+    // runId so the Worker can allocate the durable job identity. Compression is
+    // run-addressed so summarizer stream frames persist against the same Job id.
+    const requestedRunId =
+      method === 'agent/run' || method === 'agent/compress-context'
+        ? (sourceRunId ?? randomUUID())
+        : sourceRunId
     const jobParams = requestedRunId ? { ...source, runId: requestedRunId } : params
     const submitArgs: Record<string, unknown> = {
       method,

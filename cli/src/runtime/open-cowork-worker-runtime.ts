@@ -114,6 +114,7 @@ type StreamEnvelope = {
   sessionId: string
   seq: number
   events: JsonRecord[]
+  live?: boolean
 }
 
 type PendingReverseRequest = {
@@ -473,7 +474,8 @@ function normalizeEnvelope(value: unknown): StreamEnvelope | null {
     runId: source.runId,
     sessionId: source.sessionId,
     seq,
-    events: source.events.filter(isRecord)
+    events: source.events.filter(isRecord),
+    ...(source.live === true ? { live: true } : {})
   }
 }
 
@@ -1086,6 +1088,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private messages: WorkerMessage[] = []
   private notify: (() => void) | null = null
   private activeRunId: string | null = null
+  private compressionRunId: string | null = null
   private activeRunUsages: JsonRecord[] = []
   private lastSequence = 0
   /** One transcript warning per gap; further out-of-order envelopes are counted silently. */
@@ -2270,12 +2273,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.messages,
       focusPrompt
     )
-    const response = await this.client.request<unknown>(
-      'agent/compress-context',
-      request,
-      6 * 60_000,
-      signal
-    )
+    const response = await this.requestContextCompression(request, signal)
     if (!isRecord(response)) throw new Error('Native Worker returned an invalid compact response.')
     const result = normalizeCompressionResult(response.result)
     const compressedMessages = normalizeMessages(response.messages)
@@ -3106,12 +3104,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       messages,
       instructions?.trim() || undefined
     )
-    const response = await this.client.request<unknown>(
-      'agent/compress-context',
-      request,
-      6 * 60_000,
-      signal
-    )
+    const response = await this.requestContextCompression(request, signal)
     if (!isRecord(response)) throw new Error('Native Worker returned an invalid summary response.')
     const result = normalizeCompressionResult(response.result)
     const compressedMessages = normalizeMessages(response.messages)
@@ -3403,9 +3396,41 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
   }
 
+  private async requestContextCompression(
+    request: ReturnType<typeof buildWorkerCompressionRequest>['request'],
+    signal: AbortSignal
+  ): Promise<unknown> {
+    const runId = randomUUID()
+    this.compressionRunId = runId
+    try {
+      return await this.client.request(
+        'agent/compress-context',
+        {
+          ...request,
+          sessionId: this.sessionId,
+          runId
+        },
+        20 * 60_000,
+        signal
+      )
+    } finally {
+      this.compressionRunId = null
+    }
+  }
+
   private handleStream(value: unknown): void {
     const envelope = normalizeEnvelope(value)
     if (!envelope) return
+    if (this.compressionRunId && envelope.runId === this.compressionRunId) {
+      for (const event of envelope.events) {
+        if (!isRecord(event)) continue
+        this.projectEvent(event)
+      }
+      if (envelope.live !== true) {
+        this.client.ackEvent(envelope.runId, envelope.seq)
+      }
+      return
+    }
     const pendingTitle = this.pendingTitleRuns.get(envelope.runId)
     if (pendingTitle) {
       if (envelope.seq <= pendingTitle.lastSequence) {
@@ -3423,6 +3448,15 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         }
       }
       this.client.ackEvent(envelope.runId, envelope.seq)
+      return
+    }
+    if (envelope.live === true) {
+      if (envelope.runId === this.activeRunId && envelope.sessionId === this.sessionId) {
+        for (const event of envelope.events) {
+          if (!isRecord(event)) continue
+          this.projectEvent(event)
+        }
+      }
       return
     }
     if (envelope.runId !== this.activeRunId || envelope.sessionId !== this.sessionId) return
@@ -3667,6 +3701,11 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     }
     if (type === 'context_compression_start') {
       this.push({ type: 'context-compression.start' })
+      return
+    }
+    if (type === 'context_compression_delta') {
+      const text = stringValue(event.text)
+      if (text) this.push({ type: 'context-compression.delta', text })
       return
     }
     if (type === 'context_compressed') {

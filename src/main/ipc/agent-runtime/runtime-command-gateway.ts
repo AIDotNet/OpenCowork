@@ -28,6 +28,7 @@ import {
 import { isUsableRendererWindow, type RunTargetRouter } from './run-target-router'
 import type { UiCapabilityRouter } from './ui-capability-router'
 import { getAgentSessionService } from './agent-session-service-host'
+import { NATIVE_WORKER_NO_TIMEOUT } from '../../lib/native-worker'
 
 export type TrackedRun = {
   sessionId: string
@@ -533,11 +534,20 @@ export function registerRuntimeCommandGateway(deps: RuntimeCommandGatewayDeps): 
     return await deps.request('agent/append-messages', params, 10_000)
   })
 
-  registerMessagePackInvokeHandler<unknown>('agent:compress-context', async (_event, params) => {
+  registerMessagePackInvokeHandler<unknown>('agent:compress-context', async (event, params) => {
     const ready = await deps.ensureStarted()
     if (!ready) throw new Error('SIDECAR_UNAVAILABLE')
+    deps.windows.rememberOrigin(event, params)
     await runManualCompactHooks(HOOK_EVENTS.preCompact, params)
-    const result = await deps.request('agent/compress-context', params, 130_000)
+    // Summarizer output streams on agent/stream. Do not fail the wait while the
+    // Job is still writing the summary — the renderer already shows live progress.
+    const result = await deps.request('agent/compress-context', params, NATIVE_WORKER_NO_TIMEOUT)
+    const record = normalizeRendererRequestRecord(params)
+    const runId = readNonEmptyString(record.runId)
+    if (runId) {
+      deps.activeRuns.delete(runId)
+      deps.windows.forgetRun(runId)
+    }
     await runManualCompactHooks(HOOK_EVENTS.postCompact, params, result)
     return result
   })

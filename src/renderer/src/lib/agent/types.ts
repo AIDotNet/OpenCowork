@@ -179,7 +179,13 @@ export type AgentEvent =
       stackTrace?: string
     }
   | { type: 'request_debug'; debugInfo: RequestDebugInfo }
-  | { type: 'context_compression_start' }
+  | {
+      type: 'context_compression_start'
+      attempt?: number
+      maxAttempts?: number
+      preTokens?: number
+    }
+  | { type: 'context_compression_delta'; text: string }
   | {
       type: 'context_compressed'
       originalCount: number

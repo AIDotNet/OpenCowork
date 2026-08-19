@@ -5,6 +5,7 @@ export interface NativeMessagePackRoute {
   seq?: number
   v?: number
   hasTerminalEvent?: boolean
+  live?: boolean
 }
 
 const MAX_ROUTE_READER_DEPTH = 64
@@ -39,6 +40,7 @@ function mergeRouteFields(
   target.seq ??= source.seq
   target.v ??= source.v
   target.hasTerminalEvent ||= source.hasTerminalEvent === true
+  target.live ||= source.live === true
 }
 
 function isMessagePackTraceEnabled(): boolean {
@@ -82,6 +84,9 @@ class RouteReader {
         case 'v':
           route.v = this.readNumberValue()
           break
+        case 'live':
+          route.live = this.readBooleanValue()
+          break
         case 'params':
           mergeRouteFields(route, this.readNestedRouteFields())
           break
@@ -120,6 +125,9 @@ class RouteReader {
           break
         case 'v':
           route.v = this.readNumberValue()
+          break
+        case 'live':
+          route.live = this.readBooleanValue()
           break
         case 'events':
           route.hasTerminalEvent = this.readEventsTerminalFlag()
@@ -173,6 +181,14 @@ class RouteReader {
     if (this.isStringCode(code)) return this.readStringFromCode(code)
     this.skipValueFromCode(code)
     return ''
+  }
+
+  private readBooleanValue(): boolean {
+    const code = this.readByte()
+    if (code === 0xc3) return true
+    if (code === 0xc2) return false
+    this.skipValueFromCode(code)
+    return false
   }
 
   private readStringValue(): string {

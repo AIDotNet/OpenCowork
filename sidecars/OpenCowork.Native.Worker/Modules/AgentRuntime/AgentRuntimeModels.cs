@@ -42,7 +42,8 @@ internal sealed record AgentRuntimeStreamEnvelope(
     string RunId,
     string SessionId,
     long Seq,
-    AgentRuntimeStreamEvent[] Events);
+    AgentRuntimeStreamEvent[] Events,
+    bool Live = false);
 
 internal sealed record AgentRuntimeStreamEvent(
     string Type,

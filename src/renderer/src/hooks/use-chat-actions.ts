@@ -129,6 +129,7 @@ import {
   resolveCompressionThreshold
 } from '@renderer/lib/agent/context-compression'
 import { commitSessionCompaction } from '@renderer/lib/agent/session-compaction-client'
+import { applyLiveCompressionStreamEvent } from '@renderer/stores/live-compression-store'
 import { applyRecentVisualContext } from '@renderer/lib/agent/visual-context'
 import {
   liveToolInputSignature,
@@ -6337,7 +6338,9 @@ export function useChatActions(): {
                   break
                 }
 
-                case 'context_compression_start': {
+                case 'context_compression_start':
+                case 'context_compression_delta': {
+                  if (sessionId) applyLiveCompressionStreamEvent(sessionId, event)
                   break
                 }
 
@@ -6345,6 +6348,7 @@ export function useChatActions(): {
                   {
                     streamDeltaBuffer.flushNow()
                     flushRuntimeForegroundMutations()
+                    if (sessionId) applyLiveCompressionStreamEvent(sessionId, event)
                     const summary = event.compactSummaryMessage
                     if (!summary?.id || !sessionId) break
 
@@ -6910,7 +6914,8 @@ export function useChatActions(): {
         focusPrompt: focusPrompt || undefined,
         // Zero-preserve: the summary becomes the entire model-visible context.
         preserveCount: 0,
-        preTokens
+        preTokens,
+        sessionId
       })
       if (result.summarizerFailed) {
         toast.error('Compression failed', {

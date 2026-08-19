@@ -14,6 +14,7 @@ export function encodeAgentStreamEnvelope(envelope: AgentStreamEnvelope): Uint8A
     runId: envelope.runId,
     sessionId: envelope.sessionId,
     seq: envelope.seq,
+    ...(envelope.live === true ? { live: true } : {}),
     events: envelope.events
   })
 }
@@ -74,7 +75,8 @@ function normalizeAgentStreamEnvelope(value: unknown): AgentStreamEnvelope | nul
     runId: flat.runId,
     sessionId: flat.sessionId,
     seq: flat.seq,
-    events: flat.events
+    events: flat.events,
+    ...(flat.live === true ? { live: true } : {})
   }
   return isAgentStreamEnvelope(envelope) ? envelope : null
 }

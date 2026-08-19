@@ -16,6 +16,11 @@ export interface AgentStreamEnvelope {
   sessionId: string
   seq: number
   events: AgentStreamEvent[]
+  /**
+   * Live-only progress (e.g. compression draft tokens). Not journaled, not
+   * acked, and not part of the durable per-run sequence.
+   */
+  live?: boolean
 }
 
 // ---- Wire sub-types (flat, JSON-serializable, no class instances) ----
@@ -200,7 +205,8 @@ export type AgentStreamEventType = AgentStreamEvent['type']
 export const AGGREGATABLE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'text_delta',
   'thinking_delta',
-  'tool_use_args_delta'
+  'tool_use_args_delta',
+  'context_compression_delta'
 ])
 
 // ---- Event union ----
@@ -263,7 +269,13 @@ export type AgentStreamEvent =
   | { type: 'error'; message: string; errorType?: string; details?: string; stackTrace?: string }
   // Debug / compression
   | { type: 'request_debug'; debugInfo: RequestDebugInfoWire }
-  | { type: 'context_compression_start' }
+  | {
+      type: 'context_compression_start'
+      attempt?: number
+      maxAttempts?: number
+      preTokens?: number
+    }
+  | { type: 'context_compression_delta'; text: string }
   | {
       type: 'context_compressed'
       originalCount: number

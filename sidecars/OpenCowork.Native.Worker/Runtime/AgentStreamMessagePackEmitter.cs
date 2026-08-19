@@ -8,7 +8,7 @@ internal static class AgentStreamMessagePackEmitter
     {
         var writer = new MessagePackWriter();
 
-        writer.WriteMapHeader(6);
+        writer.WriteMapHeader(envelope.Live ? 7 : 6);
         writer.WriteString("event");
         writer.WriteString("agent/stream");
         writer.WriteString("v");
@@ -19,6 +19,11 @@ internal static class AgentStreamMessagePackEmitter
         writer.WriteString(envelope.SessionId);
         writer.WriteString("seq");
         writer.WriteInt64(envelope.Seq);
+        if (envelope.Live)
+        {
+            writer.WriteString("live");
+            writer.WriteBoolean(true);
+        }
         writer.WriteString("events");
         WriteEvents(writer, envelope.Events);
 

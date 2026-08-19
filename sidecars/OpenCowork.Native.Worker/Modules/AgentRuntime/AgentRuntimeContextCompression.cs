@@ -13,7 +13,9 @@ internal static partial class AgentRuntimeContextCompression
     private const int SerializedToolUseInputLimit = 500;
     private const int SerializedToolResultLimit = 800;
     private const int RetryDelayMs = 1_500;
-    private const int SummaryTimeoutMs = 120_000;
+    // Long summaries routinely exceed two minutes. The host no longer fails the
+    // wait at 130s; this bound is only a last-resort cancel for a stuck provider.
+    private const int SummaryTimeoutMs = 360_000;
     private const int SummaryMaxOutputTokens = 8_192;
     private const int CircuitOpenCooldownMs = 60_000;
     // Upper bound for the serialized summarizer input (~100K tokens at ~4 chars/token).
@@ -59,6 +61,7 @@ internal static partial class AgentRuntimeContextCompression
         WorkerRequestContext context)
     {
         using var operation = WorkerMemory.TrackOperation("context-compression");
+        AgentRuntimeTools.AgentRuntimeRunState? progressState = null;
         try
         {
             var messages = ReadMessages(parameters);
@@ -68,6 +71,15 @@ internal static partial class AgentRuntimeContextCompression
             var preTokens = Math.Max(0, JsonHelpers.GetInt(parameters, "preTokens", 0));
             var preserveCount = Math.Max(0, JsonHelpers.GetInt(parameters, "preserveCount", 0));
             var trigger = JsonHelpers.GetString(parameters, "trigger") ?? "manual";
+            var runId = JsonHelpers.GetString(parameters, "runId")?.Trim();
+            var sessionId = JsonHelpers.GetString(parameters, "sessionId")?.Trim() ?? string.Empty;
+            if (!string.IsNullOrEmpty(runId) && !string.IsNullOrEmpty(sessionId))
+            {
+                progressState = new AgentRuntimeTools.AgentRuntimeRunState(
+                    runId,
+                    sessionId,
+                    context.CancellationToken);
+            }
             var response = await CompressMessagesAsync(
                 messages,
                 provider,
@@ -76,13 +88,15 @@ internal static partial class AgentRuntimeContextCompression
                 preTokens,
                 preserveCount,
                 trigger,
-                pinnedContext);
+                pinnedContext,
+                progressState);
             return WorkerResponse.Json(
                 response,
                 WorkerJsonContext.Default.AgentRuntimeContextCompressionResponse);
         }
         finally
         {
+            progressState?.Dispose();
             WorkerMemory.ReportCompletedWork("context-compression", pressureBytes: 0);
         }
     }
@@ -95,7 +109,8 @@ internal static partial class AgentRuntimeContextCompression
         int preTokens,
         int preserveCount = 0,
         string trigger = "manual",
-        string? pinnedContext = null)
+        string? pinnedContext = null,
+        AgentRuntimeTools.AgentRuntimeRunState? progressState = null)
     {
         var originalCount = messages.Count;
         var normalizedTrigger = trigger == "auto" ? "auto" : "manual";
@@ -152,11 +167,20 @@ internal static partial class AgentRuntimeContextCompression
                         originalTaskMessage,
                         pinnedContext,
                         SummaryInputBaseCharBudget >> attempt);
+                    await EmitCompressionProgressAsync(
+                        progressState,
+                        context,
+                        new AgentRuntimeStreamEvent(
+                            "context_compression_start",
+                            Attempt: attempt + 1,
+                            MaxAttempts: MaxRetries + 1,
+                            PreTokens: preTokens));
                     var summary = await CallSummarizerAsync(
                         serialized,
                         provider,
                         context,
-                        focusPrompt);
+                        focusPrompt,
+                        progressState);
                     RegisterCompressionSuccess(circuit);
                     return BuildCompressedResult(
                         normalizedTrigger,
@@ -237,7 +261,8 @@ internal static partial class AgentRuntimeContextCompression
         string serializedMessages,
         JsonElement provider,
         WorkerRequestContext context,
-        string? focusPrompt)
+        string? focusPrompt,
+        AgentRuntimeTools.AgentRuntimeRunState? progressState)
     {
         using var timeout = new CancellationTokenSource(SummaryTimeoutMs);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
@@ -249,12 +274,18 @@ internal static partial class AgentRuntimeContextCompression
             compressionProvider,
             BuildSummarizerPrompt(serializedMessages, focusPrompt));
         var runId = $"native-compress-{Guid.NewGuid():N}";
+        var liveBuffer = progressState is null
+            ? null
+            : new CompressionLiveDeltaBuffer(progressState, context);
         using var state = new AgentRuntimeTools.AgentRuntimeRunState(runId, string.Empty)
         {
-            // Compression consumes provider deltas privately and returns one final
-            // result. Publishing its synthetic run would both leak summarizer output
-            // into the UI and violate the durable outbox FK (runId is not a Job id).
-            SuppressTransportEvents = true
+            // The inner summarizer run is synthetic: its runId is not a Job id, so
+            // transport persist would violate the durable outbox FK. Remint text
+            // deltas as live-only progress on the host Job / agent run.
+            SuppressTransportEvents = true,
+            EventObserver = liveBuffer is null
+                ? null
+                : events => liveBuffer.ObserveAsync(events)
         };
         state.ReplaceParameters(requestParameters);
         using var cancelRegistration = linked.Token.Register(() => state.Cancel("context-compression"));
@@ -271,6 +302,13 @@ internal static partial class AgentRuntimeContextCompression
             timeout.IsCancellationRequested && !context.CancellationToken.IsCancellationRequested)
         {
             throw new ContextCompressionTimeoutException();
+        }
+        finally
+        {
+            if (liveBuffer is not null)
+            {
+                await liveBuffer.FlushAsync();
+            }
         }
         if (timeout.IsCancellationRequested && !context.CancellationToken.IsCancellationRequested)
         {
@@ -289,6 +327,64 @@ internal static partial class AgentRuntimeContextCompression
         WorkerLog.Info(
             $"context compression summarizer ok runId={runId} summaryChars={summary.Length}");
         return summary;
+    }
+
+    private sealed class CompressionLiveDeltaBuffer
+    {
+        private const int FlushChars = 80;
+        private readonly AgentRuntimeTools.AgentRuntimeRunState progressState;
+        private readonly WorkerRequestContext context;
+        private readonly StringBuilder pending = new();
+
+        public CompressionLiveDeltaBuffer(
+            AgentRuntimeTools.AgentRuntimeRunState progressState,
+            WorkerRequestContext context)
+        {
+            this.progressState = progressState;
+            this.context = context;
+        }
+
+        public ValueTask ObserveAsync(AgentRuntimeStreamEvent[] events)
+        {
+            foreach (var streamEvent in events)
+            {
+                if (streamEvent.Type != "text_delta" || string.IsNullOrEmpty(streamEvent.Text))
+                {
+                    continue;
+                }
+                pending.Append(streamEvent.Text);
+            }
+
+            return pending.Length >= FlushChars ? FlushAsync() : ValueTask.CompletedTask;
+        }
+
+        public ValueTask FlushAsync()
+        {
+            if (pending.Length == 0)
+            {
+                return ValueTask.CompletedTask;
+            }
+
+            var text = pending.ToString();
+            pending.Clear();
+            return EmitCompressionProgressAsync(
+                progressState,
+                context,
+                new AgentRuntimeStreamEvent("context_compression_delta", Text: text));
+        }
+    }
+
+    private static ValueTask EmitCompressionProgressAsync(
+        AgentRuntimeTools.AgentRuntimeRunState? progressState,
+        WorkerRequestContext context,
+        AgentRuntimeStreamEvent streamEvent)
+    {
+        if (progressState is null || string.IsNullOrEmpty(progressState.SessionId))
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        return AgentRuntimeTools.EmitAsync(progressState, context, streamEvent);
     }
 
     private static AgentRuntimeContextCompressionResponse BuildCompressedResult(

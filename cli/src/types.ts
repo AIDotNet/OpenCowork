@@ -533,6 +533,7 @@ export type UiEvent =
       statusCode?: number
     }
   | { type: 'context-compression.start' }
+  | { type: 'context-compression.delta'; text: string }
   | {
       type: 'context-compression.done'
       originalCount: number

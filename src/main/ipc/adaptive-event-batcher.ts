@@ -42,6 +42,7 @@ interface RunAccumulator {
   seq: number
   textDelta: string
   thinkingDelta: string
+  compressionDelta: string
   toolArgsDelta: Map<string, Record<string, unknown>>
   toolNamesById: Map<string, string>
   pendingControl: AgentStreamEvent[]
@@ -119,6 +120,7 @@ export class AdaptiveEventBatcher {
         seq: 0,
         textDelta: '',
         thinkingDelta: '',
+        compressionDelta: '',
         toolArgsDelta: new Map(),
         toolNamesById: new Map(),
         pendingControl: [],
@@ -188,6 +190,9 @@ export class AdaptiveEventBatcher {
       case 'thinking_delta':
         acc.thinkingDelta += event.thinking
         break
+      case 'context_compression_delta':
+        acc.compressionDelta += event.text
+        break
       case 'tool_use_args_delta':
         {
           const toolName = acc.toolNamesById.get(event.toolCallId) ?? ''
@@ -208,7 +213,12 @@ export class AdaptiveEventBatcher {
   }
 
   private accumulatedSize(acc: RunAccumulator): number {
-    return acc.textDelta.length + acc.thinkingDelta.length + acc.toolArgsDelta.size
+    return (
+      acc.textDelta.length +
+      acc.thinkingDelta.length +
+      acc.compressionDelta.length +
+      acc.toolArgsDelta.size
+    )
   }
 
   private flushAccumulated(acc: RunAccumulator): void {
@@ -227,6 +237,11 @@ export class AdaptiveEventBatcher {
     if (acc.thinkingDelta) {
       events.push({ type: 'thinking_delta', thinking: acc.thinkingDelta })
       acc.thinkingDelta = ''
+    }
+
+    if (acc.compressionDelta) {
+      events.push({ type: 'context_compression_delta', text: acc.compressionDelta })
+      acc.compressionDelta = ''
     }
 
     for (const [toolCallId, partialInput] of acc.toolArgsDelta) {
@@ -691,8 +706,19 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
         type: 'request_debug',
         debugInfo: rec(raw.debugInfo) as unknown as RequestDebugInfoWire
       }
-    case 'context_compression_start':
-      return { type: 'context_compression_start' }
+    case 'context_compression_start': {
+      const attempt = num(raw.attempt)
+      const maxAttempts = num(raw.maxAttempts)
+      const startPreTokens = num(raw.preTokens)
+      return {
+        type: 'context_compression_start',
+        ...(attempt > 0 ? { attempt } : {}),
+        ...(maxAttempts > 0 ? { maxAttempts } : {}),
+        ...(startPreTokens > 0 ? { preTokens: startPreTokens } : {})
+      }
+    }
+    case 'context_compression_delta':
+      return { type: 'context_compression_delta', text: str(raw.text) }
     case 'context_compressed': {
       const compactSummaryMessage = raw.compactSummaryMessage
         ? (mapMessage(raw.compactSummaryMessage) ?? undefined)

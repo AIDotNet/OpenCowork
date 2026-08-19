@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Linq;
 using System.Text.Json;
 using OpenCowork.Contracts.Generated;
 
@@ -375,12 +376,6 @@ internal static class AgentRuntimeTools
             return;
         }
 
-        var envelope = new AgentRuntimeStreamEnvelope(
-            StreamProtocolVersion,
-            state.RunId,
-            state.SessionId,
-            state.NextSeq(),
-            events);
         if (state.EventObserver is not null)
         {
             await state.EventObserver(events);
@@ -390,7 +385,22 @@ internal static class AgentRuntimeTools
             return;
         }
 
+        // Draft tokens are UI-only. Persisting them would fill the durable outbox
+        // and punch holes in the per-run sequence on replay. The completed
+        // context_compressed / text event still goes through PersistEvent below.
+        if (IsLiveOnlyProgress(events))
+        {
+            PublishLive(state, events);
+            return;
+        }
+
         JournalToolResults(state, events);
+        var envelope = new AgentRuntimeStreamEnvelope(
+            StreamProtocolVersion,
+            state.RunId,
+            state.SessionId,
+            state.NextSeq(),
+            events);
         var messagePackEvent = AgentStreamMessagePackEmitter.Encode(envelope);
         var terminal = events.Any(static streamEvent =>
             streamEvent.Type is "loop_end" or "error");
@@ -405,6 +415,31 @@ internal static class AgentRuntimeTools
                 $"agent stream committed transport=durable-outbox runId={state.RunId} seq={envelope.Seq} " +
                 $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
         }
+    }
+
+    private static bool IsLiveOnlyProgress(AgentRuntimeStreamEvent[] events)
+    {
+        return events.Length > 0 &&
+            events.All(static streamEvent => streamEvent.Type is "context_compression_delta");
+    }
+
+    private static void PublishLive(
+        AgentRuntimeRunState state,
+        AgentRuntimeStreamEvent[] events)
+    {
+        if (string.IsNullOrEmpty(state.SessionId))
+        {
+            return;
+        }
+
+        var envelope = new AgentRuntimeStreamEnvelope(
+            StreamProtocolVersion,
+            state.RunId,
+            state.SessionId,
+            0,
+            events,
+            Live: true);
+        WorkerTransportHub.TryPublishEvent(AgentStreamMessagePackEmitter.Encode(envelope));
     }
 
     /// <summary>

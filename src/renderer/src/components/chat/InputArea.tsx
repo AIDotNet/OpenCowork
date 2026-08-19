@@ -81,6 +81,7 @@ import {
 import { useDebouncedTokens } from '@renderer/hooks/use-estimated-tokens'
 import { usePromptRecommendation } from '@renderer/hooks/use-prompt-recommendation'
 import { useChatStore } from '@renderer/stores/chat-store'
+import { useLiveCompressionStore } from '@renderer/stores/live-compression-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import {
@@ -1790,6 +1791,9 @@ export function InputArea({
   const documentRef = React.useRef(documentNodes)
   const selectedFilesRef = React.useRef(selectedFiles)
   const isContextCompressing = contextCompressionStatus === 'compressing'
+  const liveCompressionDraft = useLiveCompressionStore((state) =>
+    sessionId ? (state.bySessionId[sessionId]?.draft ?? '') : ''
+  )
 
   const getMaxInputHeight = React.useCallback(() => {
     const container = containerRef.current
@@ -3620,7 +3624,9 @@ export function InputArea({
   const contextCompressionStatusLabel = React.useMemo(() => {
     switch (contextCompressionStatus) {
       case 'compressing':
-        return t('input.compressingContext', { defaultValue: 'Compressing context...' })
+        return liveCompressionDraft
+          ? t('input.writingCompressionSummary', { defaultValue: 'Writing summary…' })
+          : t('input.compressingContext', { defaultValue: 'Compressing context...' })
       case 'compressed':
         return t('input.contextCompressed', { defaultValue: 'Context compressed' })
       case 'fallback':
@@ -3638,7 +3644,7 @@ export function InputArea({
       default:
         return ''
     }
-  }, [contextCompressionStatus, t])
+  }, [contextCompressionStatus, liveCompressionDraft, t])
 
   const composerVariant = 'session'
   const composerIconControlClass = 'composer-control rounded-xl'

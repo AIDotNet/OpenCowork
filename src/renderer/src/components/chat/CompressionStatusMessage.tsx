@@ -2,6 +2,7 @@ import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { CheckCircle2, Loader2 } from 'lucide-react'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
+import { useLiveCompressionStore } from '@renderer/stores/live-compression-store'
 
 /**
  * Inline status card rendered in place of a synthetic system message whose
@@ -58,6 +59,62 @@ export function CompressionStatusMessage({
           })}
         </span>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * Ephemeral transcript card while a summarizer run is in flight. The draft is
+ * renderer-only — it is never persisted, and it is not sent back to the model.
+ */
+export function LiveCompressionCard({
+  sessionId,
+  className
+}: {
+  sessionId?: string | null
+  className?: string
+}): React.JSX.Element | null {
+  const { t } = useTranslation('agent')
+  const live = useLiveCompressionStore((state) =>
+    sessionId ? state.bySessionId[sessionId] : undefined
+  )
+  const cardRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!live) return
+    cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [live?.draft.length, live?.attempt])
+
+  if (!live) return null
+
+  const retrying = live.attempt > 1 && live.maxAttempts > 1
+  const title = retrying
+    ? t('contextCompression.summarizingRetry', {
+        defaultValue: 'Rewriting summary (attempt {{attempt}}/{{maxAttempts}})…',
+        attempt: live.attempt,
+        maxAttempts: live.maxAttempts
+      })
+    : t('contextCompression.summarizing', { defaultValue: 'Writing summary…' })
+
+  return (
+    <div ref={cardRef} className={className}>
+      <div className="my-2 rounded-md border border-amber-500/30 bg-muted/25 px-3 py-2 text-[12px]">
+        <div className="flex items-center gap-2">
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-amber-600 dark:text-amber-400" />
+          <span className="font-medium text-foreground">{title}</span>
+        </div>
+        {live.draft ? (
+          <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[12px] leading-5 text-muted-foreground">
+            {live.draft}
+          </p>
+        ) : (
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            {t('contextCompression.summarizingHint', {
+              defaultValue: 'This can take a while on long conversations. You can leave this open.'
+            })}
+          </p>
+        )}
+      </div>
     </div>
   )
 }

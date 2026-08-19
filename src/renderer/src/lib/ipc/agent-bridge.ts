@@ -6,6 +6,10 @@ import type {
   UnifiedMessage
 } from '@renderer/lib/api/types'
 import type { CompressionResult } from '@renderer/lib/agent/context-compression'
+import {
+  applyLiveCompressionStreamEvent,
+  useLiveCompressionStore
+} from '@renderer/stores/live-compression-store'
 import type { AgentEvent } from '@renderer/lib/agent/types'
 import {
   RESPONSES_SESSION_SCOPE_SIDECAR_TEXT_REQUEST,
@@ -831,6 +835,7 @@ export async function runSidecarContextCompression(args: {
   pinnedContext?: string
   trigger?: 'auto' | 'manual'
   preTokens?: number
+  sessionId?: string
 }): Promise<{ messages: UnifiedMessage[]; result: CompressionResult }> {
   if (args.signal?.aborted) {
     throw new Error('aborted')
@@ -847,26 +852,44 @@ export async function runSidecarContextCompression(args: {
     return meta ? { ...message, meta } : { ...message, meta: undefined }
   })
 
-  const result = await invokeMessagePackBinary<{
-    messages: UnifiedMessage[]
-    result: CompressionResult
-  }>(toMessagePackChannel('agent:compress-context'), {
-    provider: args.provider,
-    messages,
-    ...(typeof args.preserveCount === 'number' && Number.isFinite(args.preserveCount)
-      ? { preserveCount: args.preserveCount }
-      : {}),
-    ...(args.focusPrompt ? { focusPrompt: args.focusPrompt } : {}),
-    ...(args.pinnedContext ? { pinnedContext: args.pinnedContext } : {}),
-    ...(args.trigger ? { trigger: args.trigger } : {}),
-    ...(typeof args.preTokens === 'number' && Number.isFinite(args.preTokens)
-      ? { preTokens: args.preTokens }
-      : {})
-  })
-
-  if (args.signal?.aborted) {
-    throw new Error('aborted')
+  const sessionId = args.sessionId?.trim() || undefined
+  const runId = sessionId ? crypto.randomUUID() : undefined
+  let unsubscribe: (() => void) | null = null
+  if (sessionId) {
+    useLiveCompressionStore.getState().start(sessionId, { runId, attempt: 1, maxAttempts: 1 })
+    unsubscribe = agentStream.subscribeAll((eventRunId, eventSessionId, streamEvent) => {
+      if (eventSessionId !== sessionId && eventRunId !== runId) return
+      applyLiveCompressionStreamEvent(sessionId, streamEvent)
+    })
   }
 
-  return result
+  try {
+    const result = await invokeMessagePackBinary<{
+      messages: UnifiedMessage[]
+      result: CompressionResult
+    }>(toMessagePackChannel('agent:compress-context'), {
+      provider: args.provider,
+      messages,
+      ...(sessionId ? { sessionId } : {}),
+      ...(runId ? { runId } : {}),
+      ...(typeof args.preserveCount === 'number' && Number.isFinite(args.preserveCount)
+        ? { preserveCount: args.preserveCount }
+        : {}),
+      ...(args.focusPrompt ? { focusPrompt: args.focusPrompt } : {}),
+      ...(args.pinnedContext ? { pinnedContext: args.pinnedContext } : {}),
+      ...(args.trigger ? { trigger: args.trigger } : {}),
+      ...(typeof args.preTokens === 'number' && Number.isFinite(args.preTokens)
+        ? { preTokens: args.preTokens }
+        : {})
+    })
+
+    if (args.signal?.aborted) {
+      throw new Error('aborted')
+    }
+
+    return result
+  } finally {
+    unsubscribe?.()
+    if (sessionId) useLiveCompressionStore.getState().clear(sessionId)
+  }
 }

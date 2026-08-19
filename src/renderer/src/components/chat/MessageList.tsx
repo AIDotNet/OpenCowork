@@ -17,6 +17,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useTeamStore, type ActiveTeam } from '@renderer/stores/team-store'
 import { PreviewRail, type PreviewRailItem } from '@renderer/components/motion/preview-rail'
 import { MessageItem } from './MessageItem'
+import { LiveCompressionCard } from './CompressionStatusMessage'
 import { SessionChangeSummaryCard } from './SessionChangeSummaryCard'
 import {
   buildChatRenderableMessageMetaFromAnalysis,
@@ -2890,6 +2891,12 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             )
           })}
         </div>
+        {activeSessionId ? (
+          <LiveCompressionCard
+            sessionId={activeSessionId}
+            className={`${getMessageColumnClass(fullWidth)} pb-3`}
+          />
+        ) : null}
         {messageWindowPhase === 'ready' && hasNewer ? (
           <div className="pointer-events-none absolute bottom-1 left-0 right-0 flex justify-center">
             <button

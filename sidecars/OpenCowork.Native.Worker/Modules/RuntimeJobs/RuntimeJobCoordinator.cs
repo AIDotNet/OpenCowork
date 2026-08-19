@@ -101,6 +101,18 @@ internal static class RuntimeJobCoordinator
             jobId = runId;
             storedParameters = WithAgentJobIdentities(parameters, runId, assistantMessageId);
         }
+        else if (string.Equals(method, "agent/compress-context", StringComparison.Ordinal))
+        {
+            // Stream events persist against jobId. Keep jobId == runId so the
+            // summarizer can publish context_compression_* frames on this Job.
+            runId ??= requestedId ?? AgentRuntimeIdentities.NewRunId();
+            if (requestedId is not null && !string.Equals(requestedId, runId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"{method} requires jobId to match params.runId.");
+            }
+            jobId = runId;
+            storedParameters = WithCompressionJobIdentities(parameters, runId);
+        }
         else
         {
             jobId = requestedId ?? Guid.NewGuid().ToString("N");
@@ -628,6 +640,30 @@ internal static class RuntimeJobCoordinator
             method.StartsWith("seedance-video/", StringComparison.Ordinal) ||
             method.StartsWith("xai-video/", StringComparison.Ordinal) ||
             method.StartsWith("media/", StringComparison.Ordinal);
+    }
+
+    private static JsonElement WithCompressionJobIdentities(JsonElement parameters, string runId)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStartObject();
+            if (parameters.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var property in parameters.EnumerateObject())
+                {
+                    if (property.NameEquals("runId"))
+                    {
+                        continue;
+                    }
+                    property.WriteTo(writer);
+                }
+            }
+            writer.WriteString("runId", runId);
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
     }
 
     private static JsonElement WithAgentJobIdentities(

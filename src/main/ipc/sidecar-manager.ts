@@ -462,10 +462,12 @@ export function registerSidecarHandlers(): void {
   }
 
   manager.setRawEventHandler((frame) => {
-    queueGoalRuntimeObservation(frame)
-    getWorkerEventConsumer().consumeFrame(frame)
+    if (frame.live !== true) {
+      queueGoalRuntimeObservation(frame)
+      getWorkerEventConsumer().consumeFrame(frame)
+    }
 
-    if (frame.runId && frame.sessionId) {
+    if (frame.runId && frame.sessionId && frame.live !== true) {
       if (frame.hasTerminalEvent === true) {
         activeRunSessions.delete(frame.runId)
       } else {

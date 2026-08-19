@@ -74,7 +74,7 @@ internal static class AgentRuntimePlanExecutor
 
         PlanRow plan;
         string status;
-        if (existingPlan is { FilePath.Length: > 0 } && IsDraftPlanStatus(existingPlan.Status))
+        if (existingPlan is { FilePath.Length: > 0 } && IsResumablePlanStatus(existingPlan.Status))
         {
             plan = existingPlan;
             status = "resumed";
@@ -85,6 +85,16 @@ internal static class AgentRuntimePlanExecutor
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 return AgentRuntimeToolError.Encode(ex);
+            }
+
+            // Reopening a finalized plan means it is about to be rewritten, so put it back into
+            // drafting. Leaving it at awaiting_review would keep offering "implement this plan"
+            // on content the agent is in the middle of replacing.
+            if (!IsDraftPlanStatus(plan.Status))
+            {
+                plan.Status = "drafting";
+                plan.UpdatedAt = Now();
+                ResetPlanToDrafting(parameters, plan.Id, plan.UpdatedAt);
             }
         }
         else
@@ -535,6 +545,24 @@ internal static class AgentRuntimePlanExecutor
         transaction.Commit();
     }
 
+    private static void ResetPlanToDrafting(JsonElement parameters, string planId, long updatedAt)
+    {
+        using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE plans
+               SET status = 'drafting',
+                   updated_at = $updatedAt
+             WHERE id = $id
+            """;
+        command.Parameters.AddWithValue("$updatedAt", updatedAt);
+        command.Parameters.AddWithValue("$id", planId);
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
     private static void UpdatePlanForReview(JsonElement parameters, string planId, string title, long updatedAt)
     {
         using var connection = DbConnectionFactory.OpenReadWrite(parameters);
@@ -585,6 +613,19 @@ internal static class AgentRuntimePlanExecutor
     private static bool IsDraftPlanStatus(string status)
     {
         return status is "drafting" or "rejected";
+    }
+
+    /// <summary>
+    /// Statuses whose plan file EnterPlanMode reopens instead of starting a second plan for the
+    /// session. A plan still waiting for review — or approved but not yet started — remains the
+    /// session's current plan, so re-entering plan mode means the agent is reworking it. That is
+    /// exactly what happens when a run dies after ExitPlanMode (rate limit, network fault) and the
+    /// user resumes the turn: forking a fresh row there left the session with two plan files and a
+    /// review card pointing at the abandoned one.
+    /// </summary>
+    private static bool IsResumablePlanStatus(string status)
+    {
+        return IsDraftPlanStatus(status) || status is "awaiting_review" or "approved";
     }
 
     private static string InferTitleFromContent(string content)

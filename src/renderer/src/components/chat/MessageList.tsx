@@ -671,6 +671,64 @@ function isTeamLocatorSource(source: MessageLocatorSource): boolean {
   )
 }
 
+interface InlineCompactSummaryState {
+  byAssistantId: Map<string, UnifiedMessage[]>
+  summaryIds: Set<string>
+}
+
+const EMPTY_INLINE_COMPACT_SUMMARY_STATE: InlineCompactSummaryState = {
+  byAssistantId: new Map(),
+  summaryIds: new Set()
+}
+
+/**
+ * Where the compaction divider belongs in the transcript.
+ *
+ * The summary row is stored at the very end of the session so it always reads
+ * as the newest turn, but compression runs mid-turn: the assistant message that
+ * triggered it is spared by the cut and keeps streaming afterwards. Drawing the
+ * row in its stored position therefore puts the divider *below* everything that
+ * turn produced after the compression. Anchoring it to that assistant message
+ * moves it back to where the cut actually falls — summarized history above,
+ * still-live turn below — and the row itself is dropped from the list so it is
+ * only drawn once.
+ */
+function useInlineCompactSummaryState(
+  messages: readonly UnifiedMessage[],
+  compactSummary: SessionCompactSummary | null | undefined
+): InlineCompactSummaryState {
+  const recordedSummaryId = compactSummary?.messageId ?? null
+  // Sessions compacted before the cut was recorded only know their summary from
+  // the legacy marker rows.
+  const legacySummaryId = React.useMemo(
+    () => (recordedSummaryId ? null : (resolveActiveCompactArtifacts(messages)?.summaryId ?? null)),
+    [messages, recordedSummaryId]
+  )
+  const summaryId = recordedSummaryId ?? legacySummaryId
+  const summary = React.useMemo(
+    () => (summaryId ? (messages.find((message) => message.id === summaryId) ?? null) : null),
+    [messages, summaryId]
+  )
+  const anchorId =
+    summary?.meta?.compactSummary?.displayAnchor?.assistantMessageId ??
+    (recordedSummaryId ? (compactSummary?.anchorAssistantMessageId ?? null) : null)
+  const anchorIsResident = React.useMemo(
+    () =>
+      anchorId
+        ? messages.some((message) => message.id === anchorId && message.role === 'assistant')
+        : false,
+    [anchorId, messages]
+  )
+
+  return React.useMemo(() => {
+    if (!summary || !anchorId || !anchorIsResident) return EMPTY_INLINE_COMPACT_SUMMARY_STATE
+    return {
+      byAssistantId: new Map([[anchorId, [summary]]]),
+      summaryIds: new Set([summary.id])
+    }
+  }, [anchorId, anchorIsResident, summary])
+}
+
 function shouldShowAssistantRailMarker(
   source: MessageLocatorSource,
   hiddenCompactSummaryIds: Set<string>,
@@ -1175,26 +1233,7 @@ export function StaticMessageTranscript({
     () => buildChatRenderableMessageMetaFromAnalysis(transcriptAnalysis, null, null),
     [transcriptAnalysis]
   )
-  const inlineCompactSummaryState = React.useMemo(() => {
-    const byAssistantId = new Map<string, UnifiedMessage[]>()
-    const summaryIds = new Set<string>()
-    const activeCompact = resolveActiveCompactArtifacts(messages)
-    const activeSummaryId = activeCompact?.summaryId ?? null
-    if (!activeSummaryId) return { byAssistantId, summaryIds }
-
-    const summary = messages.find((message) => message.id === activeSummaryId)
-    const anchor = summary?.meta?.compactSummary?.displayAnchor
-    if (!summary || !anchor?.assistantMessageId) return { byAssistantId, summaryIds }
-
-    const assistantExists = messages.some(
-      (message) => message.id === anchor.assistantMessageId && message.role === 'assistant'
-    )
-    if (!assistantExists) return { byAssistantId, summaryIds }
-
-    byAssistantId.set(anchor.assistantMessageId, [summary])
-    summaryIds.add(summary.id)
-    return { byAssistantId, summaryIds }
-  }, [messages])
+  const inlineCompactSummaryState = useInlineCompactSummaryState(messages, compactSummary)
   const assistantChangeTargets = React.useMemo(
     () =>
       messages
@@ -1530,26 +1569,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       ),
     [continueAssistantMessageId, streamingMessageId, transcriptAnalysis]
   )
-  const inlineCompactSummaryState = React.useMemo(() => {
-    const byAssistantId = new Map<string, UnifiedMessage[]>()
-    const summaryIds = new Set<string>()
-    const activeCompact = resolveActiveCompactArtifacts(messages)
-    const activeSummaryId = activeCompact?.summaryId ?? null
-    if (!activeSummaryId) return { byAssistantId, summaryIds }
-
-    const summary = messages.find((message) => message.id === activeSummaryId)
-    const anchor = summary?.meta?.compactSummary?.displayAnchor
-    if (!summary || !anchor?.assistantMessageId) return { byAssistantId, summaryIds }
-
-    const assistantExists = messages.some(
-      (message) => message.id === anchor.assistantMessageId && message.role === 'assistant'
-    )
-    if (!assistantExists) return { byAssistantId, summaryIds }
-
-    byAssistantId.set(anchor.assistantMessageId, [summary])
-    summaryIds.add(summary.id)
-    return { byAssistantId, summaryIds }
-  }, [messages])
+  const inlineCompactSummaryState = useInlineCompactSummaryState(messages, compactSummary)
   const assistantChangeTargets = React.useMemo(
     () =>
       messages

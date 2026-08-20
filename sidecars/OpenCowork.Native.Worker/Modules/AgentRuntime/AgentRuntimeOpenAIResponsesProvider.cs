@@ -140,9 +140,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             !parseState.ReceivedAnyMessage)
         {
             // Covers transport-level interruptions that surface as cancellation without the
-            // run being cancelled. A configured request timeout is deliberately NOT retried
-            // here — AgentRuntimeRequestTimeout raises TimeoutException for that case, so the
-            // user's chosen deadline is honoured once instead of being silently doubled.
+            // run being cancelled. Configured response-header timeouts use a dedicated exception
+            // and are retried by AgentRuntimeProviderRetryPolicy instead of this one-off path.
             // Retrying is safe only before the provider has emitted an event; otherwise a
             // replay could duplicate streamed text or tool execution.
             WorkerLog.Warn(

@@ -133,6 +133,12 @@ interface SessionPageState {
 export interface SessionCompactSummary {
   messageId: string
   compactedMessageCount: number
+  /**
+   * The assistant turn that was streaming when the cut was recorded. The cut
+   * spares that row and it keeps producing output afterwards, so the divider
+   * belongs above it even though the summary itself is stored at the tail.
+   */
+  anchorAssistantMessageId?: string | null
 }
 
 export interface Session {
@@ -1400,7 +1406,8 @@ interface ChatStore {
   adoptCompactionSummary: (
     sessionId: string,
     summary: UnifiedMessage,
-    compactedMessageCount?: number
+    compactedMessageCount?: number,
+    anchorAssistantMessageId?: string | null
   ) => void
   /** Pull the recorded cut so the transcript can mark the compaction point. */
   refreshSessionCompactSummary: (sessionId: string) => Promise<void>
@@ -3848,7 +3855,12 @@ export const useChatStore = create<ChatStore>()(
       return request
     },
 
-    adoptCompactionSummary: (sessionId, summary, compactedMessageCount = 0) => {
+    adoptCompactionSummary: (
+      sessionId,
+      summary,
+      compactedMessageCount = 0,
+      anchorAssistantMessageId = null
+    ) => {
       // Display only. Main writes the row and records the cut in the same
       // transaction, so writing it again here would create a second, competing
       // position for the same message.
@@ -3857,7 +3869,11 @@ export const useChatStore = create<ChatStore>()(
         if (!target) return
         // The divider is keyed off the recorded cut, so mark it even when the row
         // is already resident (a replayed frame, or a reload that raced the run).
-        target.compactSummary = { messageId: summary.id, compactedMessageCount }
+        target.compactSummary = {
+          messageId: summary.id,
+          compactedMessageCount,
+          anchorAssistantMessageId
+        }
         if (target.messages.some((message) => message.id === summary.id)) return
 
         const message: UnifiedMessage = {
@@ -3888,7 +3904,10 @@ export const useChatStore = create<ChatStore>()(
         const next = compaction
           ? {
               messageId: compaction.summaryMessageId,
-              compactedMessageCount: compaction.compactedMessageCount
+              compactedMessageCount: compaction.compactedMessageCount,
+              // Compression runs mid-turn and the cut spares that turn, so the
+              // row it kept is where the divider belongs on reload.
+              anchorAssistantMessageId: compaction.keepMessageIds[0] ?? null
             }
           : null
         const current = target.compactSummary
@@ -3897,7 +3916,8 @@ export const useChatStore = create<ChatStore>()(
           (current &&
             next &&
             current.messageId === next.messageId &&
-            current.compactedMessageCount === next.compactedMessageCount)
+            current.compactedMessageCount === next.compactedMessageCount &&
+            (current.anchorAssistantMessageId ?? null) === next.anchorAssistantMessageId)
         ) {
           return
         }

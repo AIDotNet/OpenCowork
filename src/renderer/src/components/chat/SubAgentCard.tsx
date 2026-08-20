@@ -1,9 +1,12 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import { Brain, FileText, ScrollText, icons } from 'lucide-react'
+import { Brain, CircleAlert, FileText, ScrollText, icons } from 'lucide-react'
 
-import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import {
+  decodeStructuredToolResult,
+  formatToolErrorForDisplay
+} from '@renderer/lib/tools/tool-result-format'
 import { formatTokens, getBillableTotalTokens } from '@renderer/lib/format-tokens'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
 import { resolveSubAgentPresentation } from '@renderer/lib/agent/sub-agents/presentation'
@@ -24,6 +27,7 @@ interface SubAgentCardProps {
   toolUseId: string
   input: Record<string, unknown>
   output?: ToolResultContent
+  error?: string
   isLive?: boolean
   liveStatus?: ToolCallStatus | 'completed'
   sessionId?: string | null
@@ -57,6 +61,13 @@ function extractToolResultText(content?: ToolResultContent): string {
     .map((block) => block.text)
     .join('\n')
     .trim()
+}
+
+function extractStructuredError(text: string): string {
+  if (!text) return ''
+  const parsed = decodeStructuredToolResult(text)
+  if (!parsed || Array.isArray(parsed) || typeof parsed.error !== 'string') return ''
+  return formatToolErrorForDisplay(parsed.error)
 }
 
 function SubAgentHoverContent({
@@ -120,6 +131,7 @@ function SubAgentCardInner({
   toolUseId,
   input,
   output,
+  error,
   isLive = false,
   liveStatus,
   sessionId,
@@ -173,25 +185,11 @@ function SubAgentCardInner({
   const usage = tracked?.usage ?? histMeta?.usage ?? null
   const reportStatus = tracked?.reportStatus
   const endReason = tracked?.endReason
-  const historicalError = outputStr
-    ? (() => {
-        const parsedOutput = decodeStructuredToolResult(outputStr)
-        if (
-          parsedOutput &&
-          !Array.isArray(parsedOutput) &&
-          typeof parsedOutput.error === 'string'
-        ) {
-          return true
-        }
-
-        const parsedHistText = decodeStructuredToolResult(histText)
-        return !!(
-          parsedHistText &&
-          !Array.isArray(parsedHistText) &&
-          typeof parsedHistText.error === 'string'
-        )
-      })()
-    : false
+  const historicalErrorMessage = React.useMemo(
+    () => extractStructuredError(outputStr) || extractStructuredError(histText),
+    [histText, outputStr]
+  )
+  const historicalError = Boolean(historicalErrorMessage)
   const presentation = resolveSubAgentPresentation({
     tracked,
     hasToolResult: Boolean(outputStr),
@@ -202,6 +200,15 @@ function SubAgentCardInner({
   const isQueued = presentation.isQueued
   const isRunning = presentation.isRunning
   const isError = presentation.isError || historicalError
+  const errorText = isError
+    ? formatToolErrorForDisplay(
+        tracked?.errorMessage?.trim() ||
+          error?.trim() ||
+          historicalErrorMessage ||
+          (liveStatus === 'error' ? histText.trim() : '') ||
+          t('subAgent.failureUnknown', { defaultValue: 'SubAgent execution failed' })
+      )
+    : ''
 
   const [now, setNow] = React.useState(tracked?.startedAt ?? Date.now())
   React.useEffect(() => {
@@ -261,11 +268,11 @@ function SubAgentCardInner({
     <button
       type="button"
       onClick={handleOpenPanel}
-      title={`${t('subAgent.viewDetails')} · ${metaText}`}
+      title={`${t('subAgent.viewDetails')} · ${metaText}${errorText ? ` · ${errorText}` : ''}`}
       className={cn(
-        'group my-1 flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-[12px] transition-colors duration-200',
+        'group my-1 flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-1.5 py-1.5 text-left text-[12px] transition-colors duration-200',
         'hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/45 dark:hover:bg-white/[0.035]',
-        isError && 'hover:bg-destructive/[0.035]'
+        isError && 'bg-destructive/[0.025] hover:bg-destructive/[0.045]'
       )}
     >
       <span
@@ -314,6 +321,16 @@ function SubAgentCardInner({
           <span className="tabular-nums text-muted-foreground/55">{formatElapsed(elapsed)}</span>
         ) : null}
       </span>
+
+      {errorText ? (
+        <span
+          className="flex w-full min-w-0 items-start gap-1.5 pl-7 text-[11px] leading-4 text-destructive/85"
+          title={errorText}
+        >
+          <CircleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+          <span className="line-clamp-2 break-words">{errorText}</span>
+        </span>
+      ) : null}
     </button>
   )
 

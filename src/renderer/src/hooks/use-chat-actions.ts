@@ -6395,6 +6395,8 @@ export function useChatActions(): {
                     // the same event. The renderer only mirrors it into the resident
                     // window so the transcript shows the compression point without
                     // waiting for a reload — no positions to guess, no second writer.
+                    // The summary row lands at the tail, so the still-streaming turn
+                    // travels with it as the anchor the divider renders above.
                     useChatStore.getState().adoptCompactionSummary(
                       sessionId,
                       {
@@ -6402,7 +6404,8 @@ export function useChatActions(): {
                         role: 'user',
                         createdAt: summary.createdAt || Date.now()
                       },
-                      event.keptMessageCount ?? 0
+                      event.keptMessageCount ?? 0,
+                      assistantMsgId
                     )
                   }
                   break

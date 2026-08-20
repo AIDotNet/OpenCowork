@@ -96,6 +96,7 @@ internal static class AgentRuntimeProviderRetryPolicy
         WorkerRequestContext context)
     {
         var statusAttempts = 0;
+        var requestTimeoutAttempts = 0;
         var transportAttempts = 0;
         var previousStatusDelayMs = 0;
         var startedAt = Stopwatch.GetTimestamp();
@@ -127,6 +128,28 @@ internal static class AgentRuntimeProviderRetryPolicy
                     WorkerHttpTuning.StatusRetryAttempts,
                     delayMs,
                     ex.StatusCode);
+                await Task.Delay(delayMs, state.CancellationToken);
+            }
+            catch (AgentRuntimeProviderRequestTimeoutException) when (
+                requestTimeoutAttempts < WorkerHttpTuning.RequestTimeoutRetryAttempts &&
+                !state.IsCancellationRequested &&
+                HasTimeRemaining(startedAt))
+            {
+                requestTimeoutAttempts++;
+                var delayMs = ComputeTransportDelayMs(requestTimeoutAttempts);
+
+                WorkerLog.Warn(
+                    "provider response-header timeout; retrying " +
+                    $"in {delayMs}ms attempt={requestTimeoutAttempts}/" +
+                    $"{WorkerHttpTuning.RequestTimeoutRetryAttempts}");
+                await EmitRetryAsync(
+                    state,
+                    context,
+                    "response headers timeout",
+                    requestTimeoutAttempts,
+                    WorkerHttpTuning.RequestTimeoutRetryAttempts,
+                    delayMs,
+                    statusCode: null);
                 await Task.Delay(delayMs, state.CancellationToken);
             }
             catch (AgentRuntimeProviderTransportException ex) when (
@@ -204,7 +227,7 @@ internal static class AgentRuntimeProviderRetryPolicy
 
     private static bool IsRetryableStatus(int statusCode)
     {
-        return statusCode == 429 || statusCode >= 500;
+        return statusCode is 408 or 409 or 425 or 429 || statusCode >= 500;
     }
 
     private static int ComputeStatusDelayMs(int attempt, int previousDelayMs, TimeSpan? retryAfter)

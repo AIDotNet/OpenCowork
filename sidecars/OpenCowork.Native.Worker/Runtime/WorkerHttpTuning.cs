@@ -10,9 +10,16 @@ using System.Globalization;
 /// </summary>
 internal static class WorkerHttpTuning
 {
-    /// <summary>Attempts for HTTP 429/5xx responses. Rate limits genuinely need this depth.</summary>
+    /// <summary>Attempts for transient HTTP responses. Rate limits genuinely need this depth.</summary>
     public static int StatusRetryAttempts { get; } = ReadInt(
         "OPEN_COWORK_NATIVE_RETRY_STATUS_ATTEMPTS", 10, min: 0, max: 50);
+
+    /// <summary>
+    /// Attempts after a provider exceeds the response-header deadline. Each attempt can consume
+    /// the full user-configured timeout, so keep this shallower than status retries.
+    /// </summary>
+    public static int RequestTimeoutRetryAttempts { get; } = ReadInt(
+        "OPEN_COWORK_NATIVE_RETRY_TIMEOUT_ATTEMPTS", 2, min: 0, max: 10);
 
     /// <summary>
     /// Attempts for transient link faults. Transport faults resolve within seconds or not at all,

@@ -1,6 +1,19 @@
 ﻿using System.Net.WebSockets;
 using System.Text.Json;
 
+/// <summary>
+/// Raised only when a provider has not returned response headers before the configured deadline.
+/// Unlike stream-idle timeouts, replaying this failure is safe because no response event can have
+/// reached the caller yet.
+/// </summary>
+internal sealed class AgentRuntimeProviderRequestTimeoutException : TimeoutException
+{
+    public AgentRuntimeProviderRequestTimeoutException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
 // Provider HTTP requests go through a shared static HttpClient, and HttpClient.Timeout can no
 // longer be reassigned once that client has dispatched its first request. A user-configurable
 // deadline therefore cannot live on the client: the provider clients are created with
@@ -217,10 +230,10 @@ internal static class AgentRuntimeRequestTimeout
                 when (deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
             {
                 // Distinguish "the deadline elapsed" from "the user cancelled the run", which would
-                // otherwise both surface as an indistinguishable OperationCanceledException.
-                // This is deliberately NOT retried: the user's chosen deadline is honoured once
-                // rather than being silently multiplied by the retry count.
-                throw new TimeoutException(
+                // otherwise both surface as an indistinguishable OperationCanceledException. The
+                // dedicated type lets the outer policy retry this safe pre-stream failure without
+                // replaying stream-idle timeouts that may have already emitted content or tools.
+                throw new AgentRuntimeProviderRequestTimeoutException(
                     $"{providerLabel} did not return response headers within {timeout.TotalSeconds:0}s. " +
                     "Raise the API request timeout in Settings (0 waits indefinitely) if this model " +
                     "needs longer before it starts responding.",

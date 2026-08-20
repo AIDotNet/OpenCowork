@@ -44,7 +44,7 @@ import { ImagePluginToolCard } from './ImagePluginToolCard'
 import { DesktopActionToolCard } from './DesktopActionToolCard'
 import { BrowserToolCard } from './BrowserToolCard'
 import { CodeGraphToolCard } from './CodeGraphToolCard'
-import { useChatStore } from '@renderer/stores/chat-store'
+import { useChatStore, type SessionCompactSummary } from '@renderer/stores/chat-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import type { AgentRunChangeSet, AgentRunFileChange } from '@renderer/stores/agent-store'
 import { useShallow } from 'zustand/react/shallow'
@@ -146,6 +146,8 @@ interface AssistantMessageProps {
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
   inlineCompactSummaries?: readonly UnifiedMessage[]
+  /** Recorded cut, so an inlined summary can label how much it stands for. */
+  compactSummary?: SessionCompactSummary | null
   msgId?: string
   sessionId?: string | null
   sessionAssistantMessageIds?: readonly string[]
@@ -1712,6 +1714,7 @@ export function AssistantMessage({
   toolResults,
   liveToolCallMap,
   inlineCompactSummaries = EMPTY_INLINE_COMPACT_SUMMARIES,
+  compactSummary,
   msgId,
   sessionId,
   sessionAssistantMessageIds = EMPTY_ID_LIST,
@@ -1956,11 +1959,14 @@ export function AssistantMessage({
     const entries: InlineCompactSummaryEntry[] = []
     for (const message of inlineCompactSummaries) {
       const anchor = message.meta?.compactSummary?.displayAnchor
-      if (!anchor || anchor.assistantMessageId !== msgId) continue
+      if (anchor && anchor.assistantMessageId !== msgId) continue
 
-      const afterContentBlockCount = Number.isFinite(anchor.afterContentBlockCount)
-        ? Math.max(0, Math.floor(anchor.afterContentBlockCount))
-        : 0
+      // A summary positioned by the recorded cut alone carries no block-level
+      // anchor: the cut spared this whole turn, so the divider goes above it.
+      const afterContentBlockCount =
+        anchor && Number.isFinite(anchor.afterContentBlockCount)
+          ? Math.max(0, Math.floor(anchor.afterContentBlockCount))
+          : 0
       const normalizedPrefixCount = rawBlocks
         ? normalizeStructuredBlocks(rawBlocks.slice(0, afterContentBlockCount), {
             preserveBoundaryAfterRawIndices: compactSummaryRawBoundaryIndices
@@ -1971,7 +1977,7 @@ export function AssistantMessage({
         message,
         afterContentBlockCount,
         afterNormalizedBlockIndex: Math.max(-1, normalizedPrefixCount - 1),
-        ...(anchor.afterToolUseId ? { afterToolUseId: anchor.afterToolUseId } : {})
+        ...(anchor?.afterToolUseId ? { afterToolUseId: anchor.afterToolUseId } : {})
       })
     }
 
@@ -2268,7 +2274,13 @@ export function AssistantMessage({
     )
     if (!hasToolWork) return null
 
-    return { intermediate, finalItem }
+    // The compaction divider is transcript structure, not process detail —
+    // folding it away with the tool calls would hide where the context was cut.
+    return {
+      summaries: intermediate.filter((item) => item.kind === 'compact-summary'),
+      intermediate: intermediate.filter((item) => item.kind !== 'compact-summary'),
+      finalItem
+    }
   }, [
     normalizedContent,
     renderItemsWithInlineSummaries,
@@ -2514,6 +2526,11 @@ export function AssistantMessage({
                 toolUseId={block.id}
                 input={block.input}
                 output={result?.content ?? effectiveLiveToolCallMap?.get(block.id)?.output}
+                error={
+                  executionItem?.error ??
+                  effectiveLiveToolCallMap?.get(block.id)?.error ??
+                  undefined
+                }
                 isLive={!!isStreaming}
                 liveStatus={
                   executionItem?.status ?? effectiveLiveToolCallMap?.get(block.id)?.status
@@ -2769,6 +2786,9 @@ export function AssistantMessage({
           <ContextCompressionMessage
             key={`compact-summary-${item.message.id}`}
             message={item.message}
+            {...(compactSummary?.messageId === item.message.id
+              ? { compactedMessageCount: compactSummary.compactedMessageCount }
+              : {})}
           />
         )
       }
@@ -2945,6 +2965,7 @@ export function AssistantMessage({
         ) : null}
         {canCollapseProcess && processSection ? (
           <>
+            {processSection.summaries.map(renderRenderItem)}
             <GenerationProcessLine
               active={false}
               label={processHeaderLabel}

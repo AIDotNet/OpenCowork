@@ -17,6 +17,25 @@ const eventEndpoint = join(tempDirectory, 'events.sock')
 const workerDll = resolve(
   'sidecars/OpenCowork.Native.Worker/bin/Debug/net11.0/OpenCowork.Native.Worker.dll'
 )
+const providerRequestCounts = new Map()
+
+function countProviderRequest(name) {
+  const count = (providerRequestCounts.get(name) ?? 0) + 1
+  providerRequestCounts.set(name, count)
+  return count
+}
+
+function writeChatCompletion(response) {
+  response.writeHead(200, { 'content-type': 'text/event-stream' })
+  response.end(
+    [
+      'data: {"choices":[{"delta":{"content":"retry recovered"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n'
+    ].join('')
+  )
+}
+
 const providerServer = createServer((request, response) => {
   if (request.url?.startsWith('/compression/')) {
     response.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -30,9 +49,28 @@ const providerServer = createServer((request, response) => {
     return
   }
   if (request.url?.startsWith('/headers-stall/')) {
+    countProviderRequest('headers-stall')
     const finish = setTimeout(() => response.end(), 10_000)
     finish.unref()
     response.once('close', () => clearTimeout(finish))
+    return
+  }
+  for (const statusCode of [408, 409, 425, 429, 500]) {
+    const fixture = `retry-${statusCode}`
+    if (request.url?.startsWith(`/${fixture}/`)) {
+      if (countProviderRequest(fixture) === 1) {
+        response.writeHead(statusCode, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: { message: `transient HTTP ${statusCode}` } }))
+      } else {
+        writeChatCompletion(response)
+      }
+      return
+    }
+  }
+  if (request.url?.startsWith('/no-retry-400/')) {
+    countProviderRequest('no-retry-400')
+    response.writeHead(400, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ error: { message: 'invalid request fixture' } }))
     return
   }
   if (request.url?.startsWith('/stream-stall/')) {
@@ -65,6 +103,13 @@ const compressionProviderBaseUrl = `http://127.0.0.1:${providerAddress.port}/com
 const stalledProviderBaseUrl = `http://127.0.0.1:${providerAddress.port}/stall/v1`
 const stalledHeadersBaseUrl = `http://127.0.0.1:${providerAddress.port}/headers-stall/v1`
 const stalledStreamBaseUrl = `http://127.0.0.1:${providerAddress.port}/stream-stall/v1`
+const retryStatusBaseUrls = new Map(
+  [408, 409, 425, 429, 500].map((statusCode) => [
+    statusCode,
+    `http://127.0.0.1:${providerAddress.port}/retry-${statusCode}/v1`
+  ])
+)
+const noRetry400BaseUrl = `http://127.0.0.1:${providerAddress.port}/no-retry-400/v1`
 
 class RpcClient {
   constructor(socket) {
@@ -314,6 +359,42 @@ async function verifyProviderTimeout(
   assert.equal(result.state, 'failed')
   assert.equal(result.errorCode, 'timeout')
   assert.match(result.error, expectedError)
+}
+
+async function verifyProviderStatusPolicy(client, { baseUrl, fixture, shouldRetry }) {
+  const runId = randomUUID()
+  const submission = await client.request('jobs/submit', {
+    method: 'agent/run',
+    params: {
+      runId,
+      sessionId: `provider-status-${runId}`,
+      messages: [
+        {
+          id: `message-${runId}`,
+          role: 'user',
+          content: 'provider status retry verification',
+          createdAt: Date.now()
+        }
+      ],
+      provider: {
+        type: 'openai-chat',
+        apiKey: 'test-key',
+        baseUrl,
+        model: 'provider-status-smoke',
+        requestTimeoutSeconds: 2,
+        streamIdleTimeoutSeconds: 2
+      },
+      tools: [],
+      maxIterations: 1,
+      forceApproval: false
+    },
+    jobId: runId,
+    idempotencyKey: runId
+  })
+  assert.equal(submission.accepted, true)
+  const result = await waitForTerminal(client, runId, 6_000)
+  assert.equal(result.state, shouldRetry ? 'succeeded' : 'failed')
+  assert.equal(providerRequestCounts.get(fixture), shouldRetry ? 2 : 1)
 }
 
 const hostId = `verify-${process.pid}-${randomUUID().replaceAll('-', '')}`
@@ -568,7 +649,8 @@ try {
       env: {
         ...process.env,
         OPEN_COWORK_RUNTIME_DB_PATH: join(tempDirectory, 'runtime.db'),
-        OPEN_COWORK_NATIVE_RETRY_TRANSPORT: '0'
+        OPEN_COWORK_NATIVE_RETRY_TRANSPORT: '0',
+        OPEN_COWORK_NATIVE_RETRY_TIMEOUT_ATTEMPTS: '2'
       },
       stdio: ['ignore', 'ignore', 'pipe']
     }
@@ -649,14 +731,17 @@ try {
   const replayPing = await recoveryClient.request('worker/ping', {}, 2_000)
   assert.equal(replayPing.ok, true)
 
-  // Each provider timeout boundary must fail only its background Job while the
-  // Control IPC remains responsive to health checks.
+  // Response-header timeouts are safe to replay before any event reaches the UI. Exhausting the
+  // retry budget must still fail only the background Job while Control remains responsive.
   await verifyProviderTimeout(recoveryClient, {
     baseUrl: stalledHeadersBaseUrl,
     requestTimeoutSeconds: 1,
     streamIdleTimeoutSeconds: 2,
     expectedError: /did not return response headers/u
   })
+  assert.equal(providerRequestCounts.get('headers-stall'), 3)
+
+  // Stream-idle timeouts may happen after visible output and are therefore never replayed.
   await verifyProviderTimeout(recoveryClient, {
     baseUrl: stalledStreamBaseUrl,
     requestTimeoutSeconds: 2,
@@ -703,6 +788,21 @@ try {
   assert.match(rejectedResult.error, /requires a capabilitySnapshot/u)
   const rejectedEventResult = await rejectedEvents
   assert.equal(rejectedEventResult.terminal, 1)
+
+  // Transient statuses recover, while parameter-shaped 4xx responses fail immediately. Keep
+  // these last because the fixtures intentionally inspect Jobs without consuming their events.
+  for (const [statusCode, baseUrl] of retryStatusBaseUrls) {
+    await verifyProviderStatusPolicy(recoveryClient, {
+      baseUrl,
+      fixture: `retry-${statusCode}`,
+      shouldRetry: true
+    })
+  }
+  await verifyProviderStatusPolicy(recoveryClient, {
+    baseUrl: noRetry400BaseUrl,
+    fixture: 'no-retry-400',
+    shouldRetry: false
+  })
 
   console.log('Native Worker durable Job + split IPC verification passed.')
 } finally {

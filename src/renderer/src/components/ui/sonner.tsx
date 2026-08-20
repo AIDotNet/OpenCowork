@@ -7,8 +7,9 @@ import {
 } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
+import { cn } from '@renderer/lib/utils'
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const Toaster = ({ toastOptions, ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme()
 
   return (
@@ -30,6 +31,19 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--border-radius': 'var(--radius)'
         } as React.CSSProperties
       }
+      toastOptions={{
+        ...toastOptions,
+        classNames: {
+          ...toastOptions?.classNames,
+          toast: cn('items-start', toastOptions?.classNames?.toast),
+          content: cn('min-w-0', toastOptions?.classNames?.content),
+          title: cn('break-words', toastOptions?.classNames?.title),
+          description: cn(
+            'max-h-64 overflow-y-auto whitespace-pre-wrap break-words pr-1',
+            toastOptions?.classNames?.description
+          )
+        }
+      }}
       {...props}
     />
   )

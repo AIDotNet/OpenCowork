@@ -197,6 +197,7 @@ function MessageItemInner({
             usage={message.usage}
             toolResults={toolResults}
             inlineCompactSummaries={inlineCompactSummaries}
+            compactSummary={compactSummary}
             msgId={message.id}
             sessionId={sessionId}
             sessionAssistantMessageIds={sessionAssistantMessageIds}

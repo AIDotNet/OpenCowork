@@ -267,6 +267,21 @@ function resolveReasoningEffortForModel(args: {
   return args.thinkingConfig?.defaultReasoningEffort ?? args.reasoningEffort
 }
 
+/**
+ * Mirrors the renderer's rule: the model catalog marks which models *can* run on the
+ * priority tier, but only the Fast toggle opts a request into it. Codex OAuth plans are
+ * always billed on the priority tier, so they ignore the toggle.
+ */
+function resolveServiceTier(
+  settings: Record<string, unknown>,
+  model: AIModelConfig | undefined,
+  providerBuiltinId?: string
+): string | undefined {
+  if (!model?.serviceTier) return undefined
+  if (providerBuiltinId === 'codex-oauth') return model.serviceTier
+  return settings.fastModeEnabled === true ? model.serviceTier : undefined
+}
+
 function readReasoningEffortByModel(
   value: unknown
 ): Record<string, ReasoningEffortLevel> | undefined {
@@ -315,6 +330,7 @@ export function buildProviderConfigById(
     modelId,
     thinkingConfig
   })
+  const serviceTier = resolveServiceTier(settings, model, provider.builtinId)
   return {
     type: requestType,
     apiKey: provider.apiKey,
@@ -344,7 +360,7 @@ export function buildProviderConfigById(
       ? { enableSystemPromptCache: model.enableSystemPromptCache }
       : {}),
     cacheTtl: model?.cacheTtl ?? provider.cacheTtl,
-    ...(model?.serviceTier ? { serviceTier: model.serviceTier } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
     ...((requestType === 'anthropic' || requestType === 'openai-responses') &&
     model?.supportsBuiltinSearch === true &&
     model?.enableBuiltinSearch === true

@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.3.13] - 2026-08-19
+## [1.3.14] - 2026-08-20
 
 ### Added
 
@@ -10,15 +10,11 @@ All notable changes to this project will be documented in this file.
 - Added read-only orchestration tools to the ACP lead agent — `Skill`, `MemoryList`/`MemoryRead`/`MemorySearch`, `codegraph_explore`, `WebSearch`, `WebFetch`, `TeamCreate`/`SendMessage`/`TeamStatus`/`TeamDelete`, `CronList`, and `Notify` — so the parent can plan and delegate without gaining `Write`, `Edit`, `Bash`, or `CronAdd`.
 - Added attached user images to Gemini `generateContent`, Gemini Interactions, and OpenAI chat-completions by normalizing wire image sources into inline bytes or URLs instead of dropping them.
 - Added a live thinking preview: the collapsed reasoning header shows the latest thinking line while the model is still reasoning.
-- Added a Native Worker per-tool durable journal (`runtime_tool_results`, 3-day retention) written on the emit path the instant a tool finishes, exposed as `agent/tool-results-lookup`, so a `tool_result` that never reached the messages table is recovered from disk.
 
 ### Changed
 
 - New user turns now pin to the top of the viewport via a bottom spacer, so a long reply scrolls beneath the question instead of pushing it off screen.
 - Split the 4,000-line `SettingsPage` into focused panels (General, Model, Runtime, Data, Memory, Analytics, System, About, plus the provider and AI-coding workbenches) behind a shared nav and primitives module, and dropped the unused `SettingsDialog`.
-- Renderer persists the assistant row and its `tool_result` at every tool boundary instead of waiting for the 30s streaming checkpoint or run end, writing the assistant row first so an interrupted write leaves a healable dangling `tool_use` rather than an orphan `tool_result`.
-- Hosted sessions snapshot their canonical history after each fully answered tool batch instead of only at loop end, so an interrupted turn does not roll back past tools that already ran.
-- Dangling-`tool_use` healing and Continue consult the Worker journal before falling back to the in-memory tool-call cache, which is empty after a restart.
 
 ### Fixed
 
@@ -26,6 +22,21 @@ All notable changes to this project will be documented in this file.
 - Fixed auto-compression silently never running for models without a configured context length: an unknown window produced a null compression config while the input-area gauge kept measuring against the 200K default, so both the hosted-session assembler and the interactive run path now fall back to that same default.
 - Fixed a session staying permanently busy after a send failed during preflight (#159): the streaming pointer, abort controller, and sidecar run id leaked, which disabled the plan review actions and queued every later message instead of dispatching it, leaving Continue as the only path that still worked. Such a failure now also reports an error card instead of the turn silently disappearing.
 - Fixed `EnterPlanMode` forking a second plan row and `.plan` file when a run died after `ExitPlanMode` (#159), which left the review card pointing at the abandoned plan; awaiting-review and approved plans are now reopened in place and moved back to drafting while they are rewritten.
+
+## [1.3.13] - 2026-08-18
+
+### Added
+
+- Added a Native Worker per-tool durable journal (`runtime_tool_results`, 3-day retention) written on the emit path the instant a tool finishes, exposed as `agent/tool-results-lookup`, so a `tool_result` that never reached the messages table is recovered from disk.
+
+### Changed
+
+- Renderer persists the assistant row and its `tool_result` at every tool boundary instead of waiting for the 30s streaming checkpoint or run end, writing the assistant row first so an interrupted write leaves a healable dangling `tool_use` rather than an orphan `tool_result`.
+- Hosted sessions snapshot their canonical history after each fully answered tool batch instead of only at loop end, so an interrupted turn does not roll back past tools that already ran.
+- Dangling-`tool_use` healing and Continue consult the Worker journal before falling back to the in-memory tool-call cache, which is empty after a restart.
+
+### Fixed
+
 - Fixed a finished tool being silently re-executed on the next turn after a crash, app kill, or worker recycle mid-turn: its unpaired `tool_use` was stripped from provider input, so the model forgot the call happened and re-ran it — worst case replaying a long sub-agent Task from scratch.
 - Fixed sub-agent and context-compression child runs overwriting the parent hosted session's history, which they could do because they borrow the parent `sessionId` while owning an unrelated conversation.
 

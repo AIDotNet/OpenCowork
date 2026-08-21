@@ -173,7 +173,6 @@
     "executeModel": "Модель выполнения",
     "executeModelDesc": "Выберите модель, которая должна реализовать этот план.",
     "executeModelPlaceholder": "Выберите модель",
-    "executeModelAuto": "Авто",
     "executeInNewSession": "Новая сессия выполняется",
     "awaitingReview": "Ожидающий обзор",
     "approve": "одобрять",

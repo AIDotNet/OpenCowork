@@ -173,7 +173,6 @@
     "executeModel": "Mô hình thực thi",
     "executeModelDesc": "Chọn mô hình sẽ triển khai kế hoạch này.",
     "executeModelPlaceholder": "Chọn mô hình",
-    "executeModelAuto": "Tự động",
     "executeInNewSession": "Thực hiện phiên chạy mới",
     "awaitingReview": "Chờ đợi ôn lại",
     "approve": "Áp dụng",

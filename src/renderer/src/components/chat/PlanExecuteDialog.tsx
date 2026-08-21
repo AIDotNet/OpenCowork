@@ -25,13 +25,10 @@ import {
   isProviderAvailableForModelSelection,
   useProviderStore
 } from '@renderer/stores/provider-store'
-import { useSettingsStore } from '@renderer/stores/settings-store'
 import { resolveSessionModelSelection } from '@renderer/lib/session-model-resolution'
 import type { AIModelConfig, AIProvider } from '@renderer/lib/api/types'
 
-export type PlanExecutionModelSelection =
-  | { mode: 'auto' }
-  | { mode: 'manual'; providerId: string; modelId: string }
+export type PlanExecutionModelSelection = { providerId: string; modelId: string }
 
 interface ConfirmPlanExecutionOptions {
   sessionId: string
@@ -42,8 +39,6 @@ interface ConfirmPlanExecutionOptions {
 interface DialogRequest extends ConfirmPlanExecutionOptions {
   resolve: (selection: PlanExecutionModelSelection | null) => void
 }
-
-const AUTO_VALUE = '__auto__'
 
 let _setDialog: React.Dispatch<React.SetStateAction<DialogRequest | null>> | null = null
 
@@ -58,6 +53,17 @@ function parseModelValue(value: string): { providerId: string; modelId: string }
   const modelId = value.slice(separator + 2)
   if (!providerId || !modelId) return null
   return { providerId, modelId }
+}
+
+function firstAvailableSelection(
+  groups: Array<{ provider: AIProvider; models: AIModelConfig[] }>
+): PlanExecutionModelSelection {
+  const firstGroup = groups[0]
+  const firstModel = firstGroup?.models[0]
+  return {
+    providerId: firstGroup?.provider.id ?? '',
+    modelId: firstModel?.id ?? ''
+  }
 }
 
 function listChatModelGroups(
@@ -85,18 +91,19 @@ export function resolvePlanExecutionDefaultModel(sessionId: string): PlanExecuti
     providers: providerStore.providers,
     activeProviderId: providerStore.activeProviderId,
     activeModelId: providerStore.activeModelId,
-    globalMode: useSettingsStore.getState().mainModelSelectionMode,
     channelProviderId: channel?.providerId,
     channelModelId: channel?.model
   })
 
-  if (selection.isAutoModeActive) {
-    return { mode: 'auto' }
-  }
   if (selection.providerId && selection.modelId) {
-    return { mode: 'manual', providerId: selection.providerId, modelId: selection.modelId }
+    return { providerId: selection.providerId, modelId: selection.modelId }
   }
-  return { mode: 'auto' }
+  const firstGroup = listChatModelGroups(providerStore.providers)[0]
+  const firstModel = firstGroup?.models[0]
+  return {
+    providerId: firstGroup?.provider.id ?? providerStore.activeProviderId ?? '',
+    modelId: firstModel?.id ?? providerStore.activeModelId
+  }
 }
 
 export function applyPlanExecutionModel(
@@ -104,30 +111,21 @@ export function applyPlanExecutionModel(
   selection: PlanExecutionModelSelection
 ): void {
   const chatStore = useChatStore.getState()
-  if (selection.mode === 'auto') {
-    chatStore.setSessionModelAuto(sessionId)
-    return
-  }
   chatStore.setSessionModelManual(sessionId, selection.providerId, selection.modelId)
 }
 
 function selectionToValue(selection: PlanExecutionModelSelection): string {
-  return selection.mode === 'auto'
-    ? AUTO_VALUE
-    : buildModelValue(selection.providerId, selection.modelId)
+  return buildModelValue(selection.providerId, selection.modelId)
 }
 
 function valueToSelection(value: string): PlanExecutionModelSelection | null {
-  if (value === AUTO_VALUE) return { mode: 'auto' }
-  const parsed = parseModelValue(value)
-  return parsed ? { mode: 'manual', ...parsed } : null
+  return parseModelValue(value)
 }
 
 function isSelectionAvailable(
   selection: PlanExecutionModelSelection,
   groups: Array<{ provider: AIProvider; models: AIModelConfig[] }>
 ): boolean {
-  if (selection.mode === 'auto') return true
   return groups.some(
     (group) =>
       group.provider.id === selection.providerId &&
@@ -178,7 +176,7 @@ export function PlanExecutionModelSelect({
     if (isSelectionAvailable(initial, listChatModelGroups(useProviderStore.getState().providers))) {
       return initial
     }
-    return { mode: 'auto' }
+    return firstAvailableSelection(listChatModelGroups(useProviderStore.getState().providers))
   })
   const selection = value ?? uncontrolled
 
@@ -201,9 +199,6 @@ export function PlanExecutionModelSelect({
         />
       </SelectTrigger>
       <SelectContent position="popper" className="z-[60] max-h-72">
-        <SelectItem value={AUTO_VALUE} className="text-xs">
-          {t('plan.executeModelAuto', { defaultValue: 'Auto' })}
-        </SelectItem>
         {groups.map(({ provider, models }) => (
           <SelectGroup key={provider.id}>
             <SelectLabel className="text-[10px] uppercase tracking-wide">
@@ -254,7 +249,7 @@ function PlanExecuteDialogForm({
     if (isSelectionAvailable(initial, listChatModelGroups(useProviderStore.getState().providers))) {
       return initial
     }
-    return { mode: 'auto' }
+    return firstAvailableSelection(listChatModelGroups(useProviderStore.getState().providers))
   })
 
   const canConfirm = isSelectionAvailable(
@@ -290,11 +285,7 @@ function PlanExecuteDialogForm({
             defaultValue: 'Choose which model should implement this plan.'
           })}
         </p>
-        <PlanExecutionModelSelect
-          sessionId={sessionId}
-          value={selection}
-          onChange={setSelection}
-        />
+        <PlanExecutionModelSelect sessionId={sessionId} value={selection} onChange={setSelection} />
       </div>
 
       <DialogFooter>

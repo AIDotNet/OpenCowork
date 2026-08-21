@@ -173,7 +173,6 @@
     "executeModel": "Execution model",
     "executeModelDesc": "Choose which model should implement this plan.",
     "executeModelPlaceholder": "Select a model",
-    "executeModelAuto": "Auto",
     "executeInNewSession": "New Session Execute",
     "awaitingReview": "Awaiting Review",
     "approve": "Approve",

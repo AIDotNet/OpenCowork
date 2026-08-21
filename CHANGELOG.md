@@ -15,9 +15,11 @@ All notable changes to this project will be documented in this file.
 
 - New user turns now pin to the top of the viewport via a bottom spacer, so a long reply scrolls beneath the question instead of pushing it off screen.
 - Split the 4,000-line `SettingsPage` into focused panels (General, Model, Runtime, Data, Memory, Analytics, System, About, plus the provider and AI-coding workbenches) behind a shared nav and primitives module, and dropped the unused `SettingsDialog`.
+- Removed Auto model routing and the session “follow global model” option; sessions now bind a concrete model, and new sessions snapshot the current global, project, or configured default.
 
 ### Fixed
 
+- Fixed the plan review actions staying disabled after a plan landed, most often in Cowork mode: they were gated on any session activity, so a background command left running, an open team, or a sub-agent record that never got its end event kept Implement stuck on its spinner for the rest of the session. Both the actions and the plan panel reload now follow the session's own in-flight turn, which is what actually decides whether a send dispatches or queues.
 - Fixed Fast mode being forced on for every hosted-session, cron, and channel run: the main-process provider config copied the model catalog's `priority` service tier straight onto the request, so fast-capable models like GPT-5.6 Sol/Terra/Luna were billed at the priority tier even with the Fast toggle off. Only Codex OAuth still ignores the toggle, because its plans are always priority.
 - Fixed auto-compression silently never running for models without a configured context length: an unknown window produced a null compression config while the input-area gauge kept measuring against the 200K default, so both the hosted-session assembler and the interactive run path now fall back to that same default.
 - Fixed a session staying permanently busy after a send failed during preflight (#159): the streaming pointer, abort controller, and sidecar run id leaked, which disabled the plan review actions and queued every later message instead of dispatching it, leaving Continue as the only path that still worked. Such a failure now also reports an error card instead of the turn silently disappearing.

@@ -173,7 +173,6 @@
     "executeModel": "実行モデル",
     "executeModelDesc": "このプランを実装するモデルを選択してください。",
     "executeModelPlaceholder": "モデルを選択",
-    "executeModelAuto": "自動",
     "executeInNewSession": "新しいセッションの実行",
     "awaitingReview": "レビューを待っています",
     "approve": "プロモーション",

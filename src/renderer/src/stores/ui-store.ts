@@ -84,56 +84,6 @@ export interface RightPanelTabInstance {
 export type PreviewSource = 'file' | 'dev-server' | 'markdown' | 'diff'
 export type DiffSource = 'git' | 'agent'
 export type GitChangeSection = 'staged' | 'unstaged' | 'untracked' | 'conflicted'
-export type AutoModelRoute = 'main' | 'fast'
-export type AutoModelTaskType =
-  | 'rewrite'
-  | 'summarize'
-  | 'translate'
-  | 'format'
-  | 'qa'
-  | 'explain'
-  | 'compare'
-  | 'extract'
-  | 'plan'
-  | 'debug'
-  | 'implement'
-  | 'analyze'
-  | 'other'
-export type AutoModelConfidence = 'high' | 'medium' | 'low'
-export type AutoModelRoutingComplexity = 'simple' | 'medium' | 'complex'
-export type AutoModelRoutingRisk = 'low' | 'medium' | 'high'
-export type AutoModelDecisionSource =
-  | 'classifier'
-  | 'legacy-classifier'
-  | 'heuristic'
-  | 'policy'
-  | 'fallback-main'
-  | 'fallback-fast'
-  | 'fallback-last-high-confidence'
-
-export interface AutoModelSelectionStatus {
-  source: 'auto'
-  mode?: AppMode
-  target: AutoModelRoute
-  providerId?: string
-  modelId?: string
-  providerName?: string
-  modelName?: string
-  taskType?: AutoModelTaskType
-  confidence?: AutoModelConfidence
-  decisionSource?: AutoModelDecisionSource
-  toolsAllowed?: boolean
-  complexity?: AutoModelRoutingComplexity
-  risk?: AutoModelRoutingRisk
-  reasons?: string[]
-  classifierRoute?: AutoModelRoute
-  heuristicRoute?: AutoModelRoute
-  fallbackReason?: string
-  routingDurationMs?: number
-  selectedAt: number
-}
-
-export type AutoModelRoutingState = 'idle' | 'routing'
 
 export interface PreviewPanelState {
   source: PreviewSource
@@ -452,20 +402,6 @@ interface UIStore {
   setMessageListViewState: (sessionId: string, state: MessageListViewState | null) => void
   getMessageListViewState: (sessionId?: string | null) => MessageListViewState | null
   releaseDormantSessionUiState: (sessionId?: string | null) => void
-  autoModelSelectionsBySession: Record<string, AutoModelSelectionStatus | null>
-  autoModelHighConfidenceSelectionsBySession: Record<string, AutoModelSelectionStatus | null>
-  autoModelRoutingStatesBySession: Record<string, AutoModelRoutingState>
-  setAutoModelSelection: (sessionId: string, status: AutoModelSelectionStatus | null) => void
-  getAutoModelSelection: (sessionId?: string | null) => AutoModelSelectionStatus | null
-  setAutoModelHighConfidenceSelection: (
-    sessionId: string,
-    status: AutoModelSelectionStatus | null
-  ) => void
-  getAutoModelHighConfidenceSelection: (
-    sessionId?: string | null
-  ) => AutoModelSelectionStatus | null
-  setAutoModelRoutingState: (sessionId: string, status: AutoModelRoutingState) => void
-  getAutoModelRoutingState: (sessionId?: string | null) => AutoModelRoutingState
   selectedFiles: string[]
   setSelectedFiles: (files: string[]) => void
   toggleFileSelection: (filePath: string) => void
@@ -1868,59 +1804,16 @@ export const useUIStore = create<UIStore>()(
         set((state) => {
           const keep = (key: string): boolean => key === keepSessionId
           const messageListViewStatesBySession = state.messageListViewStatesBySession ?? {}
-          const autoModelSelectionsBySession = state.autoModelSelectionsBySession ?? {}
-          const autoModelHighConfidenceSelectionsBySession =
-            state.autoModelHighConfidenceSelectionsBySession ?? {}
-          const autoModelRoutingStatesBySession = state.autoModelRoutingStatesBySession ?? {}
           const planModesBySession = state.planModesBySession ?? {}
           return {
             messageListViewStatesBySession: Object.fromEntries(
               Object.entries(messageListViewStatesBySession).filter(([k]) => keep(k))
-            ),
-            autoModelSelectionsBySession: Object.fromEntries(
-              Object.entries(autoModelSelectionsBySession).filter(([k]) => keep(k))
-            ),
-            autoModelHighConfidenceSelectionsBySession: Object.fromEntries(
-              Object.entries(autoModelHighConfidenceSelectionsBySession).filter(([k]) => keep(k))
-            ),
-            autoModelRoutingStatesBySession: Object.fromEntries(
-              Object.entries(autoModelRoutingStatesBySession).filter(([k]) => keep(k))
             ),
             planModesBySession: Object.fromEntries(
               Object.entries(planModesBySession).filter(([k]) => keep(k))
             )
           }
         }),
-      autoModelSelectionsBySession: {},
-      autoModelHighConfidenceSelectionsBySession: {},
-      autoModelRoutingStatesBySession: {},
-      setAutoModelSelection: (sessionId, status) =>
-        set((state) => ({
-          autoModelSelectionsBySession: {
-            ...state.autoModelSelectionsBySession,
-            [sessionId]: status
-          }
-        })),
-      getAutoModelSelection: (sessionId) =>
-        sessionId ? (get().autoModelSelectionsBySession[sessionId] ?? null) : null,
-      setAutoModelHighConfidenceSelection: (sessionId, status) =>
-        set((state) => ({
-          autoModelHighConfidenceSelectionsBySession: {
-            ...state.autoModelHighConfidenceSelectionsBySession,
-            [sessionId]: status
-          }
-        })),
-      getAutoModelHighConfidenceSelection: (sessionId) =>
-        sessionId ? (get().autoModelHighConfidenceSelectionsBySession[sessionId] ?? null) : null,
-      setAutoModelRoutingState: (sessionId, status) =>
-        set((state) => ({
-          autoModelRoutingStatesBySession: {
-            ...state.autoModelRoutingStatesBySession,
-            [sessionId]: status
-          }
-        })),
-      getAutoModelRoutingState: (sessionId) =>
-        sessionId ? (get().autoModelRoutingStatesBySession[sessionId] ?? 'idle') : 'idle',
       selectedFiles: [],
       setSelectedFiles: (files) => set({ selectedFiles: files }),
       toggleFileSelection: (filePath) =>
@@ -2122,7 +2015,7 @@ export const useUIStore = create<UIStore>()(
         if (settingsRoute) {
           set({
             settingsPageOpen: true,
-              settingsTab: settingsRoute.tab,
+            settingsTab: settingsRoute.tab,
             skillsPageOpen: false,
             soulsPageOpen: false,
             syncPageOpen: false,
@@ -2242,14 +2135,6 @@ export const useUIStore = create<UIStore>()(
           browserWebviewRefsBySession: current.browserWebviewRefsBySession ?? {},
           messageListViewStatesBySession:
             state.messageListViewStatesBySession ?? current.messageListViewStatesBySession ?? {},
-          autoModelSelectionsBySession:
-            state.autoModelSelectionsBySession ?? current.autoModelSelectionsBySession ?? {},
-          autoModelHighConfidenceSelectionsBySession:
-            state.autoModelHighConfidenceSelectionsBySession ??
-            current.autoModelHighConfidenceSelectionsBySession ??
-            {},
-          autoModelRoutingStatesBySession:
-            state.autoModelRoutingStatesBySession ?? current.autoModelRoutingStatesBySession ?? {},
           planModesBySession: state.planModesBySession ?? current.planModesBySession ?? {},
           bottomTerminalDockHeight: clampBottomTerminalDockHeight(
             state.bottomTerminalDockHeight ?? current.bottomTerminalDockHeight

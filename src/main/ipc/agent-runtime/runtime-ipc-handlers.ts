@@ -68,7 +68,8 @@ function rejectedHostedRun(sessionId: string): StartRunResult {
     runId: '',
     sessionId,
     assistantMessageId: '',
-    errorCode: 'unknown'
+    errorCode: 'unknown',
+    errorDetail: 'native worker failed to start'
   }
 }
 

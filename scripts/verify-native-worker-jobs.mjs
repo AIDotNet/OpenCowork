@@ -36,6 +36,19 @@ function writeChatCompletion(response) {
   )
 }
 
+function writeResponsesCompletion(response) {
+  response.writeHead(200, { 'content-type': 'text/event-stream' })
+  response.end(
+    [
+      'event: response.output_text.delta\n',
+      'data: {"type":"response.output_text.delta","delta":"retry recovered"}\n\n',
+      'event: response.completed\n',
+      'data: {"type":"response.completed","response":{"id":"resp_retry","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}\n\n',
+      'data: [DONE]\n\n'
+    ].join('')
+  )
+}
+
 const providerServer = createServer((request, response) => {
   if (request.url?.startsWith('/compression/')) {
     response.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -53,6 +66,20 @@ const providerServer = createServer((request, response) => {
     const finish = setTimeout(() => response.end(), 10_000)
     finish.unref()
     response.once('close', () => clearTimeout(finish))
+    return
+  }
+  if (request.url?.startsWith('/responses-stream-overload/')) {
+    if (countProviderRequest('responses-stream-overload') === 1) {
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end(
+        [
+          'event: error\n',
+          'data: {"type":"error","error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later.","param":null},"sequence_number":21}\n\n'
+        ].join('')
+      )
+    } else {
+      writeResponsesCompletion(response)
+    }
     return
   }
   for (const statusCode of [408, 409, 425, 429, 500]) {
@@ -103,6 +130,7 @@ const compressionProviderBaseUrl = `http://127.0.0.1:${providerAddress.port}/com
 const stalledProviderBaseUrl = `http://127.0.0.1:${providerAddress.port}/stall/v1`
 const stalledHeadersBaseUrl = `http://127.0.0.1:${providerAddress.port}/headers-stall/v1`
 const stalledStreamBaseUrl = `http://127.0.0.1:${providerAddress.port}/stream-stall/v1`
+const responsesStreamOverloadBaseUrl = `http://127.0.0.1:${providerAddress.port}/responses-stream-overload/v1`
 const retryStatusBaseUrls = new Map(
   [408, 409, 425, 429, 500].map((statusCode) => [
     statusCode,
@@ -361,7 +389,10 @@ async function verifyProviderTimeout(
   assert.match(result.error, expectedError)
 }
 
-async function verifyProviderStatusPolicy(client, { baseUrl, fixture, shouldRetry }) {
+async function verifyProviderStatusPolicy(
+  client,
+  { baseUrl, fixture, shouldRetry, providerType = 'openai-chat' }
+) {
   const runId = randomUUID()
   const submission = await client.request('jobs/submit', {
     method: 'agent/run',
@@ -377,7 +408,7 @@ async function verifyProviderStatusPolicy(client, { baseUrl, fixture, shouldRetr
         }
       ],
       provider: {
-        type: 'openai-chat',
+        type: providerType,
         apiKey: 'test-key',
         baseUrl,
         model: 'provider-status-smoke',
@@ -802,6 +833,12 @@ try {
     baseUrl: noRetry400BaseUrl,
     fixture: 'no-retry-400',
     shouldRetry: false
+  })
+  await verifyProviderStatusPolicy(recoveryClient, {
+    baseUrl: responsesStreamOverloadBaseUrl,
+    fixture: 'responses-stream-overload',
+    shouldRetry: true,
+    providerType: 'openai-responses'
   })
 
   console.log('Native Worker durable Job + split IPC verification passed.')

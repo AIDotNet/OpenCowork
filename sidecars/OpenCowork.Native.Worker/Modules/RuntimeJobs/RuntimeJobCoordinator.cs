@@ -80,7 +80,7 @@ internal static class RuntimeJobCoordinator
         var runId = ReadString(parameters, "runId");
         var assistantMessageId = ReadString(parameters, "assistantMessageId");
         if (string.Equals(method, "agent/session-send", StringComparison.Ordinal) &&
-            !AgentRuntimeSessionHost.IsOpen(sessionId))
+            !AgentRuntimeSessionHost.EnsureOpen(sessionId))
         {
             throw new RuntimeJobRejectedException(
                 "session_evicted",

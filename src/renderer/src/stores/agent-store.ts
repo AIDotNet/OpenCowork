@@ -1476,6 +1476,12 @@ interface AgentStore {
   setSessionStatus: (sessionId: string, status: SessionExecutionStatus | null) => void
   setSessionRequestRetryState: (sessionId: string, state: RequestRetryState | null) => void
   isSessionActive: (sessionId: string | null | undefined) => boolean
+  /**
+   * True only while the session's own turn is in flight. Gate user actions that need an idle
+   * session on this, not on `isSessionActive`: that one also reports long-lived activity —
+   * a background command, an open team, a running sub-agent — which never blocks a new turn.
+   */
+  isSessionRunActive: (sessionId: string | null | undefined) => boolean
   /** Switch active tool-call context: save current tool calls for prevSession, restore for nextSession */
   switchToolCallSession: (prevSessionId: string | null, nextSessionId: string | null) => void
   loadSubAgentHistoryForSession: (sessionId: string) => Promise<void>
@@ -1593,15 +1599,16 @@ export const useAgentStore = create<AgentStore>()(
         }
       },
 
+      isSessionRunActive: (sessionId) => {
+        if (!sessionId) return false
+        const status = get().runningSessions[sessionId]
+        return status === 'running' || status === 'retrying'
+      },
+
       isSessionActive: (sessionId) => {
         if (!sessionId) return false
         const state = get()
-        if (
-          state.runningSessions[sessionId] === 'running' ||
-          state.runningSessions[sessionId] === 'retrying'
-        ) {
-          return true
-        }
+        if (state.isSessionRunActive(sessionId)) return true
         if (sigHasEntry(state.runningSubAgentSessionIdsSig, sessionId)) return true
         if (
           Object.values(state.backgroundProcesses).some(

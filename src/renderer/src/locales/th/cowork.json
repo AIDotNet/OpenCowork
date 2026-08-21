@@ -173,7 +173,6 @@
     "executeModel": "โมเดลที่ใช้ดำเนินการ",
     "executeModelDesc": "เลือกโมเดลที่จะใช้ดำเนินการตามแผนนี้",
     "executeModelPlaceholder": "เลือกโมเดล",
-    "executeModelAuto": "อัตโนมัติ",
     "executeInNewSession": "ประมวลผลกลุ่มงานใหม่",
     "awaitingReview": "การ ทบทวน",
     "approve": "ยอมรับ",

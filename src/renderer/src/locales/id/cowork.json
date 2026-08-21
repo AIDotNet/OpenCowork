@@ -173,7 +173,6 @@
     "executeModel": "Model eksekusi",
     "executeModelDesc": "Pilih model yang akan mengimplementasikan rencana ini.",
     "executeModelPlaceholder": "Pilih model",
-    "executeModelAuto": "Otomatis",
     "executeInNewSession": "Eksekusi Sesi Baru",
     "awaitingReview": "Menunggu Ulasan",
     "approve": "Approve",

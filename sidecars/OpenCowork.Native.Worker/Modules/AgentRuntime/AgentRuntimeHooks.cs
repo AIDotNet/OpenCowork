@@ -138,6 +138,13 @@ internal static class AgentRuntimeHooks
             });
     }
 
+    /// <summary>
+    /// Grace period for terminal hooks (Stop) on runs whose own token is already
+    /// cancelled: the reverse request still has to reach the host, so it runs on a
+    /// detached bounded token instead of the doomed run token.
+    /// </summary>
+    private static readonly TimeSpan CancelledRunHookTimeout = TimeSpan.FromSeconds(10);
+
     private static async Task<AgentRuntimeHookResult> RunAsync(
         JsonElement parameters,
         AgentRuntimeTools.AgentRuntimeRunState state,
@@ -146,6 +153,13 @@ internal static class AgentRuntimeHooks
         string matcherValue,
         Action<Utf8JsonWriter> writeInputFields)
     {
+        // Every await on an already-cancelled token throws before the request can
+        // reach the host, which both spams "hook reverse request failed" and drops
+        // Stop hooks for aborted runs. Deliver those on a detached bounded token.
+        using var detached = state.CancellationToken.IsCancellationRequested
+            ? new CancellationTokenSource(CancelledRunHookTimeout)
+            : null;
+        var hookToken = detached?.Token ?? state.CancellationToken;
         try
         {
             var request = CreateRequest(parameters, state, eventName, matcherValue, writeInputFields);
@@ -153,13 +167,22 @@ internal static class AgentRuntimeHooks
                 context,
                 "hooks/run",
                 request,
-                state.CancellationToken);
+                hookToken);
             return AgentRuntimeHookResult.FromJson(result);
+        }
+        catch (OperationCanceledException) when (detached is not null)
+        {
+            WorkerLog.Warn(
+                $"hook reverse request timed out on cancelled run runId={state.RunId} event={eventName}");
+            return AgentRuntimeHookResult.Empty;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Full ToString: the AOT-published worker degrades Message to resource
+            // keys (e.g. Arg_NullReferenceException), so type+message alone is not
+            // diagnosable.
             WorkerLog.Warn(
-                $"hook reverse request failed runId={state.RunId} event={eventName} error={ex.GetType().Name}: {ex.Message}");
+                $"hook reverse request failed runId={state.RunId} event={eventName} error={ex}");
             return AgentRuntimeHookResult.Empty;
         }
     }

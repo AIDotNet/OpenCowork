@@ -83,7 +83,13 @@ export interface SidecarDiagnosticsSnapshot {
 }
 
 export type SidecarDiagnosticError = Error & {
-  type: 'sidecar_unavailable'
+  /**
+   * `sidecar_unavailable` is reserved for actual worker process/transport
+   * failures (dead, restarting, fatal, wedged). A request the healthy worker
+   * rejected or failed is `run_rejected`, so the UI reports the real cause
+   * instead of blaming the local runtime.
+   */
+  type: 'sidecar_unavailable' | 'run_rejected'
   details: string
 }
 
@@ -92,6 +98,7 @@ class AgentBridgeClient {
   private initializePromise: Promise<boolean> | null = null
   private initializeResult: RuntimeInitializeResultV2 | null = null
   private lastInitializationError: Error | null = null
+  private lastRecycleRequestAt = 0
 
   get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
     return this.initializeResult
@@ -215,6 +222,7 @@ class AgentBridgeClient {
     }
 
     const worker = 'worker' in diagnostics ? diagnostics.worker : undefined
+    const agentRuntime = 'agentRuntime' in diagnostics ? diagnostics.agentRuntime : undefined
     const initializationMessage = this.lastInitializationError?.message
     const summary = [
       worker?.state ? `state=${worker.state}` : '',
@@ -231,10 +239,33 @@ class AgentBridgeClient {
       .filter(Boolean)
       .join(', ')
 
+    // A ready worker that rejected/failed one request is not "runtime
+    // unavailable" — that misdirects users (and their bug reports) at the
+    // sidecar when the actual cause is e.g. a provider timeout.
+    const workerHealthy =
+      worker?.state === 'ready' && worker?.phase === 'ready' && agentRuntime?.running !== false
+    if (!workerHealthy) {
+      this.maybeRequestRecycle()
+    }
+
     return Object.assign(new Error(summary ? `${message} (${summary})` : message), {
-      type: 'sidecar_unavailable' as const,
+      type: workerHealthy ? ('run_rejected' as const) : ('sidecar_unavailable' as const),
       details: JSON.stringify(diagnostics, null, 2)
     })
+  }
+
+  /**
+   * Best-effort worker recycle behind a debounce. The "runtime unavailable"
+   * error copy promises an automatic restart attempt; this is what actually
+   * fulfils that promise for a wedged-but-alive worker (a dead process is
+   * already restarted by the Main supervisor).
+   */
+  private maybeRequestRecycle(): void {
+    const now = Date.now()
+    if (now - this.lastRecycleRequestAt < 30_000) return
+    this.lastRecycleRequestAt = now
+    this.initialized = false
+    void ipcClient.invoke('sidecar:recycle').catch(() => {})
   }
 
   async runAgent(params: unknown): Promise<{ started: boolean; runId: string }> {

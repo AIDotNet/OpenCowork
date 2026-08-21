@@ -98,11 +98,11 @@ public sealed record OpenAgentSessionResult(bool Ok, string SessionId, int Messa
 
 public sealed record StartRunParams(string SessionId, string TriggerMessageId, string Mode, string ProviderId, string ModelId, string[] AttachmentIds, Dictionary<string, JsonElement>? CommandMetadata);
 
-public sealed record StartRunResult(bool Accepted, string RunId, string SessionId, string AssistantMessageId, string? ErrorCode);
+public sealed record StartRunResult(bool Accepted, string RunId, string SessionId, string AssistantMessageId, string? ErrorCode, string? ErrorDetail);
 
 public sealed record SendSessionTurnParams(string SessionId, string TriggerMessageId, string[] AttachmentIds, Dictionary<string, JsonElement>? CommandMetadata);
 
-public sealed record SendSessionTurnResult(bool Accepted, string RunId, string SessionId, string AssistantMessageId, string? ErrorCode);
+public sealed record SendSessionTurnResult(bool Accepted, string RunId, string SessionId, string AssistantMessageId, string? ErrorCode, string? ErrorDetail);
 
 public sealed record CancelRunParams(string RunId, string SessionId);
 
@@ -490,7 +490,7 @@ public static class RuntimeEventMessagePack
 
     internal static void WriteStartRunResult(MessagePackWriter writer, StartRunResult value)
     {
-        writer.WriteMapHeader(5);
+        writer.WriteMapHeader(6);
         writer.WriteString("accepted");
         writer.WriteBoolean(value.Accepted);
         writer.WriteString("runId");
@@ -504,6 +504,12 @@ public static class RuntimeEventMessagePack
         else
         {
             writer.WriteString(value.ErrorCode);
+        }
+        writer.WriteString("errorDetail");
+        if (value.ErrorDetail is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.ErrorDetail);
         }
     }
 
@@ -535,7 +541,7 @@ public static class RuntimeEventMessagePack
 
     internal static void WriteSendSessionTurnResult(MessagePackWriter writer, SendSessionTurnResult value)
     {
-        writer.WriteMapHeader(5);
+        writer.WriteMapHeader(6);
         writer.WriteString("accepted");
         writer.WriteBoolean(value.Accepted);
         writer.WriteString("runId");
@@ -549,6 +555,12 @@ public static class RuntimeEventMessagePack
         else
         {
             writer.WriteString(value.ErrorCode);
+        }
+        writer.WriteString("errorDetail");
+        if (value.ErrorDetail is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.ErrorDetail);
         }
     }
 

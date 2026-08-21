@@ -119,7 +119,7 @@ export function SessionConversationPane({
   const setConversationPanelFullWidth = useUIStore((state) => state.setConversationPanelFullWidth)
   const animationsEnabled = useSettingsStore((state) => state.animationsEnabled)
   const isStreaming = Boolean(streamingMessageId)
-  const isSessionActive = useAgentStore((state) => state.isSessionActive(resolvedSessionId))
+  const isSessionRunActive = useAgentStore((state) => state.isSessionRunActive(resolvedSessionId))
   const pendingReviewPlan = usePlanStore((state) =>
     resolvedSessionId ? state.getPendingReviewPlan(resolvedSessionId) : undefined
   )
@@ -181,8 +181,10 @@ export function SessionConversationPane({
   }, [sessionView.projectId])
 
   // A failed `plan/ui-update` reverse request leaves the plan row ahead of this window's store, so
-  // the panel would never appear. Re-read the row whenever the session settles back to idle.
-  const sessionBusy = isStreaming || isSessionActive
+  // the panel would never appear. Re-read the row whenever the turn settles back to idle. Activity
+  // that outlives the turn (background commands, an open team) must not hold this back, or the
+  // panel stays empty for the rest of the session.
+  const sessionBusy = isStreaming || isSessionRunActive
   const previousSessionBusyRef = useRef(sessionBusy)
   useEffect(() => {
     const wasBusy = previousSessionBusyRef.current

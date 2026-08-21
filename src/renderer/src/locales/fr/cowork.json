@@ -173,7 +173,6 @@
     "executeModel": "Modèle d'exécution",
     "executeModelDesc": "Choisissez le modèle qui doit implémenter ce plan.",
     "executeModelPlaceholder": "Sélectionner un modèle",
-    "executeModelAuto": "Auto",
     "executeInNewSession": "Nouvelle session",
     "awaitingReview": "En attente d'un réexamen",
     "approve": "Approuver",

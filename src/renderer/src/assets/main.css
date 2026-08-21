@@ -1008,11 +1008,19 @@
     position: relative;
     z-index: 1;
     background: transparent;
+    transition: background 0.15s ease;
+  }
+
+  .composer-drag-handle:hover .composer-drag-grip {
+    background: var(--foreground);
+    opacity: 0.55;
+    transform: scaleX(1.15);
   }
 
   .composer-drag-grip {
     background: color-mix(in srgb, var(--border) 88%, transparent);
     box-shadow: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .composer-editor-region::before {
@@ -1104,6 +1112,17 @@
   .composer-shell [data-slot='button'].composer-send:hover:not(:disabled) {
     box-shadow: var(--composer-send-shadow-hover);
     filter: brightness(1.04);
+  }
+
+  .composer-shell [data-slot='button'].composer-send[data-tone='warning'] {
+    background: #dc2626;
+    color: #ffffff;
+    box-shadow: 0 4px 14px -2px rgba(220, 38, 38, 0.4);
+  }
+
+  .composer-shell [data-slot='button'].composer-send[data-tone='warning']:hover:not(:disabled) {
+    background: #b91c1c;
+    box-shadow: 0 6px 18px -2px rgba(185, 28, 28, 0.5);
   }
 
   .composer-status-pill {

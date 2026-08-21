@@ -150,6 +150,12 @@ export interface StartRunResult {
   sessionId: string
   assistantMessageId: string
   errorCode: RuntimeErrorCode | null
+  /**
+   * Raw failure description (worker errorCode + message, transport error, …).
+   * `errorCode` is a coarse classification; this keeps the actual cause so the
+   * UI can show it instead of an opaque "unknown".
+   */
+  errorDetail: string | null
 }
 
 export interface SendSessionTurnParams {
@@ -165,6 +171,7 @@ export interface SendSessionTurnResult {
   sessionId: string
   assistantMessageId: string
   errorCode: RuntimeErrorCode | null
+  errorDetail: string | null
 }
 
 export interface CancelRunParams {

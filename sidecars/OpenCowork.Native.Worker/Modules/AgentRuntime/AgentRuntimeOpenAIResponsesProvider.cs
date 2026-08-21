@@ -12,6 +12,15 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     private const string ResponsesWebSocketBetaValue = "responses_websockets=2026-02-06";
     private const string ResponsesWebSocketAgentMainScope = "agent-main";
     private const string ResponsesWebSocketSubAgentScopePrefix = "sub-agent";
+    private static readonly string[] PreviousResponseRejectionMarkers =
+    [
+        "not found",
+        "invalid",
+        "expired",
+        "does not exist",
+        "doesn't exist",
+        "no longer"
+    ];
     // Infinite client timeout: the effective deadline is user-configurable and therefore
     // applied per request via AgentRuntimeRequestTimeout.
     private static readonly HttpClient Http = WorkerHttpClientFactory.Create(
@@ -80,10 +89,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             catch (InvalidOperationException ex) when (
                 useWebSocket &&
                 websocketUrl is not null &&
-                IsRecoverablePreviousResponseReplayError(ex))
+                IsMissingToolOutputError(ex))
             {
                 WorkerLog.Warn(
-                    "responses previous_response_id replay failed with a recoverable error; " +
+                    "responses previous_response_id replay left a function call without its output; " +
                     "retrying with full sanitized input");
                 body = BuildRequestBody(
                     parameters,
@@ -112,7 +121,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             UnavailableWebSocketUrls.TryAdd(websocketUrl, 0);
             WorkerLog.Warn(
-                "responses websocket transport failed before projected output; falling back to HTTP SSE " +
+                "responses websocket route unusable before projected output; falling back to HTTP SSE " +
                 $"url={websocketUrl} error={ex.GetType().Name}: {ex.Message}");
             body = BuildRequestBody(
                 parameters,
@@ -240,11 +249,6 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     BodyBytes: debugBody?.Bytes)));
     }
 
-    private static bool IsRecoverablePreviousResponseReplayError(Exception ex)
-    {
-        return IsMissingToolOutputError(ex) || IsPreviousResponseNotFoundError(ex);
-    }
-
     private static bool ShouldFallBackToHttpTransport(
         Exception ex,
         ResponsesParseState parseState,
@@ -252,12 +256,15 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     {
         // WebSocket control/error frames are not user-visible output. They may still prove that
         // the route is unavailable, so replay over HTTP remains safe until an event has actually
-        // been projected to the UI or tool runtime.
+        // been projected to the UI or tool runtime. A rejected previous_response_id belongs here
+        // too: only the WebSocket path chains on a stored response, so HTTP replays the same turn
+        // as a self-contained request and the route stays skipped for later turns.
         if (state.IsCancellationRequested || parseState.ProjectedAnyOutput)
         {
             return false;
         }
-        return ex is WebSocketException or ResponsesWebSocketUnavailableException;
+        return ex is WebSocketException or ResponsesWebSocketUnavailableException ||
+            IsPreviousResponseIdRejectedError(ex);
     }
 
     private static bool IsMissingToolOutputError(Exception ex)
@@ -267,12 +274,26 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsPreviousResponseNotFoundError(Exception ex)
+    /// <summary>
+    /// A rejected `previous_response_id` means the route cannot serve stored responses back, which
+    /// no amount of retrying changes. Gateways word it differently — OpenAI returns the
+    /// `previous_response_not_found` code, relays that never persist a response just call the id
+    /// invalid — so match the field name paired with any rejection wording.
+    /// </summary>
+    private static bool IsPreviousResponseIdRejectedError(Exception ex)
     {
         var message = ex.Message;
-        return message.Contains("previous_response_not_found", StringComparison.OrdinalIgnoreCase) ||
-            (message.Contains("previous_response_id", StringComparison.OrdinalIgnoreCase) &&
-                message.Contains("not found", StringComparison.OrdinalIgnoreCase));
+        if (message.Contains("previous_response_not_found", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (!message.Contains("previous_response_id", StringComparison.OrdinalIgnoreCase) &&
+            !message.Contains("previous response", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return PreviousResponseRejectionMarkers.Any(marker =>
+            message.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
 }

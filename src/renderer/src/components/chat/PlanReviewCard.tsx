@@ -232,11 +232,16 @@ export function PlanReviewCard({
   const executionSession = useChatStore((s) =>
     payload?.planId ? s.getLatestSessionByPlanId(payload.planId) : undefined
   )
-  const isRunning = useAgentStore((s) => s.isSessionActive(cardSessionId)) || hasStreamingMessage
+  // Only this session's in-flight turn may hold the actions back, which is exactly what decides
+  // whether a send dispatches or queues. `isSessionActive` also counts activity that outlives the
+  // turn — a background command left running, an open team, a sub-agent record that never got its
+  // end event — and in Cowork mode at least one of those is usually still around when the plan
+  // lands, which left Implement stuck on its spinner for the rest of the session.
+  const isRunning = useAgentStore((s) => s.isSessionRunActive(cardSessionId)) || hasStreamingMessage
 
   const executionSessionId = sessionId ?? activeSessionId ?? plan?.sessionId ?? ''
   const [executionModel, setExecutionModel] = React.useState<PlanExecutionModelSelection>(() =>
-    executionSessionId ? resolvePlanExecutionDefaultModel(executionSessionId) : { mode: 'auto' }
+    resolvePlanExecutionDefaultModel(executionSessionId)
   )
   const [copied, setCopied] = React.useState(false)
   const [revisionOpen, setRevisionOpen] = React.useState(false)

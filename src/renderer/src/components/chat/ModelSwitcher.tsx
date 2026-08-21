@@ -8,12 +8,13 @@ import {
   Brain,
   Settings2,
   MonitorSmartphone,
-  Loader2,
   Globe2,
   Expand,
   Zap,
   Cable,
   Timer,
+  ChevronDown,
+  X,
   Image as ImageIcon
 } from 'lucide-react'
 import {
@@ -33,21 +34,16 @@ import {
   getReasoningEffortKey,
   resolveReasoningEffortForModel
 } from '@renderer/stores/settings-store'
-import { useChatStore, type SessionModelSelectionMode } from '@renderer/stores/chat-store'
+import { useChatStore } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
 import { useQuotaStore } from '@renderer/stores/quota-store'
-import { useUIStore } from '@renderer/stores/ui-store'
 
 import { useTranslation } from 'react-i18next'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 
-import {
-  ProviderIcon,
-  ModelIcon,
-  AutoModelIcon
-} from '@renderer/components/settings/provider-icons'
+import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-icons'
 import { cn } from '@renderer/lib/utils'
 import type {
   AIModelConfig,
@@ -144,9 +140,9 @@ function SettingSection({
   className?: string
 }): React.JSX.Element {
   return (
-    <section className={cn('space-y-2.5', className)}>
-      <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-        <span className={cn('h-4 w-0.5 rounded-full', accent)} />
+    <section className={cn('space-y-2', className)}>
+      <div className="flex items-center gap-2 text-[11px] font-semibold text-muted-foreground/80">
+        <span className={cn('h-3.5 w-1 rounded-full', accent)} />
         <span>{title}</span>
       </div>
       {children}
@@ -168,22 +164,33 @@ function PillToggle({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={enabled}
       className={cn(
-        'flex w-full items-center justify-between gap-3 rounded-md px-2.5 py-2 text-xs transition-colors',
-        enabled ? 'bg-muted/50 text-foreground' : 'text-foreground/75 hover:bg-muted/45'
+        'flex w-full items-center justify-between gap-3 rounded-xl border p-2.5 text-xs transition-all cursor-pointer',
+        enabled
+          ? 'border-violet-500/30 bg-violet-500/10 text-foreground shadow-2xs'
+          : 'border-border/50 bg-muted/20 text-foreground/80 hover:bg-muted/40 hover:text-foreground'
       )}
       onClick={onClick}
     >
       <span className="flex min-w-0 flex-col text-left">
-        <span className="font-medium">{label}</span>
+        <span className="font-medium text-xs">{label}</span>
         {description && <span className="text-[10px] text-muted-foreground">{description}</span>}
       </span>
       <span
         className={cn(
-          'ml-3 size-4 shrink-0 rounded-full border-2 transition-colors',
-          enabled ? 'border-violet-500 bg-violet-500' : 'border-muted-foreground/30'
+          'flex h-[18px] w-8 shrink-0 items-center rounded-full transition-colors duration-200',
+          enabled ? 'bg-violet-500' : 'bg-muted-foreground/25'
         )}
-      />
+      >
+        <span
+          className={cn(
+            'size-3.5 rounded-full bg-white shadow-xs transition-transform duration-200',
+            enabled ? 'translate-x-[16px]' : 'translate-x-0.5'
+          )}
+        />
+      </span>
     </button>
   )
 }
@@ -642,7 +649,6 @@ interface ModelSwitcherSessionSnapshot {
   pluginId?: string
   providerId?: string
   modelId?: string
-  modelSelectionMode?: SessionModelSelectionMode
 }
 
 function supportsPriorityServiceTier(model: AIModelConfig | undefined): boolean {
@@ -671,7 +677,6 @@ function selectModel(
     const providerStore = useProviderStore.getState()
     if (pid !== providerStore.activeProviderId) providerStore.setActiveProvider(pid)
     providerStore.setActiveModel(modelId)
-    useSettingsStore.getState().updateSettings({ mainModelSelectionMode: 'manual' })
   }
   setOpen(false)
 }
@@ -687,37 +692,6 @@ function selectFastModel(
   const pid = provider.id
   if (pid !== activeFastProviderId) setActiveFastProvider(pid)
   setActiveFastModel(modelId)
-  setOpen(false)
-}
-
-function selectAutoModel(scopedSessionId: string | null, setOpen: (v: boolean) => void): void {
-  const session = scopedSessionId
-    ? useChatStore.getState().sessions.find((item) => item.id === scopedSessionId)
-    : null
-  if (session && !session.pluginId) {
-    useChatStore.getState().setSessionModelAuto(session.id)
-  } else {
-    useSettingsStore.getState().updateSettings({ mainModelSelectionMode: 'auto' })
-  }
-  setOpen(false)
-}
-
-function selectFollowGlobalModel(
-  scopedSessionId: string | null,
-  setOpen: (v: boolean) => void
-): void {
-  const session = scopedSessionId
-    ? useChatStore.getState().sessions.find((item) => item.id === scopedSessionId)
-    : null
-  if (session) {
-    useChatStore.getState().setSessionModelInherit(session.id)
-    if (session.pluginId) {
-      void useChannelStore.getState().updateChannel(session.pluginId, {
-        providerId: null,
-        model: null
-      })
-    }
-  }
   setOpen(false)
 }
 
@@ -749,9 +723,10 @@ function ModelSettingsPopover({
     model,
     providerType
   )
-  const providerBuiltinId = useProviderStore((s) =>
-    providerId ? s.providers.find((provider) => provider.id === providerId)?.builtinId : undefined
+  const provider = useProviderStore((s) =>
+    providerId ? s.providers.find((p) => p.id === providerId) : undefined
   )
+  const providerBuiltinId = provider?.builtinId
   const thinkingConfig = resolveModelThinkingConfig(model, providerBuiltinId)
   const levels = thinkingConfig?.reasoningEffortLevels
   const thinkingEnabled = useSettingsStore((s) => s.thinkingEnabled)
@@ -907,141 +882,182 @@ function ModelSettingsPopover({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[388px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur"
+        className="w-[410px] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-0 shadow-2xl backdrop-blur-md"
         align="start"
         side={side}
         sideOffset={8}
         collisionPadding={12}
       >
+        {model && (
+          <div className="border-b border-border/60 bg-muted/30 px-4 py-3">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background/80 shadow-2xs">
+                <ModelIcon
+                  icon={model.icon}
+                  modelId={model.id}
+                  providerBuiltinId={provider?.builtinId}
+                  size={18}
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-foreground">
+                    {model.name || model.id}
+                  </span>
+                  {requestType && (
+                    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {requestType}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                  {provider && <span className="truncate">{provider.name}</span>}
+                  {model.id !== model.name && (
+                    <span className="truncate font-mono text-[10px] text-muted-foreground/60">
+                      {model.id}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <ModelCapabilityTags
+                    model={model}
+                    providerType={providerType}
+                    t={t}
+                    showContext={true}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           className="space-y-4 overflow-y-auto p-4"
-          style={{ maxHeight: 'min(32rem, var(--radix-popover-content-available-height))' }}
+          style={{ maxHeight: 'min(28rem, var(--radix-popover-content-available-height))' }}
         >
           {!model && (
-            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+            <div className="px-2 py-6 text-center text-xs text-muted-foreground">
               {tChat('input.noModelSettings')}
             </div>
           )}
 
           {model && (
             <>
-              <SettingSection accent="bg-emerald-500" title={tSettings('provider.modelConfig')}>
-                {!hasConfigControls && (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">
-                    {tChat('input.noModelSettings')}
-                  </div>
-                )}
+              {!hasConfigControls && (
+                <div className="rounded-xl border border-border/50 bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+                  {tChat('input.noModelSettings')}
+                </div>
+              )}
 
-                {supportsThinking && (!levels || levels.length === 0) && (
-                  <PillToggle
-                    enabled={thinkingEnabled}
-                    onClick={toggleThinking}
-                    label={t('topbar.deepThinking')}
-                    description={
-                      thinkingEnabled
-                        ? tChat('input.thinkingLevel', {
-                            level: String(effectiveReasoningEffort).toUpperCase()
-                          })
-                        : tChat('input.thinkingOff')
-                    }
-                  />
-                )}
-
-                {supportsThinking && levels && levels.length > 0 && (
-                  <div className="mx-2 space-y-1.5 py-1">
-                    <div
-                      className={cn(
-                        'rounded-lg px-2.5 pb-1 pt-1.5 transition-colors',
-                        thinkingEnabled
-                          ? 'bg-zinc-950/[0.035] dark:bg-white/[0.035]'
-                          : 'bg-muted/20 dark:bg-white/[0.02]'
-                      )}
-                    >
-                      <ReasoningEffortSlider
-                        levels={levels}
-                        value={effectiveReasoningEffort}
-                        onChange={setEffort}
-                        dimmed={!thinkingEnabled}
-                        fasterLabel={t('topbar.faster')}
-                        smarterLabel={t('topbar.smarter')}
-                        ariaLabel={t('topbar.reasoningEffort')}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className={cn(
-                        'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors',
-                        'hover:bg-muted/45 dark:hover:bg-white/[0.04]',
-                        thinkingEnabled ? 'text-foreground' : 'text-muted-foreground'
-                      )}
-                      onClick={toggleThinking}
-                    >
-                      <span
-                        className={cn(
-                          'flex size-5 shrink-0 items-center justify-center rounded-full',
-                          thinkingEnabled
-                            ? 'bg-violet-500/12 text-violet-600 dark:text-violet-300'
-                            : 'bg-muted text-muted-foreground'
-                        )}
-                      >
-                        <Brain className="size-3" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">
-                          {t('topbar.deepThinking')}
-                        </span>
-                        <span className="block truncate text-[10px] text-muted-foreground">
-                          {thinkingEnabled
-                            ? tChat('input.thinkingLevel', {
-                                level: String(effectiveReasoningEffort).toUpperCase()
-                              })
-                            : tChat('input.thinkingOff')}
-                        </span>
-                      </span>
-                      <span
-                        className={cn(
-                          'flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors',
-                          thinkingEnabled
-                            ? 'border-emerald-500 bg-emerald-500 text-white'
-                            : 'border-muted-foreground/30'
-                        )}
-                      >
-                        {thinkingEnabled && <Check className="size-3" />}
-                      </span>
-                    </button>
-                  </div>
-                )}
-
-                {supportsAnthropicThinkingBudget && (
-                  <div className="px-2 py-1.5">
-                    <div className="mb-2 flex items-end justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold text-foreground">
-                          {tSettings('provider.thinkingBudget')}
+              {supportsThinking && (
+                <SettingSection accent="bg-violet-500" title={t('topbar.deepThinking')}>
+                  {levels && levels.length > 0 ? (
+                    <div className="space-y-2 rounded-xl border border-border/50 bg-muted/20 p-2.5 dark:bg-white/[0.02]">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cn(
+                              'flex size-5 items-center justify-center rounded-full',
+                              thinkingEnabled
+                                ? 'bg-violet-500/15 text-violet-600 dark:text-violet-300'
+                                : 'bg-muted text-muted-foreground'
+                            )}
+                          >
+                            <Brain className="size-3" />
+                          </span>
+                          <span className="text-xs font-medium text-foreground">
+                            {t('topbar.deepThinking')}
+                          </span>
+                          <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[9px] font-semibold uppercase text-muted-foreground">
+                            {thinkingEnabled
+                              ? String(effectiveReasoningEffort).toUpperCase()
+                              : tChat('input.thinkingOff')}
+                          </span>
                         </div>
-                        <div className="text-[10px] text-muted-foreground">budget_tokens</div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={thinkingEnabled}
+                          onClick={toggleThinking}
+                          className={cn(
+                            'flex h-[18px] w-8 shrink-0 items-center rounded-full transition-colors duration-200 cursor-pointer',
+                            thinkingEnabled ? 'bg-violet-500' : 'bg-muted-foreground/25'
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              'size-3.5 rounded-full bg-white shadow-xs transition-transform duration-200',
+                              thinkingEnabled ? 'translate-x-[16px]' : 'translate-x-0.5'
+                            )}
+                          />
+                        </button>
                       </div>
-                      <span className="text-xs font-semibold text-foreground">
-                        {thinkingBudget.toLocaleString()}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={MIN_ANTHROPIC_THINKING_BUDGET}
-                      max={thinkingBudgetMax}
-                      step={1}
-                      value={thinkingBudget}
-                      onChange={(e) => updateAnthropicThinkingBudget(Number(e.target.value))}
-                      className="w-full accent-violet-500"
-                    />
-                    <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
-                      <span>{MIN_ANTHROPIC_THINKING_BUDGET.toLocaleString()}</span>
-                      <span>{thinkingBudgetMax.toLocaleString()}</span>
-                    </div>
-                  </div>
-                )}
 
-                {(supportsBuiltinSearch || supportsGptLongContext || supportsAnthropicCacheTtl) && (
+                      <div
+                        className={cn(
+                          'rounded-lg px-2 pb-1 pt-1.5 transition-opacity',
+                          !thinkingEnabled && 'opacity-40 pointer-events-none'
+                        )}
+                      >
+                        <ReasoningEffortSlider
+                          levels={levels}
+                          value={effectiveReasoningEffort}
+                          onChange={setEffort}
+                          dimmed={!thinkingEnabled}
+                          fasterLabel={t('topbar.faster')}
+                          smarterLabel={t('topbar.smarter')}
+                          ariaLabel={t('topbar.reasoningEffort')}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <PillToggle
+                      enabled={thinkingEnabled}
+                      onClick={toggleThinking}
+                      label={t('topbar.deepThinking')}
+                      description={
+                        thinkingEnabled
+                          ? tChat('input.thinkingLevel', {
+                              level: String(effectiveReasoningEffort).toUpperCase()
+                            })
+                          : tChat('input.thinkingOff')
+                      }
+                    />
+                  )}
+
+                  {supportsAnthropicThinkingBudget && (
+                    <div className="rounded-xl border border-border/50 bg-muted/20 p-3 dark:bg-white/[0.02]">
+                      <div className="mb-2 flex items-end justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold text-foreground">
+                            {tSettings('provider.thinkingBudget')}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">budget_tokens</div>
+                        </div>
+                        <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-xs font-semibold text-foreground">
+                          {thinkingBudget.toLocaleString()}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={MIN_ANTHROPIC_THINKING_BUDGET}
+                        max={thinkingBudgetMax}
+                        step={1}
+                        value={thinkingBudget}
+                        onChange={(e) => updateAnthropicThinkingBudget(Number(e.target.value))}
+                        className="w-full accent-violet-500 cursor-pointer"
+                      />
+                      <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+                        <span>{MIN_ANTHROPIC_THINKING_BUDGET.toLocaleString()}</span>
+                        <span>{thinkingBudgetMax.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+                </SettingSection>
+              )}
+
+              {(supportsBuiltinSearch || supportsGptLongContext || supportsAnthropicCacheTtl) && (
+                <SettingSection accent="bg-teal-500" title={tSettings('provider.modelConfig')}>
                   <CapabilityCard>
                     {supportsBuiltinSearch && (
                       <CapabilityRow
@@ -1085,11 +1101,16 @@ function ModelSettingsPopover({
                       />
                     )}
                   </CapabilityCard>
-                )}
+                </SettingSection>
+              )}
 
-                {(supportsFastMode ||
-                  supportsResponsesWebsocket ||
-                  supportsResponsesImageGeneration) && (
+              {(supportsFastMode ||
+                supportsResponsesWebsocket ||
+                supportsResponsesImageGeneration) && (
+                <SettingSection
+                  accent="bg-amber-500"
+                  title={t('topbar.capabilities', { defaultValue: 'Capabilities' })}
+                >
                   <div className="flex flex-wrap gap-1.5">
                     {supportsFastMode && (
                       <CapabilityChip
@@ -1128,8 +1149,10 @@ function ModelSettingsPopover({
                       />
                     )}
                   </div>
-                )}
-              </SettingSection>
+                </SettingSection>
+              )}
+
+              <ModelHoverDetails model={model} tSettings={tSettings} />
             </>
           )}
         </div>
@@ -1146,7 +1169,7 @@ export function ModelSwitcher({
   /**
    * Session this composer writes to. `null` means a new/draft session (home or
    * project home) — selections should target the global model so the freshly
-   * created session inherits them. When omitted, falls back to the active session.
+   * created session can copy them. When omitted, falls back to the active session.
    */
   sessionId?: string | null
 }): React.JSX.Element {
@@ -1159,7 +1182,6 @@ export function ModelSwitcher({
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const autoModelRef = useRef<HTMLButtonElement>(null)
   const activeModelRef = useRef<HTMLButtonElement>(null)
   const hasAutoScrolledToSelectionRef = useRef(false)
   const activeProviderId = useProviderStore((s) => s.activeProviderId)
@@ -1195,8 +1217,7 @@ export function ModelSwitcher({
         id: session.id,
         pluginId: session.pluginId,
         providerId: session.providerId,
-        modelId: session.modelId,
-        modelSelectionMode: session.modelSelectionMode
+        modelId: session.modelId
       }
     })
   )
@@ -1210,17 +1231,6 @@ export function ModelSwitcher({
       }
     })
   )
-  const mainModelSelectionMode = useSettingsStore((s) => s.mainModelSelectionMode)
-  const { autoSelection, autoRoutingState } = useUIStore(
-    useShallow((s) => ({
-      autoSelection: activeSessionId
-        ? (s.autoModelSelectionsBySession[activeSessionId] ?? null)
-        : null,
-      autoRoutingState: activeSessionId
-        ? (s.autoModelRoutingStatesBySession[activeSessionId] ?? 'idle')
-        : 'idle'
-    }))
-  )
 
   const enabledProviders = useMemo(
     () => (open ? providers.filter((p) => isProviderAvailableForModelSelection(p)) : []),
@@ -1231,7 +1241,6 @@ export function ModelSwitcher({
     providers,
     activeProviderId,
     activeModelId,
-    globalMode: mainModelSelectionMode,
     channelProviderId: activeChannelModelBinding.providerId,
     channelModelId: activeChannelModelBinding.modelId
   })
@@ -1243,61 +1252,16 @@ export function ModelSwitcher({
     : sessionModelSelection.modelId
   const displayProvider = providers.find((p) => p.id === displayProviderId)
   const displayModel = displayProvider?.models.find((m) => m.id === displayModelId)
-  const isAutoModeActive = !isFastRoute && sessionModelSelection.isAutoModeActive
-  const isExplicitAutoActive =
-    !isFastRoute &&
-    (activeSession
-      ? !activeSession.pluginId && sessionModelSelection.mode === 'auto'
-      : mainModelSelectionMode === 'auto')
-  const isFollowGlobalActive =
-    !isFastRoute && Boolean(activeSession) && sessionModelSelection.mode === 'inherit'
-  const autoResolvedProvider = autoSelection?.providerId
-    ? providers.find((provider) => provider.id === autoSelection.providerId)
-    : null
-  const autoResolvedModel = autoResolvedProvider?.models.find(
-    (model) => model.id === autoSelection?.modelId
-  )
-  const settingsProviderId = isAutoModeActive ? autoResolvedProvider?.id : displayProvider?.id
-  const settingsModel = isAutoModeActive ? (autoResolvedModel ?? undefined) : displayModel
+  const settingsProviderId = displayProvider?.id
+  const settingsModel = displayModel
   const settingsPopoverSide = activeSession ? 'top' : 'bottom'
-  const triggerLabel = isAutoModeActive
-    ? autoRoutingState === 'routing'
-      ? t('topbar.autoModel')
-      : (autoSelection?.modelName ?? t('topbar.autoModel'))
-    : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
-  const triggerAriaLabel = isAutoModeActive
-    ? autoRoutingState === 'routing'
-      ? t('topbar.autoModelRoutingShort')
-      : t('topbar.autoModel')
-    : (displayModel?.name ?? displayModelId ?? t('topbar.noModel'))
-  const triggerProviderName = isAutoModeActive
-    ? (autoResolvedProvider?.name ?? t('topbar.autoModel'))
-    : (displayProvider?.name ?? null)
-  const triggerModel = isAutoModeActive ? (autoResolvedModel ?? null) : (displayModel ?? null)
-  const triggerProviderType = isAutoModeActive ? autoResolvedProvider?.type : displayProvider?.type
-  const triggerDetail = isAutoModeActive
-    ? autoRoutingState === 'routing'
-      ? t('topbar.autoModelRouting')
-      : autoSelection?.modelName
-        ? t('topbar.autoModelTooltip', {
-            route: t(
-              autoSelection.target === 'main' ? 'topbar.autoModelMain' : 'topbar.autoModelFast'
-            ),
-            model: autoSelection.modelName,
-            taskType: autoSelection.taskType ?? t('topbar.autoModelTaskTypeUnknown'),
-            confidence: autoSelection.confidence ?? t('topbar.autoModelConfidenceUnknown'),
-            complexity: autoSelection.complexity
-              ? t(`topbar.autoModelComplexity.${autoSelection.complexity}`)
-              : '',
-            risk: autoSelection.risk ? t(`topbar.autoModelRisk.${autoSelection.risk}`) : '',
-            reason: autoSelection.fallbackReason
-              ? t(`topbar.autoModelFallback.${autoSelection.fallbackReason}`, {
-                  defaultValue: autoSelection.fallbackReason
-                })
-              : ''
-          })
-        : t('topbar.autoModelTooltipIdle')
-    : displayModelId && displayModel?.name && displayModel.name !== displayModelId
+  const triggerLabel = displayModel?.name ?? displayModelId ?? t('topbar.noModel')
+  const triggerAriaLabel = displayModel?.name ?? displayModelId ?? t('topbar.noModel')
+  const triggerProviderName = displayProvider?.name ?? null
+  const triggerModel = displayModel ?? null
+  const triggerProviderType = displayProvider?.type
+  const triggerDetail =
+    displayModelId && displayModel?.name && displayModel.name !== displayModelId
       ? displayModelId
       : null
 
@@ -1386,6 +1350,18 @@ export function ModelSwitcher({
       })
       .filter((g) => g.models.length > 0)
   }, [enabledProviders, isFastRoute, open, search])
+
+  const flatSearchResults = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    if (!q) return []
+    const results: Array<{ provider: AIProvider; model: AIModelConfig }> = []
+    for (const { provider, models } of groups) {
+      for (const model of models) {
+        results.push({ provider, model })
+      }
+    }
+    return results
+  }, [groups, search])
   const selectedGroup = useMemo(
     () =>
       selectedProviderId
@@ -1414,13 +1390,7 @@ export function ModelSwitcher({
   }, [open])
 
   useEffect(() => {
-    if (
-      !open ||
-      !selectedGroup ||
-      isAutoModeActive ||
-      search.trim() ||
-      hasAutoScrolledToSelectionRef.current
-    ) {
+    if (!open || !selectedGroup || search.trim() || hasAutoScrolledToSelectionRef.current) {
       return
     }
 
@@ -1442,53 +1412,41 @@ export function ModelSwitcher({
     }, 0)
 
     return () => clearTimeout(timer)
-  }, [open, search, selectedGroup, isAutoModeActive])
+  }, [open, search, selectedGroup])
 
   return (
-    <div className="inline-flex h-8 items-center rounded-lg border border-transparent hover:border-border/50 hover:bg-muted/30 transition-colors">
+    <div className="inline-flex h-8 items-center rounded-lg border border-border/60 bg-background/70 shadow-2xs hover:border-border hover:bg-muted/30 transition-colors">
       {/* Model icon trigger — opens model list */}
       <Popover open={open} onOpenChange={handleOpenChange}>
         <HoverCard openDelay={180} closeDelay={100}>
           <HoverCardTrigger asChild>
             <PopoverTrigger asChild>
               <button
-                className="inline-flex size-8 shrink-0 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className="inline-flex h-full shrink-0 items-center gap-1.5 rounded-l-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                 aria-label={triggerAriaLabel}
               >
-                {isAutoModeActive ? (
-                  autoRoutingState === 'routing' ? (
-                    <Loader2 size={16} className="animate-spin text-amber-500" />
-                  ) : (
-                    <AutoModelIcon size={18} />
-                  )
-                ) : (
-                  <ModelIcon
-                    icon={displayModel?.icon}
-                    modelId={displayModelId ?? undefined}
-                    providerBuiltinId={displayProvider?.builtinId}
-                    size={20}
-                  />
-                )}
+                <ModelIcon
+                  icon={displayModel?.icon}
+                  modelId={displayModelId ?? undefined}
+                  providerBuiltinId={displayProvider?.builtinId}
+                  size={16}
+                />
+                <span className="max-w-[120px] truncate text-[11px] font-medium text-foreground/90">
+                  {triggerLabel}
+                </span>
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground/60" />
               </button>
             </PopoverTrigger>
           </HoverCardTrigger>
           <HoverCardContent side="top" align="start" className="w-72 p-3">
             <div className="flex items-start gap-3">
               <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/45">
-                {isAutoModeActive ? (
-                  autoRoutingState === 'routing' ? (
-                    <Loader2 size={16} className="animate-spin text-amber-500" />
-                  ) : (
-                    <AutoModelIcon size={18} />
-                  )
-                ) : (
-                  <ModelIcon
-                    icon={displayModel?.icon}
-                    modelId={displayModelId ?? undefined}
-                    providerBuiltinId={displayProvider?.builtinId}
-                    size={20}
-                  />
-                )}
+                <ModelIcon
+                  icon={displayModel?.icon}
+                  modelId={displayModelId ?? undefined}
+                  providerBuiltinId={displayProvider?.builtinId}
+                  size={20}
+                />
               </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold text-foreground">{triggerLabel}</div>
@@ -1518,258 +1476,244 @@ export function ModelSwitcher({
           </HoverCardContent>
         </HoverCard>
         <PopoverContent
-          className="w-64 max-w-[calc(100vw-2rem)] overflow-visible p-0"
+          className="w-72 sm:w-80 max-w-[calc(100vw-2rem)] overflow-visible p-0 rounded-2xl border-border/70 bg-popover/95 shadow-2xl backdrop-blur-md"
           align="start"
           sideOffset={8}
         >
-          <div className="flex items-center gap-2 border-b px-3 py-2">
-            <Search className="size-3.5 text-muted-foreground/60 shrink-0" />
+          <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+            <Search className="size-3.5 shrink-0 text-muted-foreground/70" />
             <input
               ref={searchRef}
               type="text"
-              className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/40"
+              className="flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground/50"
               placeholder={t('topbar.searchModel')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </div>
-          {!isFastRoute && activeSession && (
-            <div className="border-b p-1">
-              <button
-                className={cn(
-                  'flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-muted/60 transition-colors group',
-                  isFollowGlobalActive && 'bg-primary/5'
-                )}
-                onClick={() => selectFollowGlobalModel(activeSessionId, setOpen)}
-              >
-                <span className="mt-0.5 flex size-5 items-center justify-center shrink-0">
-                  {isFollowGlobalActive ? (
-                    <span className="flex size-5 items-center justify-center rounded-full bg-primary/10">
-                      <Check className="size-3 text-primary" />
-                    </span>
-                  ) : (
-                    <Globe2 size={18} />
-                  )}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span
-                    className={cn(
-                      'truncate text-xs',
-                      isFollowGlobalActive
-                        ? 'font-semibold text-primary'
-                        : 'text-foreground/80 group-hover:text-foreground'
-                    )}
-                  >
-                    {t('topbar.followGlobalModel', {
-                      defaultValue: 'Follow global model'
-                    })}
-                  </span>
-                  <span className="line-clamp-2 text-[10px] text-muted-foreground">
-                    {t('topbar.followGlobalModelDesc', {
-                      defaultValue: 'Use the global main model setting for this session.'
-                    })}
-                  </span>
-                </div>
-              </button>
-            </div>
-          )}
-          {!isFastRoute && !activeSession?.pluginId && (
-            <div className="border-b p-1">
-              <button
-                ref={autoModelRef}
-                className={cn(
-                  'flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-muted/60 transition-colors group',
-                  isExplicitAutoActive && 'bg-primary/5'
-                )}
-                onClick={() => selectAutoModel(activeSessionId, setOpen)}
-              >
-                <span className="mt-0.5 flex size-5 items-center justify-center shrink-0">
-                  {isExplicitAutoActive ? (
-                    <span className="flex size-5 items-center justify-center rounded-full bg-primary/10">
-                      <Check className="size-3 text-primary" />
-                    </span>
-                  ) : (
-                    <AutoModelIcon size={18} />
-                  )}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span
-                    className={cn(
-                      'truncate text-xs',
-                      isExplicitAutoActive
-                        ? 'font-semibold text-primary'
-                        : 'text-foreground/80 group-hover:text-foreground'
-                    )}
-                  >
-                    {t('topbar.autoModel')}
-                  </span>
-                  <span className="line-clamp-2 text-[10px] text-muted-foreground">
-                    {autoRoutingState === 'routing'
-                      ? t('topbar.autoModelRouting')
-                      : autoSelection?.modelName
-                        ? t('topbar.autoModelTooltip', {
-                            route: t(
-                              autoSelection.target === 'main'
-                                ? 'topbar.autoModelMain'
-                                : 'topbar.autoModelFast'
-                            ),
-                            model: autoSelection.modelName,
-                            taskType:
-                              autoSelection.taskType ?? t('topbar.autoModelTaskTypeUnknown'),
-                            confidence:
-                              autoSelection.confidence ?? t('topbar.autoModelConfidenceUnknown'),
-                            complexity: autoSelection.complexity
-                              ? t(`topbar.autoModelComplexity.${autoSelection.complexity}`)
-                              : '',
-                            risk: autoSelection.risk
-                              ? t(`topbar.autoModelRisk.${autoSelection.risk}`)
-                              : '',
-                            reason: autoSelection.fallbackReason
-                              ? t(`topbar.autoModelFallback.${autoSelection.fallbackReason}`, {
-                                  defaultValue: autoSelection.fallbackReason
-                                })
-                              : ''
-                          })
-                        : t('topbar.autoModelDesc')}
-                  </span>
-                </div>
-              </button>
-            </div>
-          )}
-          <div className="p-1">
-            <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              {t('topbar.providers')}
-            </div>
-            <div className="max-h-[328px] overflow-y-auto">
-              {groups.length === 0 ? (
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground/50">
-                  {enabledProviders.length === 0 ? t('topbar.noProviders') : t('topbar.noModels')}
+
+          {search.trim() ? (
+            <div className="max-h-[350px] overflow-y-auto p-1.5 space-y-0.5">
+              <div className="flex items-center justify-between px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                <span>{t('topbar.searchResults', { defaultValue: 'Search Results' })}</span>
+                <span className="font-mono">{flatSearchResults.length}</span>
+              </div>
+              {flatSearchResults.length === 0 ? (
+                <div className="px-3 py-8 text-center text-xs text-muted-foreground/60">
+                  <Search className="mx-auto mb-2 size-5 opacity-30" />
+                  {t('topbar.noModelsFound', { defaultValue: 'No models found' })}
                 </div>
               ) : (
-                groups.map(({ provider, models }) => {
-                  const isSelected = provider.id === selectedGroup?.provider.id
-                  const isDisplayProvider = provider.id === displayProviderId && !isAutoModeActive
+                flatSearchResults.map(({ provider, model }) => {
+                  const isActive = provider.id === displayProviderId && model.id === displayModelId
                   return (
-                    <Popover
-                      key={provider.id}
-                      open={selectedProviderId === provider.id}
-                      onOpenChange={(nextOpen) => {
-                        if (nextOpen) setSelectedProviderId(provider.id)
-                      }}
+                    <button
+                      key={`${provider.id}-${model.id}`}
+                      type="button"
+                      className={cn(
+                        'flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/70 group cursor-pointer',
+                        isActive && 'bg-primary/10 text-primary'
+                      )}
+                      onClick={() =>
+                        isFastRoute
+                          ? selectFastModel(
+                              provider,
+                              model.id,
+                              activeFastProviderId,
+                              setActiveFastProvider,
+                              setActiveFastModel,
+                              setOpen
+                            )
+                          : selectModel(provider, model.id, activeSessionId, setOpen)
+                      }
                     >
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/70',
-                            isSelected && 'bg-background shadow-sm',
-                            isDisplayProvider && !isSelected && 'text-primary'
-                          )}
-                          onFocus={() => setSelectedProviderId(provider.id)}
-                          onMouseEnter={() => setSelectedProviderId(provider.id)}
-                          onClick={() => setSelectedProviderId(provider.id)}
-                        >
-                          <ProviderIcon builtinId={provider.builtinId} size={16} />
-                          <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                            {provider.name}
+                      <span className="mt-0.5 shrink-0">
+                        {isActive ? (
+                          <span className="flex size-5 items-center justify-center rounded-full bg-primary/15">
+                            <Check className="size-3 text-primary" />
                           </span>
+                        ) : (
+                          <ModelIcon
+                            icon={model.icon}
+                            modelId={model.id}
+                            providerBuiltinId={provider.builtinId}
+                            size={20}
+                          />
+                        )}
+                      </span>
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-center justify-between gap-1.5">
                           <span
                             className={cn(
-                              'rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground',
-                              isDisplayProvider && 'bg-primary/10 text-primary'
+                              'truncate text-xs font-medium',
+                              isActive
+                                ? 'font-semibold text-primary'
+                                : 'text-foreground/90 group-hover:text-foreground'
                             )}
                           >
-                            {models.length}
+                            {model.name || model.id.replace(/-\d{8}$/, '')}
                           </span>
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent
-                        className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden p-1"
-                        align="start"
-                        side="right"
-                        sideOffset={6}
-                      >
-                        <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 border-b bg-popover/95 px-2 py-1.5 backdrop-blur">
-                          <ProviderIcon builtinId={provider.builtinId} size={14} />
-                          <span className="min-w-0 flex-1 truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
                             {provider.name}
                           </span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground/50">
-                            {t('topbar.modelsCount', { count: models.length })}
-                          </span>
                         </div>
-                        <div
-                          ref={selectedProviderId === provider.id ? listRef : undefined}
-                          className="max-h-[344px] overflow-y-auto"
-                        >
-                          {models.map((m) => {
-                            const isActive =
-                              !isAutoModeActive &&
-                              provider.id === displayProviderId &&
-                              m.id === displayModelId
-                            return (
-                              <button
-                                key={`${provider.id}-${m.id}`}
-                                ref={isActive ? activeModelRef : undefined}
-                                className={cn(
-                                  'flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60 group',
-                                  isActive && 'bg-primary/5'
-                                )}
-                                onClick={() =>
-                                  isFastRoute
-                                    ? selectFastModel(
-                                        provider,
-                                        m.id,
-                                        activeFastProviderId,
-                                        setActiveFastProvider,
-                                        setActiveFastModel,
-                                        setOpen
-                                      )
-                                    : selectModel(provider, m.id, activeSessionId, setOpen)
-                                }
-                              >
-                                <span className="mt-0.5 shrink-0">
-                                  {isActive ? (
-                                    <span className="flex size-5 items-center justify-center rounded-full bg-primary/10">
-                                      <Check className="size-3 text-primary" />
-                                    </span>
-                                  ) : (
-                                    <ModelIcon
-                                      icon={m.icon}
-                                      modelId={m.id}
-                                      providerBuiltinId={provider.builtinId}
-                                      size={20}
-                                    />
-                                  )}
-                                </span>
-                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                  <span
-                                    className={cn(
-                                      'truncate text-xs',
-                                      isActive
-                                        ? 'font-semibold text-primary'
-                                        : 'text-foreground/80 group-hover:text-foreground'
-                                    )}
-                                  >
-                                    {m.name || m.id.replace(/-\d{8}$/, '')}
-                                  </span>
-                                  <ModelCapabilityTags
-                                    model={m}
-                                    providerType={provider.type}
-                                    t={t}
-                                  />
-                                </div>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                        <ModelCapabilityTags model={model} providerType={provider.type} t={t} />
+                      </div>
+                    </button>
                   )
                 })
               )}
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="p-1.5">
+                <div className="flex items-center justify-between px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                  <span>{t('topbar.providers')}</span>
+                  <span className="text-[10px] normal-case font-normal text-muted-foreground/50">
+                    {groups.length} {t('topbar.providerUnits', { defaultValue: 'providers' })}
+                  </span>
+                </div>
+                <div className="max-h-[328px] overflow-y-auto space-y-0.5">
+                  {groups.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-muted-foreground/50">
+                      {enabledProviders.length === 0
+                        ? t('topbar.noProviders')
+                        : t('topbar.noModels')}
+                    </div>
+                  ) : (
+                    groups.map(({ provider, models }) => {
+                      const isSelected = provider.id === selectedGroup?.provider.id
+                      const isDisplayProvider = provider.id === displayProviderId
+                      return (
+                        <Popover
+                          key={provider.id}
+                          open={selectedProviderId === provider.id}
+                          onOpenChange={(nextOpen) => {
+                            if (nextOpen) setSelectedProviderId(provider.id)
+                          }}
+                        >
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                'flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/70 cursor-pointer',
+                                isSelected && 'bg-background shadow-xs',
+                                isDisplayProvider && !isSelected && 'text-primary'
+                              )}
+                              onFocus={() => setSelectedProviderId(provider.id)}
+                              onMouseEnter={() => setSelectedProviderId(provider.id)}
+                              onClick={() => setSelectedProviderId(provider.id)}
+                            >
+                              <ProviderIcon builtinId={provider.builtinId} size={16} />
+                              <span className="min-w-0 flex-1 truncate text-xs font-medium">
+                                {provider.name}
+                              </span>
+                              <span
+                                className={cn(
+                                  'rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground',
+                                  isDisplayProvider && 'bg-primary/10 text-primary'
+                                )}
+                              >
+                                {models.length}
+                              </span>
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-1 shadow-2xl backdrop-blur-md"
+                            align="start"
+                            side="right"
+                            sideOffset={6}
+                          >
+                            <div className="sticky top-0 z-10 mb-1 flex items-center gap-2 border-b border-border/60 bg-popover/95 px-3 py-2 backdrop-blur-sm">
+                              <ProviderIcon builtinId={provider.builtinId} size={14} />
+                              <span className="min-w-0 flex-1 truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                {provider.name}
+                              </span>
+                              <span className="shrink-0 text-[10px] text-muted-foreground/50 font-mono">
+                                {t('topbar.modelsCount', { count: models.length })}
+                              </span>
+                            </div>
+                            <div
+                              ref={selectedProviderId === provider.id ? listRef : undefined}
+                              className="max-h-[344px] overflow-y-auto space-y-0.5"
+                            >
+                              {models.map((m) => {
+                                const isActive =
+                                  provider.id === displayProviderId && m.id === displayModelId
+                                return (
+                                  <button
+                                    key={`${provider.id}-${m.id}`}
+                                    ref={isActive ? activeModelRef : undefined}
+                                    className={cn(
+                                      'flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/60 group cursor-pointer',
+                                      isActive && 'bg-primary/10'
+                                    )}
+                                    onClick={() =>
+                                      isFastRoute
+                                        ? selectFastModel(
+                                            provider,
+                                            m.id,
+                                            activeFastProviderId,
+                                            setActiveFastProvider,
+                                            setActiveFastModel,
+                                            setOpen
+                                          )
+                                        : selectModel(provider, m.id, activeSessionId, setOpen)
+                                    }
+                                  >
+                                    <span className="mt-0.5 shrink-0">
+                                      {isActive ? (
+                                        <span className="flex size-5 items-center justify-center rounded-full bg-primary/15">
+                                          <Check className="size-3 text-primary" />
+                                        </span>
+                                      ) : (
+                                        <ModelIcon
+                                          icon={m.icon}
+                                          modelId={m.id}
+                                          providerBuiltinId={provider.builtinId}
+                                          size={20}
+                                        />
+                                      )}
+                                    </span>
+                                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                      <span
+                                        className={cn(
+                                          'truncate text-xs',
+                                          isActive
+                                            ? 'font-semibold text-primary'
+                                            : 'text-foreground/80 group-hover:text-foreground'
+                                        )}
+                                      >
+                                        {m.name || m.id.replace(/-\d{8}$/, '')}
+                                      </span>
+                                      <ModelCapabilityTags
+                                        model={m}
+                                        providerType={provider.type}
+                                        t={t}
+                                      />
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </PopoverContent>
       </Popover>
 
@@ -1890,10 +1834,8 @@ export function ModelSwitcher({
       <ModelSettingsPopover
         model={settingsModel}
         providerId={settingsProviderId}
-        providerType={isAutoModeActive ? autoResolvedProvider?.type : displayProvider?.type}
-        providerWebsocketMode={
-          isAutoModeActive ? autoResolvedProvider?.websocketMode : displayProvider?.websocketMode
-        }
+        providerType={displayProvider?.type}
+        providerWebsocketMode={displayProvider?.websocketMode}
         side={settingsPopoverSide}
         t={t}
         tChat={tChat}

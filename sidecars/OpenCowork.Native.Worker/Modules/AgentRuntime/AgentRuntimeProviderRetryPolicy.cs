@@ -88,6 +88,31 @@ internal sealed class AgentRuntimeProviderTransportException : InvalidOperationE
     }
 }
 
+/// <summary>
+/// Raised when a provider returns a terminal error inside an otherwise successful streaming
+/// response. Some providers report overload and rate-limit failures this way instead of using an
+/// HTTP error status.
+/// </summary>
+internal sealed class AgentRuntimeProviderStreamException : InvalidOperationException
+{
+    public AgentRuntimeProviderStreamException(
+        string providerName,
+        string code,
+        string message,
+        bool retryable,
+        bool anyEventsEmitted)
+        : base($"{providerName} stream error ({code}): {message}")
+    {
+        Code = code;
+        Retryable = retryable;
+        AnyEventsEmitted = anyEventsEmitted;
+    }
+
+    public string Code { get; }
+    public bool Retryable { get; }
+    public bool AnyEventsEmitted { get; }
+}
+
 internal static class AgentRuntimeProviderRetryPolicy
 {
     public static async Task<AgentRuntimeProviderTurnResult> ExecuteAsync(
@@ -128,6 +153,33 @@ internal static class AgentRuntimeProviderRetryPolicy
                     WorkerHttpTuning.StatusRetryAttempts,
                     delayMs,
                     ex.StatusCode);
+                await Task.Delay(delayMs, state.CancellationToken);
+            }
+            catch (AgentRuntimeProviderStreamException ex) when (
+                ex.Retryable &&
+                !ex.AnyEventsEmitted &&
+                statusAttempts < WorkerHttpTuning.StatusRetryAttempts &&
+                !state.IsCancellationRequested &&
+                HasTimeRemaining(startedAt))
+            {
+                statusAttempts++;
+                var delayMs = ComputeStatusDelayMs(
+                    statusAttempts,
+                    previousStatusDelayMs,
+                    retryAfter: null);
+                previousStatusDelayMs = delayMs;
+
+                WorkerLog.Warn(
+                    $"provider stream error={ex.Code}; retrying in {delayMs}ms " +
+                    $"attempt={statusAttempts}/{WorkerHttpTuning.StatusRetryAttempts}");
+                await EmitRetryAsync(
+                    state,
+                    context,
+                    $"stream {ex.Code}",
+                    statusAttempts,
+                    WorkerHttpTuning.StatusRetryAttempts,
+                    delayMs,
+                    statusCode: null);
                 await Task.Delay(delayMs, state.CancellationToken);
             }
             catch (AgentRuntimeProviderRequestTimeoutException) when (

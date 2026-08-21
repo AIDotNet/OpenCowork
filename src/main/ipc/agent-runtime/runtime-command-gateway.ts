@@ -382,9 +382,10 @@ export function registerRuntimeCommandGateway(deps: RuntimeCommandGatewayDeps): 
       })
       if (hosted) {
         if (!hosted.accepted || !hosted.runId) {
+          const cause = [hosted.errorCode, hosted.errorDetail].filter(Boolean).join(': ')
           throw new Error(
-            hosted.errorCode
-              ? `Hosted session run was not accepted (${hosted.errorCode})`
+            cause
+              ? `Hosted session run was not accepted (${cause})`
               : 'Hosted session run was not accepted'
           )
         }

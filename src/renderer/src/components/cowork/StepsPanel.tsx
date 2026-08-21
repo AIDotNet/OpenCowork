@@ -339,7 +339,8 @@ function InlineStepsPanelCard({
   const [expanded, setExpanded] = useState(false)
   const openDetailPanel = useUIStore((state) => state.openDetailPanel)
   const isExecuting = isRunning || summaryItems.some((item) => item.status === 'in_progress')
-  const isComplete = summaryItems.length > 0 && summaryItems.every((item) => item.status === 'completed')
+  const isComplete =
+    summaryItems.length > 0 && summaryItems.every((item) => item.status === 'completed')
 
   const handleOpenChangeReview = (): void => {
     if (changeSummary?.runId) {
@@ -361,78 +362,67 @@ function InlineStepsPanelCard({
     <motion.div
       layout
       transition={{ duration: 0.22, ease: EASE }}
-      className={cn(
-        'mb-2 overflow-hidden',
-        expanded
-          ? 'rounded-xl border border-border/60 bg-background/80 shadow-sm'
-          : 'flex justify-center'
-      )}
+      className="mb-2 overflow-hidden rounded-xl border border-border/60 bg-background/80 shadow-xs backdrop-blur-sm"
     >
-      <button
-        type="button"
-        onClick={() => canExpand && setExpanded((v) => !v)}
-        disabled={!canExpand}
-        className={cn(
-          'items-center text-left transition-colors disabled:cursor-default',
-          expanded
-            ? 'flex w-full gap-3 px-3 py-2.5 hover:bg-muted/20 disabled:hover:bg-transparent'
-            : 'inline-flex min-w-0 gap-1.5 rounded-md border border-border/60 bg-background/80 px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground'
-        )}
-        aria-label={summaryLabel}
-      >
-        {isExecuting ? (
-          <Loader2 className={cn('shrink-0 animate-spin text-blue-500', expanded ? 'size-3.5' : 'size-3')} />
-        ) : isComplete ? (
-          <CheckCircle2 className={cn('shrink-0 text-emerald-500', expanded ? 'size-3.5' : 'size-3')} />
-        ) : (
-          <ClipboardList
-            className={cn('shrink-0 text-muted-foreground/80', expanded ? 'size-3.5' : 'size-3')}
-          />
-        )}
-        <span
+      <div className="flex items-center justify-between gap-3 px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => canExpand && setExpanded((v) => !v)}
+          disabled={!canExpand}
           className={cn(
-            'min-w-0 truncate',
-            expanded ? 'flex-1 text-[13px] font-medium text-foreground/90' : 'text-[11px]'
+            'flex min-w-0 items-center gap-2 text-left transition-colors disabled:cursor-default',
+            canExpand && 'hover:text-foreground cursor-pointer'
           )}
+          aria-label={summaryLabel}
         >
-          {summaryLabel}
-        </span>
-        {canExpand && (
-          <ChevronDown
-            className={cn(
-              'shrink-0 text-muted-foreground transition-transform duration-200',
-              expanded ? 'size-3.5' : 'size-3',
-              expanded && 'rotate-180'
-            )}
-          />
-        )}
-      </button>
+          {isExecuting ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-blue-500" />
+          ) : isComplete ? (
+            <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+          ) : (
+            <ClipboardList className="size-3.5 shrink-0 text-muted-foreground/80" />
+          )}
+          <span className="min-w-0 truncate text-[12px] font-medium text-foreground/90">
+            {summaryLabel}
+          </span>
+          {canExpand && (
+            <ChevronDown
+              className={cn(
+                'size-3 shrink-0 text-muted-foreground transition-transform duration-200',
+                expanded && 'rotate-180'
+              )}
+            />
+          )}
+        </button>
 
-      {changeSummary && !expanded && (
-        <div className="flex items-center justify-between gap-3 border-t border-border/50 px-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-2 text-xs">
-            <span className="truncate text-muted-foreground">{changedFilesLabel}</span>
+        {changeSummary && (
+          <div className="flex shrink-0 items-center gap-2.5 text-xs">
+            <span className="truncate text-muted-foreground text-[11px]">{changedFilesLabel}</span>
             {(changeSummary.added !== null || changeSummary.deleted !== null) && (
-              <span className="shrink-0 space-x-1 text-[11px] tabular-nums">
+              <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium tabular-nums">
                 {changeSummary.added !== null && (
-                  <span className="text-emerald-500">+{changeSummary.added}</span>
+                  <span className="rounded bg-emerald-500/10 px-1 py-0.2 text-emerald-600 dark:text-emerald-400">
+                    +{changeSummary.added}
+                  </span>
                 )}
                 {changeSummary.deleted !== null && (
-                  <span className="text-red-500">-{changeSummary.deleted}</span>
+                  <span className="rounded bg-red-500/10 px-1 py-0.2 text-red-600 dark:text-red-400">
+                    -{changeSummary.deleted}
+                  </span>
                 )}
               </span>
             )}
+            <button
+              type="button"
+              onClick={handleOpenChangeReview}
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-foreground/85 transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <span>{reviewLabel}</span>
+              <ArrowUpRight className="size-3" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleOpenChangeReview}
-            className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-foreground/85 transition-colors hover:text-foreground"
-          >
-            <span>{reviewLabel}</span>
-            <ArrowUpRight className="size-3" />
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <AnimatePresence initial={false}>
         {expanded && canExpand && (
@@ -445,12 +435,12 @@ function InlineStepsPanelCard({
             style={{ overflow: 'hidden' }}
             className="border-t border-border/50"
           >
-            <div className="max-h-64 overflow-y-auto px-3 py-3">
+            <div className="max-h-64 overflow-y-auto px-3 py-2.5">
               <ol className="space-y-1.5">
                 {summaryItems.map((item, index) => (
                   <li
                     key={item.id}
-                    className="grid grid-cols-[18px_24px_minmax(0,1fr)] gap-2 text-[13px] leading-5"
+                    className="grid grid-cols-[18px_24px_minmax(0,1fr)] gap-2 text-[12px] leading-5"
                   >
                     <span className="flex justify-center pt-0.5">
                       <TaskStatusIcon status={item.status} />
@@ -479,31 +469,6 @@ function InlineStepsPanelCard({
                 ))}
               </ol>
             </div>
-            {changeSummary && (
-              <div className="flex items-center justify-between gap-3 border-t border-border/50 px-3 py-2.5">
-                <div className="flex min-w-0 items-center gap-2 text-xs">
-                  <span className="truncate text-muted-foreground">{changedFilesLabel}</span>
-                  {(changeSummary.added !== null || changeSummary.deleted !== null) && (
-                    <span className="shrink-0 space-x-1 text-[11px] tabular-nums">
-                      {changeSummary.added !== null && (
-                        <span className="text-emerald-500">+{changeSummary.added}</span>
-                      )}
-                      {changeSummary.deleted !== null && (
-                        <span className="text-red-500">-{changeSummary.deleted}</span>
-                      )}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleOpenChangeReview}
-                  className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-foreground/85 transition-colors hover:text-foreground"
-                >
-                  <span>{reviewLabel}</span>
-                  <ArrowUpRight className="size-3" />
-                </button>
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>

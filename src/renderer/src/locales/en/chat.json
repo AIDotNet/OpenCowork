@@ -1,4 +1,4 @@
-﻿{
+{
   "input": {
     "placeholder": "Type a message...",
     "placeholderClarify": "Describe your idea and I will keep probing until the requirements are clear...",
@@ -9,6 +9,9 @@
     "placeholderPendingGoal": "Describe the goal to pursue...",
     "pendingGoalBanner": "Goal pursuit is ready. Your next text message will be used as the goal and sent normally.",
     "placeholderInitWorkspace": "No AGENTS.md found in the current working folder. Try /init first to initialize the project context...",
+    "initBannerText": "No AGENTS.md found in current folder. Initialize workspace context for better agent performance.",
+    "initBannerAction": "Run /init",
+    "initBannerDismiss": "Dismiss",
     "noApiKey": "No API key configured. Click here to open Settings.",
     "attachImages": "Attach images (paste or drag & drop also supported)",
     "attachMediaFailed": "Failed to add the selected files",
@@ -781,11 +784,6 @@
     "homeTitleCode": "Start coding",
     "homeTitleAcp": "Start ACP collaboration",
     "homeDescAcp": "Start ACP mode for architecture confirmation, constraint clarification, and execution breakdown.",
-    "homeDescAutoChat": "After you send, it picks a better model automatically based on task complexity.",
-    "homeDescAutoClarify": "After you send, it picks a model better suited for questioning and narrowing the plan.",
-    "homeDescAutoCowork": "After you send, it picks a model better suited for project work, file edits, and tools.",
-    "homeDescAutoCode": "After you send, it picks a model better suited for coding, refactoring, and analysis.",
-    "homeDescAutoAcp": "After you send, it picks a model better suited for architecture confirmation, constraint clarification, and execution breakdown.",
     "homeDescChatGeneral": "Good for everyday chat, writing, and lightweight questions.",
     "homeDescChatVision": "Good for chat and can also respond quickly with image context.",
     "homeDescClarifyGeneral": "Good for follow-up questions, goal shaping, and filling in constraints.",

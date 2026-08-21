@@ -193,11 +193,6 @@ import {
   resolveDesktopControlMode
 } from '@renderer/lib/app-plugin/desktop-routing'
 import {
-  extractLatestUserInput,
-  selectAutoModel,
-  shouldAllowToolsForRequest
-} from '@renderer/lib/api/auto-model-selector'
-import {
   buildChatModePromptContextCacheKey,
   buildChatModeSystemPrompt,
   buildSystemPromptContextCacheKey,
@@ -225,7 +220,6 @@ import {
   getTailToolExecutionState,
   type TailToolExecutionState
 } from '@renderer/components/chat/transcript-utils'
-import type { AutoModelSelectionStatus } from '@renderer/stores/ui-store'
 import {
   agentBridge,
   canSidecarHandle,
@@ -1736,20 +1730,10 @@ async function buildProviderConfigWithRuntimeSettings(
   return await withWorkspacePromptCacheKey(config, promptCacheScope)
 }
 
-async function resolveMainRequestProvider(options: {
-  sessionId: string
-  latestUserInput: string
-  mode?: 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
-  allowTools?: boolean
-  isContinue?: boolean
-  requiresVision?: boolean
-  signal?: AbortSignal
-}): Promise<{
+async function resolveMainRequestProvider(options: { sessionId: string }): Promise<{
   providerConfig: ProviderConfig | null
   modelConfig: AIModelConfig | null
-  autoSelection: AutoModelSelectionStatus | null
 }> {
-  const settings = useSettingsStore.getState()
   const providerStore = useProviderStore.getState()
   const session = useChatStore.getState().sessions.find((item) => item.id === options.sessionId)
   const channelMeta = session?.pluginId
@@ -1760,16 +1744,11 @@ async function resolveMainRequestProvider(options: {
     providers: providerStore.providers,
     activeProviderId: providerStore.activeProviderId,
     activeModelId: providerStore.activeModelId,
-    globalMode: settings.mainModelSelectionMode,
     channelProviderId: channelMeta?.providerId,
     channelModelId: channelMeta?.model
   })
 
-  if (
-    sessionModelSelection.effectiveMode === 'manual' &&
-    sessionModelSelection.providerId &&
-    sessionModelSelection.modelId
-  ) {
+  if (sessionModelSelection.providerId && sessionModelSelection.modelId) {
     const providerConfig = providerStore.getProviderConfigById(
       sessionModelSelection.providerId,
       sessionModelSelection.modelId
@@ -1779,71 +1758,19 @@ async function resolveMainRequestProvider(options: {
       modelConfig: findProviderModel(
         sessionModelSelection.providerId,
         sessionModelSelection.modelId
-      ).modelConfig,
-      autoSelection: null
-    }
-  }
-
-  if (sessionModelSelection.effectiveMode === 'auto') {
-    if (options.requiresVision) {
-      const providerConfig = providerStore.getActiveProviderConfig()
-      return {
-        providerConfig,
-        modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model)
-          .modelConfig,
-        autoSelection: null
-      }
-    }
-
-    if (!options.latestUserInput) {
-      const providerConfig = providerStore.getActiveProviderConfig()
-      return {
-        providerConfig,
-        modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model)
-          .modelConfig,
-        autoSelection: null
-      }
-    }
-
-    const autoSelection = await selectAutoModel({
-      latestUserInput: options.latestUserInput,
-      sessionId: options.sessionId,
-      mode: options.mode,
-      allowTools: options.allowTools,
-      isContinue: options.isContinue,
-      projectId: session?.projectId ?? null,
-      signal: options.signal
-    })
-    const providerConfig =
-      autoSelection.target === 'fast'
-        ? providerStore.getFastProviderConfig()
-        : providerStore.getActiveProviderConfig()
-    return {
-      providerConfig,
-      modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model).modelConfig,
-      autoSelection
+      ).modelConfig
     }
   }
 
   const providerConfig = providerStore.getActiveProviderConfig()
   return {
     providerConfig,
-    modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model).modelConfig,
-    autoSelection: null
+    modelConfig: findProviderModel(providerConfig?.providerId, providerConfig?.model).modelConfig
   }
 }
 
 function messageContainsImage(message: UnifiedMessage): boolean {
   return Array.isArray(message.content) && message.content.some((block) => block.type === 'image')
-}
-
-function latestUserMessageContainsImage(messages: UnifiedMessage[]): boolean {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message?.role !== 'user') continue
-    return messageContainsImage(message)
-  }
-  return false
 }
 
 function notifyPendingSessionMessageListeners(): void {
@@ -4297,46 +4224,8 @@ export function useChatActions(): {
             : undefined
 
         const resolvedSession = useChatStore.getState().sessions.find((s) => s.id === sessionId)
-        const resolvedSessionMode = resolvedSession?.mode ?? uiStore.mode
-        const resolvedChannelMeta = resolvedSession?.pluginId
-          ? (useChannelStore
-              .getState()
-              .channels.find((item) => item.id === resolvedSession.pluginId) ?? null)
-          : null
-        const resolvedSessionModelSelection = resolveSessionModelSelection({
-          session: resolvedSession,
-          providers: providerStore.providers,
-          activeProviderId: providerStore.activeProviderId,
-          activeModelId: providerStore.activeModelId,
-          globalMode: settings.mainModelSelectionMode,
-          channelProviderId: resolvedChannelMeta?.providerId,
-          channelModelId: resolvedChannelMeta?.model
-        })
-        const shouldShowAutoRouting = resolvedSessionModelSelection.isAutoModeActive
-        const latestUserInput =
-          source === 'continue'
-            ? extractLatestUserInput(inMemoryMessages)
-            : resolvedCommand.userText || text
-        const latestUserHasImages =
-          source === 'continue'
-            ? latestUserMessageContainsImage(inMemoryMessages)
-            : Boolean(images?.length)
-        const requestedToolsAllowed = shouldAllowToolsForRequest({
-          latestUserInput,
-          mode: resolvedSessionMode,
-          isContinue: source === 'continue',
-          projectId: resolvedSession?.projectId ?? null
-        })
-        if (shouldShowAutoRouting) {
-          useUIStore.getState().setAutoModelRoutingState(sessionId, 'routing')
-        }
         const providerResolution = await resolveMainRequestProvider({
-          sessionId,
-          latestUserInput,
-          mode: resolvedSessionMode,
-          allowTools: requestedToolsAllowed,
-          isContinue: source === 'continue',
-          requiresVision: latestUserHasImages
+          sessionId
         })
         const baseProviderConfig = await buildProviderConfigWithRuntimeSettings(
           providerResolution.providerConfig,
@@ -4351,23 +4240,10 @@ export function useChatActions(): {
           settings
         )
 
-        useUIStore.getState().setAutoModelSelection(sessionId, providerResolution.autoSelection)
-        if (providerResolution.autoSelection?.confidence === 'high') {
-          useUIStore
-            .getState()
-            .setAutoModelHighConfidenceSelection(sessionId, providerResolution.autoSelection)
-        }
-        if (shouldShowAutoRouting) {
-          useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
-        }
-
         if (
           !baseProviderConfig ||
           (!baseProviderConfig.apiKey && baseProviderConfig.requiresApiKey !== false)
         ) {
-          if (shouldShowAutoRouting) {
-            useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
-          }
           clearPreflightIndicator()
           toast.error('API key required', {
             description: 'Please configure an AI provider in Settings',
@@ -4379,9 +4255,6 @@ export function useChatActions(): {
         if (baseProviderConfig.providerId) {
           const ready = await ensureProviderAuthReady(baseProviderConfig.providerId)
           if (!ready) {
-            if (shouldShowAutoRouting) {
-              useUIStore.getState().setAutoModelRoutingState(sessionId, 'idle')
-            }
             clearPreflightIndicator()
             const provider = providerStore.providers.find(
               (item) => item.id === baseProviderConfig.providerId
@@ -4926,15 +4799,9 @@ export function useChatActions(): {
               availableTools: availableForSubAgents
             })
           const promptCandidateToolDefs = parentTools
-
-          const autoSelectedFastWithoutTools =
-            mode !== 'clarify' &&
-            providerResolution.autoSelection?.target === 'fast' &&
-            providerResolution.autoSelection.toolsAllowed === false &&
-            source !== 'continue'
-          const promptToolDefs = autoSelectedFastWithoutTools ? [] : promptCandidateToolDefs
-          const promptAllowsToolContext = !autoSelectedFastWithoutTools
-          const subAgentToolCatalog = autoSelectedFastWithoutTools ? [] : implementationToolCatalog
+          const promptToolDefs = promptCandidateToolDefs
+          const promptAllowsToolContext = true
+          const subAgentToolCatalog = implementationToolCatalog
 
           const userPrompt = settings.systemPrompt || ''
           const volatileExtraSections: string[] = []
@@ -5462,9 +5329,12 @@ export function useChatActions(): {
                       }
                     })
                     if (!result.accepted || !result.runId.trim()) {
+                      const cause = [result.errorCode, result.errorDetail]
+                        .filter(Boolean)
+                        .join(': ')
                       throw await agentBridge.createDiagnosticError(
-                        result.errorCode
-                          ? `Hosted session run was not accepted (${result.errorCode})`
+                        cause
+                          ? `Hosted session run was not accepted (${cause})`
                           : 'Hosted session run was not accepted',
                         { sessionId }
                       )
@@ -6284,21 +6154,7 @@ export function useChatActions(): {
                       usage: normalizedUsage!,
                       timing: event.timing,
                       debugInfo: lastRequestDebugInfo,
-                      providerResponseId: event.providerResponseId,
-                      meta: providerResolution.autoSelection
-                        ? {
-                            autoRouting: {
-                              mode: providerResolution.autoSelection.mode ?? mode,
-                              taskType: providerResolution.autoSelection.taskType ?? null,
-                              route: providerResolution.autoSelection.target,
-                              confidence: providerResolution.autoSelection.confidence ?? null,
-                              decisionSource:
-                                providerResolution.autoSelection.decisionSource ?? null,
-                              fallbackReason:
-                                providerResolution.autoSelection.fallbackReason ?? null
-                            }
-                          }
-                        : undefined
+                      providerResponseId: event.providerResponseId
                     })
                   }
                   break

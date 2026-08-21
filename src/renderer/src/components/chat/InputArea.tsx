@@ -29,6 +29,8 @@ import {
   Check,
   Users,
   Wrench,
+  Square,
+  Lightbulb,
   type LucideIcon
 } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
@@ -229,12 +231,8 @@ function ContextRing({
     const idx = s.sessionsById[sessionId]
     return idx !== undefined ? (s.sessions[idx] ?? null) : null
   })
-  const mainModelSelectionMode = useSettingsStore((s) => s.mainModelSelectionMode)
   const contextCompressionThreshold = useSettingsStore((s) => s.contextCompressionThreshold)
   const channels = useChannelStore((s) => s.channels)
-  const autoSelection = useUIStore((s) =>
-    activeSession ? (s.autoModelSelectionsBySession[activeSession.id] ?? null) : null
-  )
 
   const activeModelCfg = useProviderStore((s) => {
     const activeChannel = activeSession?.pluginId
@@ -245,18 +243,11 @@ function ContextRing({
       providers: s.providers,
       activeProviderId: s.activeProviderId,
       activeModelId: s.activeModelId,
-      globalMode: mainModelSelectionMode,
       channelProviderId: activeChannel?.providerId,
       channelModelId: activeChannel?.model
     })
-    const providerId =
-      selection.isAutoModeActive && autoSelection?.providerId
-        ? autoSelection.providerId
-        : selection.providerId
-    const modelId =
-      selection.isAutoModeActive && autoSelection?.modelId
-        ? autoSelection.modelId
-        : selection.modelId
+    const providerId = selection.providerId
+    const modelId = selection.modelId
     if (!providerId || !modelId) return null
     const provider = s.providers.find((p) => p.id === providerId)
     return provider?.models.find((m) => m.id === modelId) ?? null
@@ -1753,7 +1744,6 @@ export function InputArea({
   const [pendingImageReads, setPendingImageReads] = React.useState(0)
   const [contextCompressionStatus, setContextCompressionStatus] =
     React.useState<ContextCompressionStatus>('idle')
-  const mainModelSelectionMode = useSettingsStore((state) => state.mainModelSelectionMode)
   const fileReferenceLabels = React.useMemo(
     () => ({
       removeFile: t('input.fileReference.remove', { defaultValue: 'Remove reference' }),
@@ -1961,18 +1951,14 @@ export function InputArea({
         projectId: session.projectId,
         pluginId: session.pluginId,
         providerId: session.providerId,
-        modelId: session.modelId,
-        modelSelectionMode: session.modelSelectionMode
+        modelId: session.modelId
       } as Pick<
         import('@renderer/stores/chat-store').Session,
-        'id' | 'projectId' | 'pluginId' | 'providerId' | 'modelId' | 'modelSelectionMode'
+        'id' | 'projectId' | 'pluginId' | 'providerId' | 'modelId'
       >
     })
   )
   const channels = useChannelStore((s) => s.channels)
-  const autoSelection = useUIStore((s) =>
-    targetSession ? (s.autoModelSelectionsBySession[targetSession.id] ?? null) : null
-  )
   const activeProvider = useProviderStore(
     useShallow((s) => {
       const { providers, activeProviderId, activeModelId } = s
@@ -1987,25 +1973,13 @@ export function InputArea({
             providers,
             activeProviderId,
             activeModelId,
-            globalMode: mainModelSelectionMode,
             channelProviderId: channel?.providerId,
             channelModelId: channel?.model
           })
         : null
       const providerId =
-        fastConfig?.providerId ??
-        (selection
-          ? selection.isAutoModeActive && autoSelection?.providerId
-            ? autoSelection.providerId
-            : selection.providerId
-          : activeProviderId)
-      const modelId =
-        fastConfig?.model ??
-        (selection
-          ? selection.isAutoModeActive && autoSelection?.modelId
-            ? autoSelection.modelId
-            : selection.modelId
-          : activeModelId)
+        fastConfig?.providerId ?? (selection ? selection.providerId : activeProviderId)
+      const modelId = fastConfig?.model ?? (selection ? selection.modelId : activeModelId)
       if (!providerId || !modelId) return null
       const provider = providers.find((item) => item.id === providerId)
       if (!provider) return null
@@ -2443,7 +2417,13 @@ export function InputArea({
     [editorSelection, workingFolder]
   )
 
-  const shouldRecommendInit = workspaceReady && !activeSshConnectionId && isWorkspaceAgentsMissing
+  const hasSelectedProject = Boolean(activeProjectId && projectScoped && workingFolder?.trim())
+  const shouldRecommendInit =
+    hasSelectedProject &&
+    mode !== 'chat' &&
+    workspaceReady &&
+    !activeSshConnectionId &&
+    isWorkspaceAgentsMissing
   const recommendationFallback = shouldRecommendInit
     ? t('input.recommendationInitWorkspace')
     : t(defaultRecommendationKeys[mode])
@@ -2810,10 +2790,16 @@ export function InputArea({
     }
   }, [hasActiveGoal])
 
+  const [initBannerDismissed, setInitBannerDismissed] = React.useState(false)
+
+  React.useEffect(() => {
+    setInitBannerDismissed(false)
+  }, [workingFolder, draftSessionId])
+
   React.useEffect(() => {
     let cancelled = false
 
-    if (!workspaceReady || activeSshConnectionId) {
+    if (!hasSelectedProject || mode === 'chat' || !workspaceReady || activeSshConnectionId) {
       setIsWorkspaceAgentsMissing(false)
       return
     }
@@ -2830,7 +2816,7 @@ export function InputArea({
     return () => {
       cancelled = true
     }
-  }, [activeSshConnectionId, workspaceReady, workingFolder])
+  }, [activeSshConnectionId, hasSelectedProject, mode, workspaceReady, workingFolder])
 
   React.useEffect(() => {
     if (!shouldAutoAcceptRecommendation || !suggestionText || !text.trim()) {
@@ -3842,7 +3828,7 @@ export function InputArea({
         >
           {isStreaming ? (
             <>
-              <Spinner className="mr-1.5 size-3.5" />
+              <Square className="mr-1.5 size-3 fill-current" />
               <span>{t('action.stop', { ns: 'common' })}</span>
             </>
           ) : (
@@ -4221,6 +4207,53 @@ export function InputArea({
         </div>
       )}
 
+      {shouldRecommendInit && !initBannerDismissed && !hasPendingGoalMode && !isStreaming && (
+        <div
+          className={cn(
+            composerWidthClass,
+            'mb-2 flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/85 px-3 py-1.5 text-xs text-foreground shadow-xs backdrop-blur-xs'
+          )}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <Lightbulb className="size-3.5 shrink-0 text-amber-500" />
+            <span className="truncate text-muted-foreground text-[12px]">
+              {t('input.initBannerText', {
+                defaultValue:
+                  'No AGENTS.md found in the current working folder. Initialize project context for better agent performance.'
+              })}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="h-6 gap-1 rounded-md px-2 text-[11px] font-medium text-foreground hover:bg-primary/10 hover:text-primary"
+              onClick={() => {
+                setDocumentNodes([createTextReplacementNode('/init')])
+                setSelectedFiles([])
+                requestAnimationFrame(() => {
+                  focusInputAtEnd()
+                })
+              }}
+            >
+              <span>{t('input.initBannerAction', { defaultValue: 'Run /init' })}</span>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="size-5 rounded-full text-muted-foreground hover:text-foreground"
+              aria-label={t('input.initBannerDismiss', { defaultValue: 'Dismiss' })}
+              title={t('input.initBannerDismiss', { defaultValue: 'Dismiss' })}
+              onClick={() => setInitBannerDismissed(true)}
+            >
+              <X className="size-3" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className={composerWidthClass}>
         {projectScoped && draftSessionId && <InlineStepsPanel sessionId={draftSessionId} />}
         <div
@@ -4373,10 +4406,7 @@ export function InputArea({
                       ? t('input.placeholderPendingGoal', {
                           defaultValue: 'Describe the goal to pursue...'
                         })
-                      : (effectivePlaceholder ??
-                        (shouldRecommendInit
-                          ? t('input.placeholderInitWorkspace')
-                          : t(placeholderKeys[mode] ?? 'input.placeholder')))
+                      : (effectivePlaceholder ?? t(placeholderKeys[mode] ?? 'input.placeholder'))
                 }
                 suggestionText={suggestionText}
                 showSuggestion={Boolean(

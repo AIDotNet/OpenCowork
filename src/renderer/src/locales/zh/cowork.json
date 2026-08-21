@@ -174,7 +174,6 @@
     "executeModel": "执行模型",
     "executeModelDesc": "选择用于实施该计划的模型。",
     "executeModelPlaceholder": "选择模型",
-    "executeModelAuto": "自动",
     "approve": "批准",
     "reject": "驳回",
     "rejectTitle": "驳回计划",

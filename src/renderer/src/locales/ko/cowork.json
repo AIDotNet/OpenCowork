@@ -173,7 +173,6 @@
     "executeModel": "실행 모델",
     "executeModelDesc": "이 계획을 실행할 모델을 선택하세요.",
     "executeModelPlaceholder": "모델 선택",
-    "executeModelAuto": "자동",
     "executeInNewSession": "새로운 세션 실행",
     "awaitingReview": "Awaiting 리뷰",
     "approve": "앱로드",

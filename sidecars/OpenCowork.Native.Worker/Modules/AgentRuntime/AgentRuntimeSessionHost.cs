@@ -103,6 +103,19 @@ internal static class AgentRuntimeSessionHost
         return !string.IsNullOrEmpty(sessionId) && Sessions.ContainsKey(sessionId);
     }
 
+    /// <summary>
+    /// Submit-time availability check that also restores the durable snapshot, so the
+    /// first session-send after a worker restart is not force-rejected as evicted.
+    /// </summary>
+    public static bool EnsureOpen(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            return false;
+        }
+        return Sessions.ContainsKey(sessionId) || TryRestoreSession(sessionId) is not null;
+    }
+
     public static async Task<WorkerResponse> SendJobAsync(
         JsonElement parameters,
         WorkerRequestContext context)

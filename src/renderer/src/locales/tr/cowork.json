@@ -173,7 +173,6 @@
     "executeModel": "Yürütme modeli",
     "executeModelDesc": "Bu planı uygulayacak modeli seçin.",
     "executeModelPlaceholder": "Model seçin",
-    "executeModelAuto": "Otomatik",
     "executeInNewSession": "Yeni Oturum Execute",
     "awaitingReview": "Bekleyen Bir İnceleme",
     "approve": "Approve",

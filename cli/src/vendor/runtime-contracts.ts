@@ -124,6 +124,8 @@ export interface StartRunResult {
   sessionId: string
   assistantMessageId: string
   errorCode: RuntimeErrorCode | null
+  /** Raw failure description (worker errorCode + message, transport error, …). `errorCode` is a coarse classification; this keeps the actual cause so the UI can show it instead of an opaque "unknown". */
+  errorDetail: string | null
 }
 
 export interface SendSessionTurnParams {
@@ -139,6 +141,7 @@ export interface SendSessionTurnResult {
   sessionId: string
   assistantMessageId: string
   errorCode: RuntimeErrorCode | null
+  errorDetail: string | null
 }
 
 export interface CancelRunParams {
@@ -796,7 +799,15 @@ export function decodeStartRunResult(value: unknown): StartRunResult {
     const errorCodeValue = value.errorCode as RuntimeErrorCode
     errorCode = errorCodeValue
   }
-  return { accepted, runId, sessionId, assistantMessageId, errorCode }
+  let errorDetail: string | null
+  if (value.errorDetail === null) {
+    errorDetail = null
+  } else {
+    if (typeof value.errorDetail !== 'string') failDecode('StartRunResult.errorDetail', 'expected string')
+    const errorDetailValue = value.errorDetail
+    errorDetail = errorDetailValue
+  }
+  return { accepted, runId, sessionId, assistantMessageId, errorCode, errorDetail }
 }
 
 export function decodeSendSessionTurnParams(value: unknown): SendSessionTurnParams {
@@ -844,7 +855,15 @@ export function decodeSendSessionTurnResult(value: unknown): SendSessionTurnResu
     const errorCodeValue = value.errorCode as RuntimeErrorCode
     errorCode = errorCodeValue
   }
-  return { accepted, runId, sessionId, assistantMessageId, errorCode }
+  let errorDetail: string | null
+  if (value.errorDetail === null) {
+    errorDetail = null
+  } else {
+    if (typeof value.errorDetail !== 'string') failDecode('SendSessionTurnResult.errorDetail', 'expected string')
+    const errorDetailValue = value.errorDetail
+    errorDetail = errorDetailValue
+  }
+  return { accepted, runId, sessionId, assistantMessageId, errorCode, errorDetail }
 }
 
 export function decodeCancelRunParams(value: unknown): CancelRunParams {

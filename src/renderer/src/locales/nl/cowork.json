@@ -173,7 +173,6 @@
     "executeModel": "Uitvoeringsmodel",
     "executeModelDesc": "Kies welk model dit plan moet implementeren.",
     "executeModelPlaceholder": "Selecteer een model",
-    "executeModelAuto": "Auto",
     "executeInNewSession": "Nieuwe sessie uitvoeren",
     "awaitingReview": "In afwachting van de evaluatie",
     "approve": "Goedkeuring",

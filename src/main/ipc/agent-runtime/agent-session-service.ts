@@ -52,32 +52,57 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {}
 }
 
-function readErrorCode(error: unknown): RuntimeErrorCode | null {
-  if (error && typeof error === 'object' && 'errorCode' in error) {
-    const code = (error as { errorCode?: unknown }).errorCode
-    if (code === 'session_evicted') return 'session_evicted'
-    if (code === 'worker_interrupted') return 'worker_interrupted'
-    if (code === 'protocol_mismatch') return 'protocol_mismatch'
-    if (code === 'runtime_expired') return 'runtime_expired'
-    if (typeof code === 'string') return 'unknown'
+type RunErrorInfo = {
+  code: RuntimeErrorCode | null
+  /** Raw cause (worker errorCode + message) preserved for the UI. */
+  detail: string | null
+}
+
+function mapKnownErrorCode(code: string): RuntimeErrorCode {
+  if (code === 'session_evicted') return 'session_evicted'
+  if (code === 'worker_interrupted') return 'worker_interrupted'
+  if (code === 'protocol_mismatch') return 'protocol_mismatch'
+  if (code === 'runtime_expired') return 'runtime_expired'
+  return 'unknown'
+}
+
+function readErrorInfo(error: unknown): RunErrorInfo {
+  const message = error instanceof Error ? error.message : String(error)
+  const rawCode =
+    error && typeof error === 'object' && 'errorCode' in error
+      ? (error as { errorCode?: unknown }).errorCode
+      : undefined
+  if (typeof rawCode === 'string' && rawCode.trim()) {
+    const code = rawCode.trim()
+    const detail = message.startsWith(code) ? message : `${code}: ${message}`
+    return { code: mapKnownErrorCode(code), detail }
   }
-  if (error instanceof Error && error.message.includes('session_evicted')) {
-    return 'session_evicted'
+  if (message.includes('session_evicted')) {
+    return { code: 'session_evicted', detail: message }
   }
-  return null
+  return { code: null, detail: message }
+}
+
+function readErrorInfoFromResult(result: Record<string, unknown>): RunErrorInfo {
+  const rawCode = typeof result.errorCode === 'string' ? result.errorCode.trim() : ''
+  const rawMessage = typeof result.error === 'string' ? result.error.trim() : ''
+  const detail = [rawCode, rawMessage].filter(Boolean).join(': ') || null
+  return { code: rawCode ? mapKnownErrorCode(rawCode) : null, detail }
 }
 
 function rejectedRun(
   sessionId: string,
   errorCode: RuntimeErrorCode | null,
-  runId = ''
+  runId = '',
+  errorDetail: string | null = null
 ): StartRunResult {
   return {
     accepted: false,
     runId,
     sessionId,
     assistantMessageId: '',
-    errorCode
+    errorCode,
+    errorDetail
   }
 }
 
@@ -87,7 +112,8 @@ function acceptedRun(sessionId: string, runId: string, assistantMessageId: strin
     runId,
     sessionId,
     assistantMessageId,
-    errorCode: null
+    errorCode: null,
+    errorDetail: null
   }
 }
 
@@ -214,39 +240,45 @@ export class AgentSessionService {
 
     if (!this.canReuseOpenSession(sessionId, assembled.prefixIdentity)) {
       const opened = await this.openWithTemplate(assembled)
-      if (!opened) return rejectedRun(sessionId, 'unknown', options?.runId ?? '')
+      if (!opened) {
+        return (
+          (await this.runLegacyFallback(assembled, sessionId, options?.runId, 'session-open')) ??
+          rejectedRun(sessionId, 'unknown', options?.runId ?? '', 'agent/session-open failed')
+        )
+      }
     }
-    return await this.sendTurnMessages(sessionId, assembled, true, options?.runId)
+    const sent = await this.sendTurnMessages(sessionId, assembled, true, options?.runId)
+    if (sent.accepted) return sent
+    return (
+      (await this.runLegacyFallback(assembled, sessionId, options?.runId, 'session-send')) ?? sent
+    )
   }
 
   async startRun(params: StartRunParams): Promise<StartRunResult> {
     if (!this.deps.isRunning()) {
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', 'native worker is not running')
     }
     let assembled: AssembledSessionContext
     try {
       assembled = await this.deps.assemble(toAssembleIntent(params))
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
       console.warn('[agent-session-service] assemble failed', {
         sessionId: params.sessionId,
-        error: error instanceof Error ? error.message : String(error)
+        error: detail
       })
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', `run assembly failed: ${detail}`)
     }
     if (assembled.turnMessages.length === 0) {
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', 'assembled run has no turn messages')
     }
 
-    if (!this.canReuseOpenSession(params.sessionId, assembled.prefixIdentity)) {
-      const opened = await this.openWithTemplate(assembled)
-      if (!opened) return rejectedRun(params.sessionId, 'unknown')
-    }
-    return await this.sendTurnMessages(params.sessionId, assembled, true)
+    return await this.openAndSendWithFallback(params.sessionId, assembled)
   }
 
   async sendTurn(params: SendSessionTurnParams): Promise<SendSessionTurnResult> {
     if (!this.deps.isRunning()) {
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', 'native worker is not running')
     }
     let assembled: AssembledSessionContext
     try {
@@ -260,20 +292,42 @@ export class AgentSessionService {
         commandMetadata: params.commandMetadata
       })
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
       console.warn('[agent-session-service] assemble failed', {
         sessionId: params.sessionId,
-        error: error instanceof Error ? error.message : String(error)
+        error: detail
       })
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', `run assembly failed: ${detail}`)
     }
     if (assembled.turnMessages.length === 0) {
-      return rejectedRun(params.sessionId, 'unknown')
+      return rejectedRun(params.sessionId, 'unknown', '', 'assembled turn has no turn messages')
     }
-    if (!this.canReuseOpenSession(params.sessionId, assembled.prefixIdentity)) {
+    return await this.openAndSendWithFallback(params.sessionId, assembled)
+  }
+
+  /**
+   * Shared hosted-run pipeline: open (when the pinned prefix changed) + send,
+   * falling back to a one-shot legacy `agent/run` when the hosted path cannot
+   * accept the turn. The fallback reuses the same runId, so the durable job
+   * store dedupes against a session-send that may in fact have committed.
+   */
+  private async openAndSendWithFallback(
+    sessionId: string,
+    assembled: AssembledSessionContext
+  ): Promise<StartRunResult> {
+    const runId = this.deps.nextRunId?.().trim() || undefined
+    if (!this.canReuseOpenSession(sessionId, assembled.prefixIdentity)) {
       const opened = await this.openWithTemplate(assembled)
-      if (!opened) return rejectedRun(params.sessionId, 'unknown')
+      if (!opened) {
+        return (
+          (await this.runLegacyFallback(assembled, sessionId, runId, 'session-open')) ??
+          rejectedRun(sessionId, 'unknown', runId ?? '', 'agent/session-open failed')
+        )
+      }
     }
-    return await this.sendTurnMessages(params.sessionId, assembled, true)
+    const sent = await this.sendTurnMessages(sessionId, assembled, true, runId)
+    if (sent.accepted) return sent
+    return (await this.runLegacyFallback(assembled, sessionId, runId, 'session-send')) ?? sent
   }
 
   async closeSession(sessionId: string): Promise<CloseAgentSessionResult> {
@@ -356,35 +410,102 @@ export class AgentSessionService {
     if (requestedRunId) payload.runId = requestedRunId
     this.applyUnpinnedToolReminder(sessionId, assembled)
     copySessionSendTurnFields(assembled.openTemplate, payload)
-    try {
-      const result = asRecord(await this.deps.request('agent/session-send', payload, 60_000))
-      const accepted = result.started === true || result.accepted === true
-      const runId =
-        (typeof result.runId === 'string' && result.runId.trim()) || requestedRunId || ''
-      if (!accepted) {
-        return rejectedRun(sessionId, readErrorCodeFromResult(result), runId)
+    // The submit is idempotent on runId (a duplicate returns accepted+duplicate),
+    // so one transparent retry is safe even when the first attempt timed out
+    // after the worker actually committed the job.
+    let transientRetryUsed = false
+    for (;;) {
+      try {
+        const result = asRecord(await this.deps.request('agent/session-send', payload, 60_000))
+        const accepted = result.started === true || result.accepted === true
+        const runId =
+          (typeof result.runId === 'string' && result.runId.trim()) || requestedRunId || ''
+        if (!accepted) {
+          const info = readErrorInfoFromResult(result)
+          return rejectedRun(sessionId, info.code ?? 'unknown', runId, info.detail)
+        }
+        const assistantMessageId =
+          (typeof result.assistantMessageId === 'string' && result.assistantMessageId.trim()) ||
+          (runId ? assistantMessageIdForRun(runId) : '')
+        return acceptedRun(sessionId, runId, assistantMessageId)
+      } catch (error) {
+        const info = readErrorInfo(error)
+        if (info.code === 'session_evicted' && retryOnEvict) {
+          console.warn('[agent-session-service] session_evicted; reopening from transcript', {
+            sessionId
+          })
+          this.openPrefix.delete(sessionId)
+          const reopened = await this.openWithTemplate(assembled)
+          if (!reopened) {
+            return rejectedRun(sessionId, 'session_evicted', requestedRunId ?? '', info.detail)
+          }
+          retryOnEvict = false
+          continue
+        }
+        if (info.code !== 'session_evicted' && requestedRunId && !transientRetryUsed) {
+          transientRetryUsed = true
+          console.warn('[agent-session-service] session-send failed; retrying once', {
+            sessionId,
+            runId: requestedRunId,
+            error: info.detail
+          })
+          continue
+        }
+        console.warn('[agent-session-service] session-send failed', {
+          sessionId,
+          runId: requestedRunId,
+          error: info.detail
+        })
+        return rejectedRun(sessionId, info.code ?? 'unknown', requestedRunId ?? '', info.detail)
       }
+    }
+  }
+
+  /**
+   * Last-resort path when hosted open/send cannot accept a turn: submit the
+   * fully assembled conversation as a one-shot legacy `agent/run`, which needs
+   * no open worker session. Compaction was already applied to
+   * `historyMessages`, so the fallback cannot resurrect summarized turns, and
+   * reusing the runId keeps the durable job store idempotent against a
+   * session-send that may in fact have committed.
+   */
+  private async runLegacyFallback(
+    assembled: AssembledSessionContext,
+    sessionId: string,
+    runId: string | undefined,
+    cause: string
+  ): Promise<StartRunResult | null> {
+    if (!this.deps.isRunning()) return null
+    const effectiveRunId = runId?.trim() || this.deps.nextRunId?.().trim() || undefined
+    const payload: Record<string, unknown> = {
+      ...assembled.openTemplate,
+      sessionId,
+      messages: [...assembled.historyMessages, ...assembled.turnMessages]
+    }
+    if (effectiveRunId) payload.runId = effectiveRunId
+    try {
+      const result = asRecord(await this.deps.request('agent/run', payload, 60_000))
+      const accepted = result.started === true || result.accepted === true
+      const acceptedRunId =
+        (typeof result.runId === 'string' && result.runId.trim()) || effectiveRunId || ''
+      if (!accepted || !acceptedRunId) return null
+      console.warn('[agent-session-service] hosted run fell back to legacy agent/run', {
+        sessionId,
+        runId: acceptedRunId,
+        cause
+      })
       const assistantMessageId =
         (typeof result.assistantMessageId === 'string' && result.assistantMessageId.trim()) ||
-        (runId ? assistantMessageIdForRun(runId) : '')
-      return acceptedRun(sessionId, runId, assistantMessageId)
+        assistantMessageIdForRun(acceptedRunId)
+      return acceptedRun(sessionId, acceptedRunId, assistantMessageId)
     } catch (error) {
-      const errorCode = readErrorCode(error)
-      if (errorCode === 'session_evicted' && retryOnEvict) {
-        console.warn('[agent-session-service] session_evicted; reopening from transcript', {
-          sessionId
-        })
-        this.openPrefix.delete(sessionId)
-        const reopened = await this.openWithTemplate(assembled)
-        if (!reopened) return rejectedRun(sessionId, 'session_evicted', requestedRunId ?? '')
-        return await this.sendTurnMessages(sessionId, assembled, false, requestedRunId)
-      }
-      console.warn('[agent-session-service] session-send failed', {
+      console.warn('[agent-session-service] legacy agent/run fallback failed', {
         sessionId,
-        runId: requestedRunId,
+        runId: effectiveRunId,
+        cause,
         error: error instanceof Error ? error.message : String(error)
       })
-      return rejectedRun(sessionId, errorCode ?? 'unknown', requestedRunId ?? '')
+      return null
     }
   }
 }
@@ -464,9 +585,7 @@ function toAssembleIntent(params: StartRunParams): AssembleSessionIntent {
   }
 }
 
-function omitPinnedCommandFields(
-  template: Record<string, unknown>
-): Record<string, unknown> {
+function omitPinnedCommandFields(template: Record<string, unknown>): Record<string, unknown> {
   const { slashCommand: _slashCommand, systemCommand: _systemCommand, ...rest } = template
   return rest
 }
@@ -490,13 +609,6 @@ function readTemplateToolNames(template: Record<string, unknown>): string[] {
         : ''
     )
     .filter(Boolean)
-}
-
-function readErrorCodeFromResult(result: Record<string, unknown>): RuntimeErrorCode | null {
-  const code = result.errorCode
-  if (code === 'session_evicted') return 'session_evicted'
-  if (typeof code === 'string') return 'unknown'
-  return null
 }
 
 export type { RunContextAssemblerDeps, AssembleSessionIntent }

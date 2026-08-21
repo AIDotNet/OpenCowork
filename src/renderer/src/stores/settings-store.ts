@@ -66,7 +66,6 @@ export type PromptRecommendationModelBindings = Record<
   PromptRecommendationModelBinding
 >
 
-export type MainModelSelectionMode = 'auto' | 'manual'
 export type MemoryAutomationWritePolicy = 'auto'
 export type MemoryScopeMode = 'hybrid'
 export type ClarifyPlanModeAutoSwitchTarget = 'off' | 'code' | 'acp'
@@ -470,7 +469,6 @@ interface SettingsStore {
   // Prompt Recommendation Settings
   promptRecommendationModels: PromptRecommendationModelBindings
   newSessionDefaultModel: SessionDefaultModelBinding | null
-  mainModelSelectionMode: MainModelSelectionMode
   claudeCodeConfigs: ClaudeCodeConfig[]
   codexConfigs: CodexConfig[]
   projectDefaultDirectoryMode: ProjectDefaultDirectoryMode
@@ -593,7 +591,6 @@ export const useSettingsStore = create<SettingsStore>()(
         acp: null
       },
       newSessionDefaultModel: null,
-      mainModelSelectionMode: 'auto',
       claudeCodeConfigs: [createDefaultClaudeCodeConfig()],
       codexConfigs: [createDefaultCodexConfig()],
       projectDefaultDirectoryMode: 'last-used',
@@ -729,9 +726,6 @@ export const useSettingsStore = create<SettingsStore>()(
           typeof (state.contextCompressionModel as Record<string, unknown>).modelId !== 'string'
         ) {
           state.contextCompressionModel = null
-        }
-        if (state.mainModelSelectionMode === undefined) {
-          state.mainModelSelectionMode = 'auto'
         }
         state.claudeCodeConfigs = sanitizeClaudeCodeConfigs(state.claudeCodeConfigs)
         state.codexConfigs = sanitizeCodexConfigs(state.codexConfigs)
@@ -1028,7 +1022,6 @@ export const useSettingsStore = create<SettingsStore>()(
         // Prompt Recommendation Settings
         promptRecommendationModels: state.promptRecommendationModels,
         newSessionDefaultModel: state.newSessionDefaultModel,
-        mainModelSelectionMode: state.mainModelSelectionMode,
         claudeCodeConfigs: state.claudeCodeConfigs,
         codexConfigs: state.codexConfigs,
         projectDefaultDirectoryMode: state.projectDefaultDirectoryMode,

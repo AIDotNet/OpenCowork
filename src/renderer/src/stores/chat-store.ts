@@ -50,6 +50,7 @@ import { usePlanStore } from './plan-store'
 import { useUIStore } from './ui-store'
 import { useBackgroundSessionStore } from './background-session-store'
 import { useSettingsStore } from './settings-store'
+import { useProviderStore } from './provider-store'
 import { removeSessionInputDraft } from '../lib/input-drafts'
 import {
   invalidateVisibleSessionCache,
@@ -69,7 +70,7 @@ import {
 import { readSessionCompaction } from '../lib/agent/session-compaction-client'
 
 export type SessionMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
-export type SessionModelSelectionMode = 'inherit' | 'auto' | 'manual'
+export type SessionModelSelectionMode = 'manual'
 
 export interface SessionPromptSnapshot {
   mode: SessionMode
@@ -175,11 +176,11 @@ export interface Session {
   /** Plugin sender identifiers (last known) */
   pluginSenderId?: string
   pluginSenderName?: string
-  /** How this session resolves its main model. */
+  /** Sessions always bind a concrete model. Legacy inherit/auto rows are treated as unbound. */
   modelSelectionMode?: SessionModelSelectionMode
-  /** Bound provider ID when modelSelectionMode is manual. */
+  /** Bound provider ID for this session's model. */
   providerId?: string
-  /** Bound model ID when modelSelectionMode is manual. */
+  /** Bound model ID for this session. */
   modelId?: string
   /** In-memory prompt snapshot reused within the current app session */
   promptSnapshot?: SessionPromptSnapshot
@@ -459,7 +460,7 @@ function dbCreateSession(s: Session): void {
     pinned: s.pinned,
     providerId: s.providerId,
     modelId: s.modelId,
-    modelSelectionMode: s.modelSelectionMode ?? (s.providerId && s.modelId ? 'manual' : 'inherit')
+    modelSelectionMode: 'manual'
   })
     .catch(() => {})
     .finally(() => {
@@ -1452,10 +1453,7 @@ interface ChatStore {
   setWorkingFolder: (sessionId: string, folder: string) => void
   setSshConnectionId: (sessionId: string, connectionId: string | null) => void
   setSessionModelManual: (sessionId: string, providerId: string, modelId: string) => void
-  setSessionModelAuto: (sessionId: string) => void
-  setSessionModelInherit: (sessionId: string) => void
   updateSessionModel: (sessionId: string, providerId: string, modelId: string) => void
-  clearSessionModelBinding: (sessionId: string) => void
   setSessionPlanId: (sessionId: string, planId: string | null) => void
   setSessionPromptSnapshot: (sessionId: string, snapshot: SessionPromptSnapshot) => void
   clearSessionPromptSnapshot: (sessionId: string) => void
@@ -1796,16 +1794,6 @@ function invalidateMessageWindowGeneration(sessionId: string): number {
   return next
 }
 
-function normalizeSessionModelSelectionMode(
-  value?: string | null,
-  providerId?: string | null,
-  modelId?: string | null
-): SessionModelSelectionMode {
-  if (providerId && modelId && value !== 'auto') return 'manual'
-  if (value === 'inherit' || value === 'auto' || value === 'manual') return value
-  return 'inherit'
-}
-
 function rowToProject(row: ProjectRow): Project {
   return {
     id: row.id,
@@ -1847,11 +1835,7 @@ function rowToSession(row: SessionRow, messages: UnifiedMessage[] = []): Session
     pinned: row.pinned === 1,
     pluginId: row.plugin_id ?? undefined,
     externalChatId: row.external_chat_id ?? undefined,
-    modelSelectionMode: normalizeSessionModelSelectionMode(
-      row.model_selection_mode,
-      row.provider_id,
-      row.model_id
-    ),
+    modelSelectionMode: 'manual',
     providerId: row.provider_id ?? undefined,
     modelId: row.model_id ?? undefined
   }
@@ -4535,6 +4519,7 @@ export const useChatStore = create<ChatStore>()(
       const id = nanoid()
       const now = Date.now()
       const { newSessionDefaultModel } = useSettingsStore.getState()
+      const { activeProviderId, activeModelId } = useProviderStore.getState()
       const preserveProjectless = options?.preserveProjectless === true
 
       let targetProjectId = preserveProjectless
@@ -4562,14 +4547,13 @@ export const useChatStore = create<ChatStore>()(
         ? targetProject?.providerId
         : hasFixedDefaultModel
           ? newSessionDefaultModel?.providerId
-          : undefined
+          : (activeProviderId ?? undefined)
       const sessionModelId = projectHasModelBinding
         ? targetProject?.modelId
         : hasFixedDefaultModel
           ? newSessionDefaultModel?.modelId
-          : undefined
-      const modelSelectionMode: SessionModelSelectionMode =
-        projectHasModelBinding || hasFixedDefaultModel ? 'manual' : 'inherit'
+          : activeModelId || undefined
+      const modelSelectionMode: SessionModelSelectionMode = 'manual'
 
       const newSession: Session = {
         id,
@@ -4876,58 +4860,8 @@ export const useChatStore = create<ChatStore>()(
       })
     },
 
-    setSessionModelAuto: (sessionId) => {
-      const now = Date.now()
-      const scope =
-        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
-      invalidateSessionListPageGeneration(scope)
-      set((state) => {
-        const session = state.sessions.find((s) => s.id === sessionId)
-        if (session) {
-          session.modelSelectionMode = 'auto'
-          delete session.providerId
-          delete session.modelId
-          delete session.promptSnapshot
-          session.updatedAt = now
-        }
-      })
-      dbUpdateSession(sessionId, {
-        modelSelectionMode: 'auto',
-        providerId: null,
-        modelId: null,
-        updatedAt: now
-      })
-    },
-
-    setSessionModelInherit: (sessionId) => {
-      const now = Date.now()
-      const scope =
-        get().sessions.find((session) => session.id === sessionId)?.projectId ?? '__chats__'
-      invalidateSessionListPageGeneration(scope)
-      set((state) => {
-        const session = state.sessions.find((s) => s.id === sessionId)
-        if (session) {
-          session.modelSelectionMode = 'inherit'
-          delete session.providerId
-          delete session.modelId
-          delete session.promptSnapshot
-          session.updatedAt = now
-        }
-      })
-      dbUpdateSession(sessionId, {
-        modelSelectionMode: 'inherit',
-        providerId: null,
-        modelId: null,
-        updatedAt: now
-      })
-    },
-
     updateSessionModel: (sessionId, providerId, modelId) => {
       get().setSessionModelManual(sessionId, providerId, modelId)
-    },
-
-    clearSessionModelBinding: (sessionId) => {
-      get().setSessionModelInherit(sessionId)
     },
 
     setSessionPlanId: (sessionId, planId) => {
@@ -5023,11 +4957,7 @@ export const useChatStore = create<ChatStore>()(
         residentBytes: session.residentBytes ?? getResidentMessageBytes(session.messages),
         lastKnownMessageCount:
           session.lastKnownMessageCount ?? session.messageCount ?? session.messages.length,
-        modelSelectionMode: normalizeSessionModelSelectionMode(
-          session.modelSelectionMode,
-          session.providerId,
-          session.modelId
-        )
+        modelSelectionMode: 'manual'
       }
       const restoreScope = targetProjectId ?? '__chats__'
       invalidateSessionListPageGeneration(restoreScope)
@@ -5106,11 +5036,7 @@ export const useChatStore = create<ChatStore>()(
         pluginChatType: undefined,
         pluginSenderId: undefined,
         pluginSenderName: undefined,
-        modelSelectionMode: normalizeSessionModelSelectionMode(
-          session.modelSelectionMode,
-          session.providerId,
-          session.modelId
-        )
+        modelSelectionMode: 'manual'
       }
       const importScope = targetProjectId ?? '__chats__'
       invalidateSessionListPageGeneration(importScope)
@@ -5416,11 +5342,7 @@ export const useChatStore = create<ChatStore>()(
         projectId: source.projectId,
         workingFolder: source.workingFolder,
         sshConnectionId: source.sshConnectionId,
-        modelSelectionMode: normalizeSessionModelSelectionMode(
-          source.modelSelectionMode,
-          source.providerId,
-          source.modelId
-        ),
+        modelSelectionMode: 'manual',
         providerId: source.providerId,
         modelId: source.modelId
       }
@@ -5470,11 +5392,7 @@ export const useChatStore = create<ChatStore>()(
         projectId: source.projectId,
         workingFolder: source.workingFolder,
         sshConnectionId: source.sshConnectionId,
-        modelSelectionMode: normalizeSessionModelSelectionMode(
-          source.modelSelectionMode,
-          source.providerId,
-          source.modelId
-        ),
+        modelSelectionMode: 'manual',
         providerId: source.providerId,
         modelId: source.modelId
       }
@@ -5539,11 +5457,7 @@ export const useChatStore = create<ChatStore>()(
         projectId: sourceSession.projectId,
         workingFolder: sourceSession.workingFolder,
         sshConnectionId: sourceSession.sshConnectionId,
-        modelSelectionMode: normalizeSessionModelSelectionMode(
-          sourceSession.modelSelectionMode,
-          sourceSession.providerId,
-          sourceSession.modelId
-        ),
+        modelSelectionMode: 'manual',
         providerId: sourceSession.providerId,
         modelId: sourceSession.modelId
       }

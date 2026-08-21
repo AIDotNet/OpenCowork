@@ -3,6 +3,21 @@ using System.Text.Json;
 
 internal static partial class AgentRuntimeOpenAIResponsesProvider
 {
+    private static readonly HashSet<string> RetryableResponsesStreamErrorCodes = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "internal_error",
+        "overloaded_error",
+        "rate_limit_error",
+        "rate_limit_exceeded",
+        "server_error",
+        "server_is_overloaded",
+        "service_unavailable",
+        "service_unavailable_error",
+        "temporarily_unavailable",
+        "upstream_error"
+    };
+
     private static async Task<bool> ProcessJsonEventAsync(
         string? eventName,
         string data,
@@ -126,10 +141,45 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     throw new ResponsesWebSocketUnavailableException(
                         $"OpenAI Responses WebSocket transport unavailable: {root.GetRawText()}");
                 }
-                throw new InvalidOperationException($"OpenAI Responses stream error: {root.GetRawText()}");
+                throw CreateResponsesStreamException(root, parseState);
         }
 
         return false;
+    }
+
+    private static AgentRuntimeProviderStreamException CreateResponsesStreamException(
+        JsonElement root,
+        ResponsesParseState parseState)
+    {
+        var error = root;
+        if (root.TryGetProperty("error", out var nestedError) &&
+            nestedError.ValueKind == JsonValueKind.Object)
+        {
+            error = nestedError;
+        }
+        else if (root.TryGetProperty("response", out var response) &&
+            response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("error", out var responseError) &&
+            responseError.ValueKind == JsonValueKind.Object)
+        {
+            error = responseError;
+        }
+        var errorType = JsonHelpers.GetString(error, "type");
+        var errorCode = JsonHelpers.GetString(error, "code");
+        var code = errorCode ?? errorType ?? "stream_error";
+        var message = JsonHelpers.GetString(error, "message") ?? root.GetRawText();
+        var retryable =
+            (errorType is { Length: > 0 } &&
+                RetryableResponsesStreamErrorCodes.Contains(errorType)) ||
+            (errorCode is { Length: > 0 } &&
+                RetryableResponsesStreamErrorCodes.Contains(errorCode));
+
+        return new AgentRuntimeProviderStreamException(
+            "OpenAI Responses",
+            code,
+            message,
+            retryable,
+            parseState.ProjectedAnyOutput);
     }
 
     private static async Task ProcessOutputItemAddedAsync(

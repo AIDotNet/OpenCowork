@@ -173,7 +173,6 @@
     "executeModel": "نموذج التنفيذ",
     "executeModelDesc": "اختر النموذج الذي يجب أن ينفذ هذه الخطة.",
     "executeModelPlaceholder": "اختر نموذجًا",
-    "executeModelAuto": "تلقائي",
     "executeInNewSession": "الدورة الجديدة",
     "awaitingReview": "في انتظار الاستعراض",
     "approve": "الموافقة",

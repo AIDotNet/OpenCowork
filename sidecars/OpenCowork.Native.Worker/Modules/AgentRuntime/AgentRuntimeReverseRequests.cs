@@ -31,7 +31,11 @@ internal static class AgentRuntimeReverseRequests
 
         try
         {
-            await context.EmitEventAsync(
+            // Emit detached from the job token: cancellation is governed by
+            // `cancellationToken` via the registration above, and callers may pass
+            // a token that outlives a cancelled job (terminal Stop hooks). The
+            // job token would fail the pipe write before the request ever left.
+            await context.EmitEventIgnoringCancellationAsync(
                 "agent/reverse-request",
                 new ReverseRequestEnvelope(id, method, parameters),
                 AgentRuntimeContractsJsonContext.Default.ReverseRequestEnvelope);

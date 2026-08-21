@@ -76,13 +76,14 @@ export function DesktopActionToolCard({
       : null
   const parsedError = error || parseErrorMessage(output) || canceledMessage
   const isRunning = status === 'streaming' || status === 'pending_approval' || status === 'running'
-  const [collapsed, setCollapsed] = useState(!(forceOpen || isRunning))
+  // Collapsed by default even while running; users expand manually.
+  const [collapsed, setCollapsed] = useState(!forceOpen)
   const hasError = status === 'error' || status === 'canceled' || Boolean(parsedError)
   const jsonOutput = parseStructuredOutput(output)
 
   useEffect(() => {
-    if (forceOpen || isRunning) setCollapsed(false)
-  }, [forceOpen, isRunning])
+    if (forceOpen) setCollapsed(false)
+  }, [forceOpen])
 
   const { images, notes } = useMemo(() => {
     if (!Array.isArray(output)) {
@@ -128,13 +129,13 @@ export function DesktopActionToolCard({
   return (
     <motion.div
       layout
-      className="overflow-hidden rounded-xl border bg-background shadow-sm transition-shadow hover:shadow-md"
+      className="overflow-hidden rounded-xl border border-border/60 bg-muted/20 shadow-xs transition-shadow hover:shadow-sm dark:border-white/[0.08] dark:bg-white/[0.02]"
       transition={CONTENT_TRANSITION}
     >
-      <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
+      <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3.5 py-2 dark:border-white/[0.06]">
         <div className="flex items-center gap-2">
           <motion.span
-            className="rounded-lg bg-primary/10 p-2 text-primary"
+            className="flex size-7 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary"
             animate={
               isRunning
                 ? {
@@ -150,14 +151,16 @@ export function DesktopActionToolCard({
             {getToolIcon(name)}
           </motion.span>
           <div>
-            <p className="text-sm font-medium">{t(`toolCall.desktop.${name}.title`)}</p>
+            <p className="font-mono text-xs font-medium text-foreground/85">
+              {t(`toolCall.desktop.${name}.title`)}
+            </p>
             <motion.p
               key={`${name}-${status}-${hasError ? 'error' : 'ok'}`}
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               transition={ITEM_TRANSITION}
               className={cn(
-                'text-[11px] text-muted-foreground',
+                'text-[10px] text-muted-foreground/70',
                 isRunning && 'tool-name-live-pulse tool-name-live-pulse--running'
               )}
             >
@@ -170,7 +173,7 @@ export function DesktopActionToolCard({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+          <span className="rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {summary}
           </span>
           <motion.button
@@ -180,7 +183,7 @@ export function DesktopActionToolCard({
               if (forceOpen) return
               setCollapsed((value) => !value)
             }}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <span>
               {collapsed ? t('showMore', { ns: 'common' }) : t('showLess', { ns: 'common' })}
@@ -203,7 +206,7 @@ export function DesktopActionToolCard({
             transition={CONTENT_TRANSITION}
             className="overflow-hidden"
           >
-            <div className="space-y-4 px-4 py-4">
+            <div className="space-y-3 px-3.5 py-3">
               {isRunning ? (
                 <motion.div
                   initial={{ opacity: 0, y: 6 }}

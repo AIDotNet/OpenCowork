@@ -542,9 +542,13 @@ Implemented editing behavior:
   and are sent to Native Worker as canonical structured image blocks. Unsupported models are
   rejected before clipboard contents are read; switching to a non-Vision model never silently
   sends or discards already attached images.
-- Ctrl-L and coalesced terminal resize events share one redraw contract: reset Ink's mutable frame,
-  clear the visible terminal, remount the width-sensitive Static projection, and reserve the final
-  terminal column to avoid auto-wrap artifacts.
+- Ctrl-L and coalesced terminal resize events share one redraw contract: the hard clear is written
+  through Ink's stdout writer so the erase and the mutable-frame repaint happen atomically (a raw
+  stdout clear leaves the screen blank until the next output change, because Ink skips renders whose
+  output is unchanged), the width-sensitive Static projection is remounted, and the final terminal
+  column is reserved to avoid auto-wrap artifacts. Height-only resizes skip the clear and the
+  Static remount entirely: they cannot invalidate wrapped rows, and every remount re-appends the
+  whole transcript to Ink's internal static buffer, which the clearTerminal fallback would replay.
 - A visible `▏` cursor is rendered explicitly so non-color PTY recordings do not make text after
   an inverse-video cursor appear missing.
 

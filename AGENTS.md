@@ -1,135 +1,142 @@
 ﻿# Repository Guidelines
 
-## Project Structure & Module Organization
+OpenCowork is an Electron desktop app plus a terminal CLI that share one .NET Native Worker. Keep process boundaries explicit: system access stays in Main, UI state stays in Renderer, the agent loop belongs in the Worker, shared types go through `src/shared`.
 
-OpenCowork is a 4-layer Electron desktop app (Main → Preload → Renderer → Agent runtime).
+## Project Structure & Module Organization
 
 ```
 src/
-├── main/              # Electron main process — system access & IPC handlers
-│   ├── index.ts       # App bootstrap, window lifecycle, zoom
-│   ├── channels/      # Messaging plugins (Feishu, DingTalk, Discord, QQ, etc.)
-│   ├── cron/          # Scheduled task agent runtime
-│   ├── db/            # SQLite DAOs (messages, sessions, projects, tasks, plans)
-│   ├── ipc/           # IPC handlers + agent runtime (native-agent-runtime.ts)
-│   ├── mcp/           # Model Context Protocol client
-│   ├── goals/         # Goal/task persistence and lifecycle
-│   ├── sync/          # WebDAV sync for cross-device state
-│   ├── lib/           # Main-process utilities
-│   ├── migration/     # Legacy migration helpers
-│   └── ssh/           # SSH/terminal support
-├── preload/           # Secure bridge — narrow API surface
-├── renderer/src/      # React 19 UI
-│   ├── components/    # UI components (chat, cowork, settings, ssh, tasks)
-│   ├── hooks/         # React hooks
-│   ├── lib/           # Agent loop, tools, API clients, utilities
-│   ├── locales/       # i18n JSON files (en/zh plus 11 other languages)
+├── main/              # Electron main — host gateway, IPC, SQLite, channels, cron, MCP, SSH
+│   ├── index.ts       # App bootstrap, window lifecycle
+│   ├── channels/      # Messaging plugins (Feishu, DingTalk, Discord, QQ, Telegram, WeCom, Weixin, WhatsApp)
+│   ├── cron/          # Scheduled-task assembly (calls Worker agent/run)
+│   ├── db/            # SQLite DAOs; schema via additive ensureColumn only
+│   ├── ipc/           # IPC handlers + native-agent-runtime.ts (handshake/subscribe shim)
+│   ├── mcp/           # MCP clients
+│   ├── goals/         # Goal persistence
+│   ├── sync/          # WebDAV sync
+│   └── ssh/           # SSH / node-pty
+├── preload/           # Narrow contextBridge; no nodeIntegration shortcuts
+├── renderer/src/      # React 19 UI (Zustand, i18n, Tailwind v4)
+│   ├── components/    # chat, cowork, settings, ssh, tasks, …
+│   ├── lib/           # presentation, tool catalog, runtime clients
+│   ├── locales/       # 16 languages, namespaced JSON
 │   └── stores/        # Zustand stores
-├── components/        # Shared React components (cross-cutting)
-├── hooks/             # Shared React hooks (cross-cutting)
-├── lib/               # Shared utilities (cross-cutting)
-└── shared/            # Cross-process TypeScript contracts
+├── components/        # Shared React (cross-cutting)
+├── hooks/
+├── lib/
+└── shared/            # Cross-process contracts (runtime-contracts/, worker protocol)
 
+cli/                   # @aidotnet/opencowork Ink TUI — see cli/AGENTS.md
 sidecars/
-├── OpenCowork.Native.Worker/  # C# native worker (links codegraph submodule)
-└── codegraph/                 # Git submodule → AIDotNet/CodeGraph engine
+├── OpenCowork.Native.Worker/  # C# Native AOT worker (agent loop, tools, jobs)
+└── codegraph/                 # Git submodule → AIDotNet/CodeGraph (+ shared Worker.Runtime)
 
-resources/             # Bundled runtime assets (loaded at runtime, not source)
-├── agents/            # Bundled agent definitions (Markdown + frontmatter)
+resources/             # Bundled runtime assets (not compiled source)
+├── agents/            # Bundled agent defs (Markdown + frontmatter)
 ├── skills/            # Bundled skills (SKILL.md + scripts/)
-├── prompts/           # Bundled prompt templates
-└── commands/          # Bundled command definitions
+├── prompts/           # Mode prompt templates
+├── commands/
+├── extensions/        # Bundled extensions (product-design, creative-production, …)
+└── souls/
 ```
 
-**Entry points:** `src/main/index.ts` (main process), `src/renderer/src/App.tsx` (renderer).
+**Entry points:** `src/main/index.ts` (main), `src/renderer/src/App.tsx` (renderer), `cli/src/index.tsx` (CLI), `sidecars/OpenCowork.Native.Worker/Program.cs` (worker).
 
 **Key architectural patterns:**
 
-- **IPC:** Renderer calls `ipcClient.invoke(channel)`, main handles in `src/main/ipc/*-handlers.ts`.
-- **Agent runtime:** The .NET Native Worker owns the provider loop, tools, approvals, and hosted sessions. `src/main/ipc/native-agent-runtime.ts` is the Main handshake/subscribe/request shim. Interactive runs are still started from the renderer via `agent:run`; cron starts them in Main. Target boundaries: `docs/architecture/agent-runtime-boundaries.md`.
-- **Tool system:** Tools in `src/renderer/src/lib/tools/`, registered in phases (core → skills → sub-agents → teams). Some tools (WebSearch, Browser, CodeGraph) are registered/unregistered dynamically based on user settings.
-- **Session modes:** `chat`, `clarify`, `cowork`, `code`, `acp` — each with distinct prompts/tools/UI. Mode stored per-session in `SessionPromptSnapshot` (`chat-store.ts`).
-- **SQLite schema:** Evolves via additive `ensureColumn` — columns added if absent, never dropped. No migration files.
-- **Data directory:** `~/.open-cowork/` — contains `data.db`, user `prompts/`, `agents/`. Never commit its contents. User skills live in `~/.agents/skills/` (Native Worker skill catalog).
+- **IPC:** Renderer calls `ipcClient.invoke(channel)`; Main handles in `src/main/ipc/*-handlers.ts`. New runtime code must use the generated runtime API (`src/shared/runtime-contracts/`), not ad-hoc channel strings.
+- **Agent runtime:** The Native Worker owns the provider loop, tool execution, approvals, cancellation, hosted sessions, and durable jobs/events. `src/main/ipc/native-agent-runtime.ts` is only the handshake/subscribe/request/lifecycle shim. Interactive runs start from the renderer via `agent:run`; cron assembles them in Main. Both call Worker `agent/run`. Do not add a JavaScript agent loop. Boundaries: `docs/architecture/agent-runtime-boundaries.md`. ADR: `docs/adr/0001-agent-runtime-authority.md`.
+- **Desktop vs CLI:** Two clients of one worker and `~/.open-cowork/` data. The CLI must not grow a parallel provider client, tool executor, or credential store.
+- **Tool system:** Worker executes tools. Renderer `src/renderer/src/lib/tools/` is a catalog / legacy / UI-only layer (`ToolHandler` in `tool-types.ts`). Register via `registerAllTools()` in phases (core → skills → sub-agents → teams). WebSearch, CodeGraph, and channel plugins register dynamically from settings.
+- **Session modes:** `chat`, `clarify`, `cowork`, `code`, `acp` — distinct prompts/tools/UI. Mode lives in `SessionPromptSnapshot` (`chat-store.ts`).
+- **SQLite:** Additive `ensureColumn` in `src/main/db/database.ts` — never drop columns; no migration files. Main is the single writer of desktop session/message tables.
+- **Data directory:** `~/.open-cowork/` — `data.db`, user `prompts/`, `agents/`. Never commit it. User skills: `~/.agents/skills/` (Worker skill catalog).
 
 ## Submodules
 
-Clone with `--recurse-submodules` (or run `git submodule update --init --recursive` once). `sidecars/codegraph` → [AIDotNet/CodeGraph](https://github.com/AIDotNet/CodeGraph) is required for the native worker to build. `predev.mjs` and `publish-native-worker.mjs` fail early with an explicit message when the submodule is missing.
+Clone with `--recurse-submodules` (or `git submodule update --init --recursive`). `sidecars/codegraph` is required: Native Worker source-links `OpenCowork.Worker.Runtime` and CodeGraph.Core from it. `predev.mjs` and `publish-native-worker.mjs` fail early if it is missing. Shared-runtime changes land in CodeGraph first, then bump the pinned SHA here.
+
+Requires Node.js ≥ 18 and the .NET 11 SDK (see `global.json`) with Native AOT prerequisites.
 
 ## Build, Test, and Development Commands
 
 ```bash
-npm run dev          # Start Electron + Vite with hot reload (runs predev submodule check first)
-npm run build        # Typecheck (main + renderer) then build
-npm run build:win    # Full Windows installer (electron-builder)
-npm run build:win:green # Windows no-install zip
-npm run build:mac    # macOS .dmg/zip
-npm run build:linux  # Linux .AppImage/.deb
-npm run lint         # ESLint with cache
-npm run typecheck    # TypeScript check (tsc --noEmit for both tsconfig.node.json & tsconfig.web.json)
-npm run format       # Prettier (single quotes, no semicolons, 100-col width)
-npm run postinstall  # Rebuild native modules (better-sqlite3, robotjs, ssh2, node-pty) for Electron
+npm run dev                 # Electron + Vite (predev checks the submodule)
+npm run build               # typecheck (node + web + CLI) then electron-vite build
+npm run build:win           # Windows installer
+npm run build:win:green     # Windows no-install zip
+npm run build:mac           # macOS .dmg/zip
+npm run build:linux         # Linux .AppImage/.deb
+npm run lint                # ESLint with cache
+npm run typecheck           # tsc for tsconfig.node.json, tsconfig.web.json, and cli/
+npm run format              # Prettier
+npm run postinstall         # Rebuild native addons for Electron
+npm run contracts:check     # Generated worker/runtime contracts are in sync
+npm run verify:architecture # Import-boundary ratchet vs baseline
+npm run cli:test            # Build CLI then Node test suite (from repo root)
 ```
 
-**CI:** GitHub Actions (`build.yml`) builds on release publish across Windows (x64, arm64), macOS (arm64, amd64), and Linux (x64, arm64). Artifacts uploaded to the GitHub Release. Manual dispatch also supported for debugging.
+**CI:** `.github/workflows/build.yml` on release publish (and manual dispatch). Compiles then packages Windows (x64, arm64), macOS (arm64, amd64), Linux (x64, arm64). Checkout uses `submodules: recursive`. The compile job also runs `contracts:check`, `verify:runtime-protocol`, `verify:architecture`, `verify:runtime-projection`, `verify:runtime-baseline`, and `typecheck`.
 
 ## Coding Style & Naming Conventions
 
-| Rule             | Convention                                                                                                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas                                                                                                                |
-| Indentation      | 2 spaces, LF line endings, UTF-8, final newline (EditorConfig)                                                                                                                           |
-| React components | PascalCase (`Layout.tsx`)                                                                                                                                                                |
-| Stores/helpers   | kebab-case (`chat-store.ts`)                                                                                                                                                             |
-| Path aliases     | `@renderer/*` → `src/renderer/src/*`                                                                                                                                                     |
-| i18n             | `t('key', { defaultValue: 'English text' })` — never hardcode Chinese in UI. Namespaced JSON under `src/renderer/src/locales/`. Language is static at init; changes require app restart. |
-| Comments         | Explain intent, invariants, boundaries, or non-obvious behavior. Avoid restating the code.                                                                                               |
+| Rule             | Convention |
+| ---------------- | ---------- |
+| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas |
+| Indentation      | 2 spaces, LF, UTF-8, final newline (EditorConfig) |
+| React components | PascalCase (`Layout.tsx`) |
+| Stores/helpers   | kebab-case (`chat-store.ts`) |
+| Path aliases     | `@renderer/*` → `src/renderer/src/*` |
+| i18n             | `t('key', { defaultValue: 'English text' })` — never hardcode Chinese in UI. Namespaced JSON under `src/renderer/src/locales/` (common, layout, chat, settings, cowork, agent, ssh, pet, taskboard). Language is static at init; changes need restart. |
+| Comments         | Intent, invariants, boundaries — not restating the code. |
+| CLI              | ESM relative imports ending in `.js`; do not hand-edit `cli/src/vendor/*` (generated by `cli/scripts/sync-shared.mjs`). |
 
-**Lint/format on save:** ESLint + Prettier enforce these rules automatically. Run `npm run lint` and `npm run format` before pushing.
+Run `npm run lint` and `npm run format` before pushing.
 
 ## Testing Guidelines
 
-**There is no test suite.** Validation is done through:
+There is no root Electron/renderer test suite. Validate with:
 
-- `npm run typecheck` — TypeScript compilation check across both main and renderer
-- `npm run lint` — ESLint static analysis
-- Manual smoke testing via `npm run dev`
+- `npm run typecheck` — required for behavioral changes
+- `npm run lint`
+- `npm run contracts:check` and `npm run verify:architecture` when touching runtime protocol or layer imports
+- Manual smoke via `npm run dev`
+- CLI: `npm run cli:test` (tests load `cli/dist`; rebuild first). Update PTY goldens only with `UPDATE_GOLDEN=1` from `cli/`
+- Runtime changes: test with at least two LLM providers
 
-When adding behavioral changes, verify with `npm run typecheck` at minimum.
+Do not regenerate `scripts/architecture-boundary-baseline.json` to hide a new import violation.
 
 ## Commit & Pull Request Guidelines
 
-**Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/):
+Conventional Commits:
 
 ```
-feat(scope): description        # New feature
-fix(scope): description         # Bug fix
-chore(scope): description       # Maintenance, deps, build
-refactor(scope): description    # Code restructuring without behavior change
+feat(scope): description
+fix(scope): description
+chore(scope): description
+refactor(scope): description
 ```
 
 Keep commits focused; don't mix refactors with behavior changes.
 
-**Pull requests:**
+PRs: link the issue, say what/why, screenshots for UI, `npm run typecheck` and `npm run lint` green.
 
-- Link the relevant issue (if any).
-- Include a brief description of what changed and why.
-- Attach screenshots for UI changes.
-- Ensure `npm run typecheck` and `npm run lint` pass.
+When bumping `package.json` version, keep download/release notes aligned with GitHub Release assets.
 
 ## Security & Configuration Tips
 
-- **Environment variables:** Store API keys in `~/.open-cowork/.env` (auto-loaded). Never commit `.env` files.
-- **Native modules:** `better-sqlite3`, `robotjs`, `ssh2`, `node-pty` require Electron-compatible builds. Run `npm run postinstall` after dependency changes. `cpu-features` is overridden to a noop in `package.json` overrides.
-- **Data isolation:** Each user's data lives in `~/.open-cowork/`. The app never accesses system-wide credentials or other user directories.
-- **IPC security:** All renderer-to-main communication goes through typed IPC channels. Never expose raw Node.js APIs to the renderer.
+- API keys live in `~/.open-cowork/.env` (auto-loaded). Never commit `.env`.
+- Native addons (`better-sqlite3`, `@jitsi/robotjs`, `ssh2`, `node-pty`) need Electron-compatible builds (`npm run postinstall`). `cpu-features` is overridden to a noop. They are `asarUnpack`'d.
+- User data stays in `~/.open-cowork/`. Do not reach system-wide credentials or other users' directories.
+- All renderer↔main traffic is typed IPC. Never expose raw Node APIs to the renderer.
 
 ## Agent-Specific Instructions
 
-When modifying agent behavior:
-
-- **Prompts:** Bundled prompt templates live in `resources/prompts/`; user overrides in `~/.open-cowork/prompts/`. The renderer loads them via IPC (`prompt-loader.ts` → `prompts:load` channel). Each mode (`chat`, `cowork`, `code`, etc.) has its own prompt template.
-- **Tools:** New tools must be registered in `src/renderer/src/lib/tools/index.ts` and follow the existing `ToolHandler` interface (`tool-types.ts`). Tools receive a `ToolContext` with session info, working folder, abort signal, and IPC client.
-- **Runtime:** Do not add a JavaScript agent loop. Interactive and cron runs both execute in the Native Worker. Test with at least two different LLM providers when changing runtime logic. New runtime protocol belongs in `src/shared/runtime-contracts/model.ts`.
-- **MCP integration:** Model Context Protocol tools are loaded dynamically. Changes to MCP handling require testing with both connected and disconnected MCP servers.
-- **Skills & agents:** Bundled skills in `resources/skills/` (SKILL.md + scripts/), bundled agents in `resources/agents/` (Markdown + frontmatter). Users add custom skills in `~/.agents/skills/` (the Native Worker skill catalog directory) and custom agents in `~/.open-cowork/agents/`.
+- **Prompts:** Bundled in `resources/prompts/`; user overrides in `~/.open-cowork/prompts/`. Loaded via IPC (`prompt-loader.ts` → `prompts:load`). Each mode has its own template.
+- **Tools:** Prefer Worker modules under `sidecars/OpenCowork.Native.Worker/Modules/`. Remaining renderer handlers must implement `ToolHandler` and register in `src/renderer/src/lib/tools/index.ts`. Slow Worker routes use `RegisterJob(...)`.
+- **Runtime protocol:** New commands/queries/events belong in `src/shared/runtime-contracts/model.ts`, then `npm run contracts:gen`. Do not add a JavaScript agent loop.
+- **MCP:** Loaded dynamically. Test connected and disconnected servers.
+- **Skills & agents:** Bundled skills `resources/skills/`; bundled agents `resources/agents/`. Custom skills `~/.agents/skills/`; custom agents `~/.open-cowork/agents/`.
+- **Extensions:** Bundled under `resources/extensions/`. Use the `create-extension` skill for new ones.
+- **Native Worker modules:** Implement `IWorkerModule`, register in `Hosting/WorkerModuleCatalog.cs`, add serialized types to `Serialization/WorkerJsonContext.cs` (Native AOT).

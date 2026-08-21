@@ -52,8 +52,7 @@ export function ChatFileDiff({
       status={status}
       language={toAgentCodeLanguage(filePath)}
       copyText={resolvedCopyText}
-      collapseOnComplete={!forceOpen}
-      defaultOpen={forceOpen || status === 'streaming'}
+      defaultOpen={forceOpen}
       open={forceOpen ? true : undefined}
       maxHeight={280}
     />

@@ -339,23 +339,14 @@ async function runInteractiveSession(options: CliOptions, prompt?: string): Prom
   screen.enter()
 
   try {
-    const instanceRef: { current?: ReturnType<typeof render> } = {}
-    const requestRedraw = (): void => {
-      // Ink owns the active dynamic frame, so clear it before the next render. In fullscreen
-      // this is sufficient: the alternate screen has no persistent <Static> scrollback and a
-      // CSI 2J hard clear produces a visible blank frame in many terminal emulators.
-      instanceRef.current?.clear()
-      // Classic mode intentionally keeps completed rows in Ink's <Static> scrollback. It needs
-      // a hard reset before those rows can be laid out again after Ctrl+L or a terminal resize.
-      if (options.tui === 'classic') screen.redraw()
-    }
+    // Redraws (Ctrl+L, terminal resize) are handled inside CliApp through Ink's stdout
+    // writer so the clear and the frame repaint happen atomically — see app.tsx `redraw`.
     const instance = render(
       <CliApp
         cwd={process.cwd()}
         initialPermissionMode={options.permissionMode}
         initialPrompt={prompt ?? ''}
         initialResume={initialResume}
-        onRequestRedraw={requestRedraw}
         runtime={fixtureRuntime ?? workerRuntime}
         tuiMode={options.tui}
         version={pkg.version}
@@ -365,7 +356,6 @@ async function runInteractiveSession(options: CliOptions, prompt?: string): Prom
         patchConsole: false
       }
     )
-    instanceRef.current = instance
 
     await instance.waitUntilExit()
   } finally {

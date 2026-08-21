@@ -11,20 +11,28 @@
 //
 // This intentionally does NOT resurrect the createSidecarEventStream `for await`
 // loop in use-chat-actions — that loop is coupled to run-scoped locals that no
-// longer exist after a reload. The consumer here handles only the events needed
-// to reconstruct visible state (text, thinking, tool cards) and to finalize on
-// terminal; the heavier side effects (task/goal reloads, change tracking) are
-// left to the normal path for any run started after the reload.
+// longer exist after a reload. The consumer here handles the events needed to
+// reconstruct visible state (text, thinking, tool cards), persists tool_result
+// pairings at iteration boundaries and on terminal (so the transcript never keeps
+// dangling tool_use blocks), and finalizes on terminal; the heavier side effects
+// (task/goal reloads, change tracking) are left to the normal path for any run
+// started after the reload.
 
-import type { AgentStreamEvent, ToolCallStateWire } from '../../../../shared/agent-stream-protocol'
+import { nanoid } from 'nanoid'
+import type {
+  AgentStreamEvent,
+  ToolCallStateWire,
+  ToolResultWire
+} from '../../../../shared/agent-stream-protocol'
 import type { ToolCallState } from '@renderer/lib/agent/types'
-import type { ToolUseBlock } from '@renderer/lib/api/types'
+import type { ToolResultContent, ToolUseBlock } from '@renderer/lib/api/types'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { agentBridge } from '@renderer/lib/ipc/agent-bridge'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { evaluateToolPermission } from '../../../../shared/permission-policy'
+import { healDanglingTailToolUses } from '@renderer/hooks/use-chat-actions'
 import {
   appendRuntimeContentBlock,
   appendRuntimeThinkingDelta,
@@ -32,6 +40,8 @@ import {
   appendRuntimeToolUse,
   addRuntimeMessage,
   completeRuntimeThinking,
+  flushRuntimeForegroundMutations,
+  isSessionForeground,
   mergeRuntimeMessageUsage,
   setRuntimeThinkingEncryptedContent,
   updateRuntimeToolUseInput
@@ -53,6 +63,68 @@ interface ReattachRunContext {
 
 function toToolCallState(wire: ToolCallStateWire, sessionId: string): ToolCallState {
   return { ...(wire as unknown as ToolCallState), sessionId }
+}
+
+// Mirror of the live-stream iteration_end persistence in use-chat-actions: a finished
+// tool batch must land in the transcript as a tool_result user message. Without it the
+// tail assistant message keeps dangling tool_use blocks that render as "canceled" once
+// the run terminates, and that the provider input writer strips on the next turn —
+// making the model silently re-execute tools that already ran. The journal replay can
+// overlap results persisted before the reload, so only append pairings the resident
+// transcript does not have yet.
+function persistReattachedToolResults(
+  sessionId: string,
+  toolResults: ToolResultWire[] | undefined
+): void {
+  if (!toolResults || toolResults.length === 0) return
+
+  const candidateIds = new Set(toolResults.map((result) => result.toolUseId))
+  const alreadyPaired = new Set<string>()
+  for (const message of useChatStore.getState().getSessionMessages(sessionId)) {
+    if (!Array.isArray(message.content)) continue
+    for (const block of message.content) {
+      if (block.type === 'tool_result' && candidateIds.has(block.toolUseId)) {
+        alreadyPaired.add(block.toolUseId)
+      }
+    }
+  }
+
+  const missing = toolResults.filter(
+    (result) => result.toolUseId && !alreadyPaired.has(result.toolUseId)
+  )
+  if (missing.length === 0) return
+
+  addRuntimeMessage(sessionId, {
+    id: nanoid(),
+    role: 'user',
+    content: missing.map((result) => ({
+      type: 'tool_result' as const,
+      toolUseId: result.toolUseId,
+      content: result.content as ToolResultContent,
+      isError: result.isError
+    })),
+    createdAt: Date.now()
+  })
+  if (isSessionForeground(sessionId)) {
+    // Queued tool_use appends must reach the store before the write, so the
+    // persisted assistant row always has the calls these results pair with.
+    flushRuntimeForegroundMutations()
+    useChatStore.getState().flushToolBoundary(sessionId)
+  }
+}
+
+// Terminal repair, mirroring the run-end healing in the normal stream path: any tail
+// tool_use still unpaired when the run ends (interrupted mid-flight, or its
+// iteration_end never arrived) gets a persisted tool_result. The reattach consumer
+// filled the agent-store tool-call cache via tool_call_result, so real outputs are
+// bridged instead of being reported as interrupted. Foreground only: for background
+// sessions the chat store is not authoritative while messages sit in the buffer.
+function healReattachedTailToolUses(sessionId: string): void {
+  if (!isSessionForeground(sessionId)) return
+  flushRuntimeForegroundMutations()
+  healDanglingTailToolUses(sessionId)
+  // Push any healed tool_result row to SQLite now — reattach has no later final flush.
+  useChatStore.getState().flushToolBoundary(sessionId)
 }
 
 function finalizeReattachedRun(ctx: ReattachRunContext): void {
@@ -153,6 +225,10 @@ function applyReattachEvent(ctx: ReattachRunContext, event: AgentStreamEvent): b
         .updateToolCall(event.toolCall.id, toToolCallState(event.toolCall, sessionId), sessionId)
       return false
 
+    case 'iteration_end':
+      persistReattachedToolResults(sessionId, event.toolResults)
+      return false
+
     case 'message_end':
       if (event.usage) {
         mergeRuntimeMessageUsage(sessionId, assistantMessageId, event.usage)
@@ -173,11 +249,13 @@ function applyReattachEvent(ctx: ReattachRunContext, event: AgentStreamEvent): b
       })
       useAgentStore.getState().setSessionStatus(sessionId, null)
       finalizeReattachedRun(ctx)
+      healReattachedTailToolUses(sessionId)
       return true
 
     case 'loop_end':
       useAgentStore.getState().setSessionStatus(sessionId, 'completed')
       finalizeReattachedRun(ctx)
+      healReattachedTailToolUses(sessionId)
       return true
 
     default:

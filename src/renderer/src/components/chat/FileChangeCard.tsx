@@ -10,8 +10,7 @@ import {
   XCircle,
   Check,
   Copy,
-  ChevronDown,
-  ChevronRight
+  ChevronDown
 } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
@@ -1255,12 +1254,10 @@ function DeleteFileChangeCard({
   const resolvedEdit = React.useMemo(() => resolveEditPayload(input), [input])
   const resolvedWrite = React.useMemo(() => resolveWritePayload(input), [input])
   const isActive = status === 'streaming' || status === 'running' || status === 'pending_approval'
-  const isLiveFileMutation =
-    (name === 'Write' || name === 'Edit') && (status === 'streaming' || status === 'running')
   const isRealtimeWrite =
     name === 'Write' && !trackedChange && (status === 'streaming' || status === 'running')
-  const [collapsed, setCollapsed] = React.useState(!(forceOpen || isActive))
-  const wasLiveFileMutationRef = React.useRef(isLiveFileMutation)
+  // Collapsed by default even during live Write/Edit; users expand manually.
+  const [collapsed, setCollapsed] = React.useState(!forceOpen)
   const undoFileChange = useAgentStore((state) => state.undoFileChange)
   const [isUndoingFile, setIsUndoingFile] = React.useState(false)
 
@@ -1417,19 +1414,8 @@ function DeleteFileChangeCard({
   React.useEffect(() => {
     if (forceOpen) {
       setCollapsed(false)
-      wasLiveFileMutationRef.current = isLiveFileMutation
-      return
     }
-    if (isLiveFileMutation) {
-      setCollapsed(false)
-      wasLiveFileMutationRef.current = true
-      return
-    }
-    if (wasLiveFileMutationRef.current) {
-      setCollapsed(true)
-    }
-    wasLiveFileMutationRef.current = false
-  }, [forceOpen, isLiveFileMutation])
+  }, [forceOpen])
 
   return (
     <div
@@ -1445,7 +1431,7 @@ function DeleteFileChangeCard({
     >
       <button
         onClick={() => {
-          if (forceOpen || isLiveFileMutation) return
+          if (forceOpen) return
           setCollapsed((v) => !v)
         }}
         className={cn(
@@ -1463,20 +1449,20 @@ function DeleteFileChangeCard({
         {useCompactChangeLayout ? (
           <div
             className={cn(
-              'flex w-full items-center gap-1.5 text-[12px] text-muted-foreground transition-colors group-hover:text-foreground'
+              'flex w-full items-center gap-2 text-[12px] text-muted-foreground transition-all duration-150 group-hover:text-foreground'
             )}
             title={filePath || undefined}
           >
             <span
               className={cn(
-                'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
+                'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
                 hasCompactError
-                  ? 'border-destructive/25 text-destructive'
+                  ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
                   : compactActionOp === 'create'
-                    ? 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+                    ? 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
                     : compactActionOp === 'delete'
-                      ? 'border-destructive/25 text-destructive'
-                      : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+                      ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
+                      : 'border-sky-500/30 bg-sky-500/[0.08] text-sky-600 dark:text-sky-400'
               )}
             >
               {hasCompactError ? (
@@ -1485,26 +1471,26 @@ function DeleteFileChangeCard({
                 <CheckCircle2 className="size-3" />
               )}
             </span>
-            <span className="shrink-0 text-muted-foreground/55">files</span>
-            <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+            <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
+              files
+            </span>
             <span
               className={cn(
-                'shrink-0 font-mono font-medium',
+                'shrink-0 font-mono text-[12px] font-medium tracking-tight',
                 status === 'streaming' || status === 'running'
                   ? `tool-name-live-pulse ${status === 'streaming' ? 'tool-name-live-pulse--streaming' : 'tool-name-live-pulse--running'}`
-                  : 'text-foreground/82'
+                  : 'text-foreground/85'
               )}
             >
               {name}
             </span>
             <span
               className={cn(
-                'min-w-0 flex-1 truncate text-muted-foreground/60',
+                'min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65',
                 (status === 'streaming' || status === 'running') &&
                   'tool-name-live-pulse tool-name-live-pulse--running'
               )}
             >
-              (
               {filePath ? (
                 <>
                   {compactActionLabel}: {shortPath(filePath)}
@@ -1512,15 +1498,14 @@ function DeleteFileChangeCard({
               ) : (
                 t('toolCall.receivingArgs')
               )}
-              )
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               {compactEditDiff ? (
                 <>
-                  <span className="shrink-0 text-[10px] font-medium text-emerald-500 dark:text-emerald-400/90">
+                  <span className="shrink-0 rounded border border-emerald-500/25 bg-emerald-500/[0.08] px-1 py-0.2 font-mono text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                     +{compactEditDiff.added}
                   </span>
-                  <span className="shrink-0 text-[10px] font-medium text-red-500/90 dark:text-red-400/90">
+                  <span className="shrink-0 rounded border border-rose-500/25 bg-rose-500/[0.08] px-1 py-0.2 font-mono text-[10px] font-medium text-rose-600 dark:text-rose-400">
                     -{compactEditDiff.deleted}
                   </span>
                 </>
@@ -1535,7 +1520,7 @@ function DeleteFileChangeCard({
               )}
               {hasCompactError ? (
                 <span
-                  className="size-1.5 shrink-0 rounded-full bg-red-500 dark:bg-red-400"
+                  className="size-1.5 shrink-0 rounded-full bg-rose-500 dark:bg-rose-400"
                   title={
                     error ||
                     parsedOutputError ||
@@ -1555,15 +1540,16 @@ function DeleteFileChangeCard({
                 <CompactStatusDot status={status} />
               )}
               {elapsed && (
-                <span className="shrink-0 text-[9px] tabular-nums text-muted-foreground/70">
+                <span className="shrink-0 rounded border border-border/40 bg-muted/30 px-1 py-0.2 font-mono text-[10px] tabular-nums text-muted-foreground/60 dark:bg-white/[0.03]">
                   {elapsed}
                 </span>
               )}
-              {collapsed ? (
-                <ChevronRight className="size-3 shrink-0 text-muted-foreground/70" />
-              ) : (
-                <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
-              )}
+              <ChevronDown
+                className={cn(
+                  'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+                  collapsed && '-rotate-90'
+                )}
+              />
             </span>
           </div>
         ) : (
@@ -1623,7 +1609,7 @@ function DeleteFileChangeCard({
           className={cn(
             'overflow-hidden',
             useCompactChangeLayout
-              ? 'ml-3 border-l border-border/45 pl-5 pt-1 dark:border-white/[0.08]'
+              ? 'ml-3.5 border-l border-border/50 pl-4.5 pt-1 dark:border-white/[0.08]'
               : 'activity-card-divider border-t bg-background/40'
           )}
         >

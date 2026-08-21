@@ -81,26 +81,13 @@ export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element 
     fitAddonRef.current = fitAddon
     searchAddonRef.current = searchAddon
 
-    const notifyRemoteResize = (): void => {
-      ipcClient.send(IPC.SSH_RESIZE, {
-        sessionId,
-        cols: term.cols,
-        rows: term.rows
-      })
-    }
-
-    const fitTerminal = (): void => {
-      try {
-        fitAddon.fit()
-        notifyRemoteResize()
-      } catch {
-        // ignore
-      }
-    }
-
     const scheduleFit = (): void => {
       requestAnimationFrame(() => {
-        fitTerminal()
+        try {
+          fitAddon.fit()
+        } catch {
+          // ignore
+        }
       })
     }
 
@@ -122,9 +109,16 @@ export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element 
       ipcClient.send(IPC.SSH_DATA, { sessionId, data })
     })
 
-    // Handle resize
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      ipcClient.send(IPC.SSH_RESIZE, { sessionId, cols, rows })
+    // Trailing debounce: dragging fires onResize every frame and each remote resize raises
+    // SIGWINCH in the remote process; full-screen programs re-render on every one, so a
+    // resize storm garbles their output. Only the settled size is forwarded.
+    let resizeNotifyTimer: number | undefined
+    const resizeDisposable = term.onResize(() => {
+      if (resizeNotifyTimer !== undefined) window.clearTimeout(resizeNotifyTimer)
+      resizeNotifyTimer = window.setTimeout(() => {
+        resizeNotifyTimer = undefined
+        ipcClient.send(IPC.SSH_RESIZE, { sessionId, cols: term.cols, rows: term.rows })
+      }, 80)
     })
 
     const pendingChunks: { seq: number; data: string }[] = []
@@ -240,6 +234,7 @@ export function SshTerminal({ sessionId }: SshTerminalProps): React.JSX.Element 
       intersectionObserver.disconnect()
       window.clearTimeout(initialFitTimer)
       window.clearTimeout(delayedFitTimer)
+      if (resizeNotifyTimer !== undefined) window.clearTimeout(resizeNotifyTimer)
       fontsReadyDisposed = true
       term.dispose()
       termRef.current = null

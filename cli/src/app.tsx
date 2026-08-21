@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Static, Text, useApp, useInput } from 'ink'
+import { Box, Static, Text, useApp, useInput, useStdout } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
 import { ConfigPanel } from './components/config-panel.js'
@@ -41,6 +41,7 @@ import {
   parseMouseEvents,
   wheelDelta
 } from './terminal/mouse.js'
+import { CLEAR_SCREEN_SEQUENCE } from './terminal/terminal-screen.js'
 import { theme } from './theme.js'
 import { checkForUpdate } from './update.js'
 import type {
@@ -83,7 +84,6 @@ interface CliAppProps {
   initialPrompt: string
   /** Session restored by --continue / --resume before the UI mounted. */
   initialResume?: ResumeResult
-  onRequestRedraw(): void
   runtime: AgentRuntime
   tuiMode: TuiMode
   version: string
@@ -192,12 +192,12 @@ export function CliApp({
   initialPermissionMode,
   initialPrompt,
   initialResume,
-  onRequestRedraw,
   runtime,
   tuiMode,
   version
 }: CliAppProps): React.JSX.Element {
   const { exit } = useApp()
+  const { write: writeStdout } = useStdout()
   const { columns, revision: terminalRevision, rows } = useTerminalSize()
   const initialCatalogRef = useRef<ModelCatalog | null>(null)
   initialCatalogRef.current ??= runtime.getModelCatalog()
@@ -303,9 +303,11 @@ export function CliApp({
   const contentWidth = Math.max(35, columns - 1)
   const fullscreen = tuiMode === 'fullscreen'
   // Ink falls back to ansiEscapes.clearTerminal when its dynamic output occupies at least
-  // stdout.rows. Reserve one terminal row so a streaming fullscreen frame always stays below
-  // that threshold; otherwise every spinner/token update can become a whole-screen flash.
-  const frameRows = fullscreen ? Math.max(1, rows - 1) : rows
+  // stdout.rows. Reserve one terminal row so a streaming frame always stays below that
+  // threshold; otherwise every spinner/token update can become a whole-screen flash. In
+  // classic mode that fallback also replays Ink's accumulated static buffer — which grows
+  // with every <Static> remount — so hitting it garbles the visible transcript.
+  const frameRows = Math.max(1, rows - 1)
   const selectedModelOption = modelSelection
     ? modelCatalog.groups
         .flatMap((group) => group.models)
@@ -465,17 +467,32 @@ export function CliApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one startup probe per process
   }, [])
 
+  /**
+   * Clear the screen and repaint. The clear is routed through Ink's stdout writer, which
+   * erases its tracked dynamic frame, writes the payload, and immediately repaints the last
+   * frame in one step. Writing the clear to stdout directly instead leaves the terminal
+   * blank until the next output change, because Ink skips renders whose output is unchanged.
+   * Classic hard-clears (viewport + scrollback) before <Static> re-lays the transcript out;
+   * fullscreen must not hard-clear (visible blank alt-screen frame), so it writes nothing
+   * and relies on the erase + repaint alone.
+   */
+  const redraw = useCallback((): void => {
+    writeStdout(fullscreen ? '' : CLEAR_SCREEN_SEQUENCE)
+    setTranscriptEpoch((current) => current + 1)
+  }, [fullscreen, writeStdout])
+
+  const terminalColumnsRef = useRef(columns)
   useEffect(() => {
     if (terminalRevisionRef.current === terminalRevision) return
     terminalRevisionRef.current = terminalRevision
-    onRequestRedraw()
-    setTranscriptEpoch((current) => current + 1)
-  }, [onRequestRedraw, terminalRevision])
-
-  const redraw = (): void => {
-    onRequestRedraw()
-    setTranscriptEpoch((current) => current + 1)
-  }
+    // Only a width change invalidates wrapped rows (transcript scrollback and the dynamic
+    // frame). Height-only resizes are absorbed by the windowing state above; skipping the
+    // redraw avoids remounting <Static>, which re-appends the whole transcript to Ink's
+    // internal static buffer and hard-clears the screen for nothing.
+    if (terminalColumnsRef.current === columns) return
+    terminalColumnsRef.current = columns
+    redraw()
+  }, [columns, redraw, terminalRevision])
 
   const toggleDetails = (): void => {
     setShowDetails((current) => !current)

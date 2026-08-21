@@ -2632,8 +2632,11 @@ function findUnresolvedTailToolUses(
  * when it exists — the tool actually finished, only the result message was lost;
  * otherwise persist an explicit "interrupted" error result so the model knows the call
  * did not complete.
+ *
+ * Exported for the reattach consumer (runtime-reattach.ts), which terminates runs
+ * outside this module's stream loop and needs the same repair.
  */
-function healDanglingTailToolUses(
+export function healDanglingTailToolUses(
   sessionId: string,
   journaledResults?: Map<string, { content: ToolResultContent; isError: boolean }>
 ): boolean {
@@ -3377,11 +3380,27 @@ function createStreamDeltaBuffer(
   return {
     pushThinking: (chunk: string) => {
       if (!chunk) return
+      // Preserve stream order across channel switches. Text still buffered from
+      // before this thinking chunk must land first — flushNow/timer write thinking
+      // before text, which would otherwise splice the new thinking block into the
+      // middle of the earlier sentence (models with interleaved reasoning emit
+      // text → thinking → text inside one turn).
+      if (textBuffer) {
+        appendRuntimeTextDelta(sessionId, assistantMsgId, textBuffer)
+        textBuffer = ''
+      }
       thinkingBuffer += chunk
       scheduleFlush()
     },
     pushText: (chunk: string) => {
       if (!chunk) return
+      // Same order guarantee for the opposite switch: thinking buffered before
+      // this text chunk lands first. Keeping the two buffers mutually exclusive
+      // makes the fixed flush order (thinking, then text) safe.
+      if (thinkingBuffer) {
+        appendRuntimeThinkingDelta(sessionId, assistantMsgId, thinkingBuffer)
+        thinkingBuffer = ''
+      }
       textBuffer += chunk
       scheduleFlush()
     },

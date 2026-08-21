@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+﻿import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Check,
@@ -25,6 +25,7 @@ import {
   modelSupportsGptLongContext,
   modelSupportsResponsesWebsocket,
   modelSupportsResponsesImageGeneration,
+  modelSupportsComputerUse,
   isGptLongContextEnabled,
   resolveEffectiveModelContextLength,
   resolveModelThinkingConfig
@@ -43,7 +44,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
 
-import { ProviderIcon, ModelIcon } from '@renderer/components/settings/provider-icons'
+import { ProviderIcon } from '@renderer/components/settings/provider-icons'
 import { cn } from '@renderer/lib/utils'
 import type {
   AIModelConfig,
@@ -416,32 +417,159 @@ function ModelCapabilityTags({
 }: {
   model: AIModelConfig
   providerType?: AIProvider['type']
-  t: (key: string) => string
+  t: (key: string, opts?: Record<string, unknown>) => string
   showContext?: boolean
 }): React.JSX.Element {
   const ctx = formatContextLength(resolveEffectiveModelContextLength(model))
+  const hasVision = modelSupportsVision(model, providerType)
+  const hasTools = Boolean(model.supportsFunctionCall)
+  const hasThinking = Boolean(model.supportsThinking)
+  const hasSearch = modelSupportsBuiltinSearch(model, providerType)
+  const hasComputerUse = modelSupportsComputerUse(model, providerType)
+  const hasImageGen =
+    modelSupportsResponsesImageGeneration(model, providerType) ||
+    model.supportsImageGeneration ||
+    model.category === 'image' ||
+    (model.type ?? providerType) === 'openai-images'
+
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      {modelSupportsVision(model, providerType) && (
+      {hasVision && (
         <span className="inline-flex items-center gap-0.5 rounded-sm bg-emerald-500/10 px-1 py-px text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
           <Eye className="size-2.5" />
           {t('topbar.vision')}
         </span>
       )}
-      {model.supportsFunctionCall && (
+      {hasTools && (
         <span className="inline-flex items-center gap-0.5 rounded-sm bg-blue-500/10 px-1 py-px text-[9px] font-medium text-blue-600 dark:text-blue-400">
           <Wrench className="size-2.5" />
           {t('topbar.tools')}
         </span>
       )}
-      {model.supportsThinking && (
+      {hasThinking && (
         <span className="inline-flex items-center gap-0.5 rounded-sm bg-violet-500/10 px-1 py-px text-[9px] font-medium text-violet-600 dark:text-violet-400">
           <Brain className="size-2.5" />
           {t('topbar.thinking')}
         </span>
       )}
+      {hasSearch && (
+        <span className="inline-flex items-center gap-0.5 rounded-sm bg-amber-500/10 px-1 py-px text-[9px] font-medium text-amber-600 dark:text-amber-400">
+          <Globe2 className="size-2.5" />
+          {t('topbar.builtinSearch', { defaultValue: 'Web Search' })}
+        </span>
+      )}
+      {hasComputerUse && (
+        <span className="inline-flex items-center gap-0.5 rounded-sm bg-rose-500/10 px-1 py-px text-[9px] font-medium text-rose-600 dark:text-rose-400">
+          <MonitorSmartphone className="size-2.5" />
+          {t('topbar.computerUse', { defaultValue: 'Computer Use' })}
+        </span>
+      )}
+      {hasImageGen && (
+        <span className="inline-flex items-center gap-0.5 rounded-sm bg-pink-500/10 px-1 py-px text-[9px] font-medium text-pink-600 dark:text-pink-400">
+          <ImageIcon className="size-2.5" />
+          {t('topbar.imageGeneration', { defaultValue: 'Image Generation' })}
+        </span>
+      )}
       {showContext && ctx && (
         <span className="inline-flex items-center rounded-sm bg-muted/60 px-1 py-px text-[9px] font-medium text-muted-foreground">
+          {ctx}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function ModelCapabilityIcons({
+  model,
+  providerType,
+  t,
+  showContext = true
+}: {
+  model: AIModelConfig
+  providerType?: AIProvider['type']
+  t: (key: string, opts?: Record<string, unknown>) => string
+  showContext?: boolean
+}): React.JSX.Element | null {
+  const hasThinking = Boolean(model.supportsThinking)
+  const hasVision = modelSupportsVision(model, providerType)
+  const hasTools = Boolean(model.supportsFunctionCall)
+  const hasSearch = modelSupportsBuiltinSearch(model, providerType)
+  const hasComputerUse = modelSupportsComputerUse(model, providerType)
+  const hasImageGen =
+    modelSupportsResponsesImageGeneration(model, providerType) ||
+    model.supportsImageGeneration ||
+    model.category === 'image' ||
+    (model.type ?? providerType) === 'openai-images'
+
+  const ctx = showContext ? formatContextLength(resolveEffectiveModelContextLength(model)) : null
+
+  if (
+    !hasThinking &&
+    !hasVision &&
+    !hasTools &&
+    !hasSearch &&
+    !hasComputerUse &&
+    !hasImageGen &&
+    !ctx
+  ) {
+    return null
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      {hasThinking && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300"
+          title={t('topbar.thinking', { defaultValue: 'Thinking' })}
+        >
+          <Brain className="size-2.5" />
+        </span>
+      )}
+      {hasVision && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300"
+          title={t('topbar.vision', { defaultValue: 'Vision' })}
+        >
+          <Eye className="size-2.5" />
+        </span>
+      )}
+      {hasTools && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-blue-500/10 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300"
+          title={t('topbar.tools', { defaultValue: 'Tools' })}
+        >
+          <Wrench className="size-2.5" />
+        </span>
+      )}
+      {hasSearch && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300"
+          title={t('topbar.builtinSearch', { defaultValue: 'Web search' })}
+        >
+          <Globe2 className="size-2.5" />
+        </span>
+      )}
+      {hasComputerUse && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-rose-500/10 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300"
+          title={t('topbar.computerUse', { defaultValue: 'Computer use' })}
+        >
+          <MonitorSmartphone className="size-2.5" />
+        </span>
+      )}
+      {hasImageGen && (
+        <span
+          className="inline-flex size-4 items-center justify-center rounded bg-pink-500/10 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300"
+          title={t('topbar.imageGeneration', { defaultValue: 'Image generation' })}
+        >
+          <ImageIcon className="size-2.5" />
+        </span>
+      )}
+      {ctx && (
+        <span
+          className="inline-flex items-center rounded border border-border/40 bg-muted/50 px-1 py-0.2 font-mono text-[9px] font-medium text-muted-foreground/75 tabular-nums dark:bg-white/[0.04]"
+          title={t('topbar.contextLength', { defaultValue: 'Context length' })}
+        >
           {ctx}
         </span>
       )}
@@ -891,14 +1019,6 @@ function ModelSettingsPopover({
         {model && (
           <div className="border-b border-border/60 bg-muted/30 px-4 py-3">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background/80 shadow-2xs">
-                <ModelIcon
-                  icon={model.icon}
-                  modelId={model.id}
-                  providerBuiltinId={provider?.builtinId}
-                  size={18}
-                />
-              </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-semibold text-foreground">
@@ -1416,7 +1536,7 @@ export function ModelSwitcher({
 
   return (
     <div className="inline-flex h-8 items-center rounded-lg border border-border/60 bg-background/70 shadow-2xs hover:border-border hover:bg-muted/30 transition-colors">
-      {/* Model icon trigger — opens model list */}
+      {/* Model name trigger — opens model list */}
       <Popover open={open} onOpenChange={handleOpenChange}>
         <HoverCard openDelay={180} closeDelay={100}>
           <HoverCardTrigger asChild>
@@ -1425,12 +1545,6 @@ export function ModelSwitcher({
                 className="inline-flex h-full shrink-0 items-center gap-1.5 rounded-l-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                 aria-label={triggerAriaLabel}
               >
-                <ModelIcon
-                  icon={displayModel?.icon}
-                  modelId={displayModelId ?? undefined}
-                  providerBuiltinId={displayProvider?.builtinId}
-                  size={16}
-                />
                 <span className="max-w-[120px] truncate text-[11px] font-medium text-foreground/90">
                   {triggerLabel}
                 </span>
@@ -1440,14 +1554,6 @@ export function ModelSwitcher({
           </HoverCardTrigger>
           <HoverCardContent side="top" align="start" className="w-72 p-3">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/45">
-                <ModelIcon
-                  icon={displayModel?.icon}
-                  modelId={displayModelId ?? undefined}
-                  providerBuiltinId={displayProvider?.builtinId}
-                  size={20}
-                />
-              </span>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-semibold text-foreground">{triggerLabel}</div>
                 {triggerProviderName && (
@@ -1476,7 +1582,7 @@ export function ModelSwitcher({
           </HoverCardContent>
         </HoverCard>
         <PopoverContent
-          className="w-72 sm:w-80 max-w-[calc(100vw-2rem)] overflow-visible p-0 rounded-2xl border-border/70 bg-popover/95 shadow-2xl backdrop-blur-md"
+          className="w-80 sm:w-88 max-w-[calc(100vw-2rem)] overflow-visible p-0 rounded-2xl border-border/70 bg-popover/95 shadow-2xl backdrop-blur-md"
           align="start"
           sideOffset={8}
         >
@@ -1520,7 +1626,7 @@ export function ModelSwitcher({
                       key={`${provider.id}-${model.id}`}
                       type="button"
                       className={cn(
-                        'flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/70 group cursor-pointer',
+                        'flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-muted/70 group cursor-pointer',
                         isActive && 'bg-primary/10 text-primary'
                       )}
                       onClick={() =>
@@ -1536,37 +1642,30 @@ export function ModelSwitcher({
                           : selectModel(provider, model.id, activeSessionId, setOpen)
                       }
                     >
-                      <span className="mt-0.5 shrink-0">
-                        {isActive ? (
-                          <span className="flex size-5 items-center justify-center rounded-full bg-primary/15">
-                            <Check className="size-3 text-primary" />
+                      {isActive && (
+                        <span className="shrink-0">
+                          <span className="flex size-4.5 items-center justify-center rounded-full bg-primary/15">
+                            <Check className="size-2.5 text-primary" />
                           </span>
-                        ) : (
-                          <ModelIcon
-                            icon={model.icon}
-                            modelId={model.id}
-                            providerBuiltinId={provider.builtinId}
-                            size={20}
-                          />
-                        )}
-                      </span>
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <span
-                            className={cn(
-                              'truncate text-xs font-medium',
-                              isActive
-                                ? 'font-semibold text-primary'
-                                : 'text-foreground/90 group-hover:text-foreground'
-                            )}
-                          >
-                            {model.name || model.id.replace(/-\d{8}$/, '')}
-                          </span>
-                          <span className="shrink-0 text-[10px] text-muted-foreground/70">
+                        </span>
+                      )}
+                      <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                        <span
+                          className={cn(
+                            'truncate text-xs font-medium',
+                            isActive
+                              ? 'font-semibold text-primary'
+                              : 'text-foreground/90 group-hover:text-foreground'
+                          )}
+                        >
+                          {model.name || model.id.replace(/-\d{8}$/, '')}
+                        </span>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <ModelCapabilityIcons model={model} providerType={provider.type} t={t} />
+                          <span className="shrink-0 rounded bg-muted/50 px-1 py-0.2 text-[10px] text-muted-foreground/70 dark:bg-white/[0.04]">
                             {provider.name}
                           </span>
                         </div>
-                        <ModelCapabilityTags model={model} providerType={provider.type} t={t} />
                       </div>
                     </button>
                   )
@@ -1628,7 +1727,7 @@ export function ModelSwitcher({
                             </button>
                           </PopoverTrigger>
                           <PopoverContent
-                            className="w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-1 shadow-2xl backdrop-blur-md"
+                            className="w-88 sm:w-96 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border-border/70 bg-popover/95 p-1 shadow-2xl backdrop-blur-md"
                             align="start"
                             side="right"
                             sideOffset={6}
@@ -1654,7 +1753,7 @@ export function ModelSwitcher({
                                     key={`${provider.id}-${m.id}`}
                                     ref={isActive ? activeModelRef : undefined}
                                     className={cn(
-                                      'flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-muted/60 group cursor-pointer',
+                                      'flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60 group cursor-pointer',
                                       isActive && 'bg-primary/10'
                                     )}
                                     onClick={() =>
@@ -1670,32 +1769,25 @@ export function ModelSwitcher({
                                         : selectModel(provider, m.id, activeSessionId, setOpen)
                                     }
                                   >
-                                    <span className="mt-0.5 shrink-0">
-                                      {isActive ? (
-                                        <span className="flex size-5 items-center justify-center rounded-full bg-primary/15">
-                                          <Check className="size-3 text-primary" />
+                                    {isActive && (
+                                      <span className="shrink-0">
+                                        <span className="flex size-4.5 items-center justify-center rounded-full bg-primary/15">
+                                          <Check className="size-2.5 text-primary" />
                                         </span>
-                                      ) : (
-                                        <ModelIcon
-                                          icon={m.icon}
-                                          modelId={m.id}
-                                          providerBuiltinId={provider.builtinId}
-                                          size={20}
-                                        />
-                                      )}
-                                    </span>
-                                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                      </span>
+                                    )}
+                                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                                       <span
                                         className={cn(
                                           'truncate text-xs',
                                           isActive
                                             ? 'font-semibold text-primary'
-                                            : 'text-foreground/80 group-hover:text-foreground'
+                                            : 'text-foreground/85 group-hover:text-foreground'
                                         )}
                                       >
                                         {m.name || m.id.replace(/-\d{8}$/, '')}
                                       </span>
-                                      <ModelCapabilityTags
+                                      <ModelCapabilityIcons
                                         model={m}
                                         providerType={provider.type}
                                         t={t}

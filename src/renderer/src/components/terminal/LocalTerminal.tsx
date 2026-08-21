@@ -86,23 +86,10 @@ export function LocalTerminal({
     fitAddonRef.current = fitAddon
     term.focus()
 
-    const notifyResize = (): void => {
-      void ipcClient.invoke(IPC.TERMINAL_RESIZE, {
-        id: terminalId,
-        cols: term.cols,
-        rows: term.rows
-      })
-    }
-
-    const fitTerminal = (): void => {
-      fitAddon.fit()
-      notifyResize()
-    }
-
     const scheduleFit = (): void => {
       requestAnimationFrame(() => {
         try {
-          fitTerminal()
+          fitAddon.fit()
         } catch {
           // ignore
         }
@@ -133,8 +120,20 @@ export function LocalTerminal({
           void ipcClient.invoke(IPC.TERMINAL_INPUT, { id: terminalId, data })
         })
 
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      void ipcClient.invoke(IPC.TERMINAL_RESIZE, { id: terminalId, cols, rows })
+    // Trailing debounce: dragging the dock fires onResize every frame, and each PTY resize
+    // raises SIGWINCH in the child — TUI apps (e.g. the OpenCowork CLI) re-render on every
+    // one, so a resize storm garbles their output. Only the settled size is forwarded.
+    let resizeNotifyTimer: number | undefined
+    const resizeDisposable = term.onResize(() => {
+      if (resizeNotifyTimer !== undefined) window.clearTimeout(resizeNotifyTimer)
+      resizeNotifyTimer = window.setTimeout(() => {
+        resizeNotifyTimer = undefined
+        void ipcClient.invoke(IPC.TERMINAL_RESIZE, {
+          id: terminalId,
+          cols: term.cols,
+          rows: term.rows
+        })
+      }, 80)
     })
 
     const outputCleanup = ipcClient.on(IPC.TERMINAL_OUTPUT, (payload) => {
@@ -227,6 +226,7 @@ export function LocalTerminal({
       intersectionObserver.disconnect()
       window.clearTimeout(initialFitTimer)
       window.clearTimeout(delayedFitTimer)
+      if (resizeNotifyTimer !== undefined) window.clearTimeout(resizeNotifyTimer)
       fontsReadyDisposed = true
       term.dispose()
       termRef.current = null

@@ -741,13 +741,13 @@ function MarkdownOutputBlock({ output }: { output: string }): React.JSX.Element 
   const [expanded, setExpanded] = React.useState(false)
   const isLong = output.length > 800 || output.split('\n').length > 16
   return (
-    <div>
-      <div className="mb-1 flex items-center">
-        <p className="text-xs font-medium text-muted-foreground">{t('toolCall.output')}</p>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium text-muted-foreground/80">{t('toolCall.output')}</p>
         <CopyBtn text={output} />
       </div>
       <div
-        className={`overflow-auto rounded-md border border-border/50 bg-muted/10 px-3 py-2 ${
+        className={`overflow-auto rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 dark:border-white/[0.08] dark:bg-white/[0.02] ${
           isLong && !expanded ? 'max-h-48' : 'max-h-[480px]'
         }`}
       >
@@ -760,7 +760,7 @@ function MarkdownOutputBlock({ output }: { output: string }): React.JSX.Element 
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
         >
           {expanded
             ? t('action.showLess', { ns: 'common' })
@@ -777,13 +777,13 @@ function OutputBlock({ output }: { output: string }): React.JSX.Element {
   const isLong = output.length > 500
   const displayed = isLong && !expanded ? output.slice(0, 500) + '…' : output
   return (
-    <div>
-      <div className="mb-1 flex items-center">
-        <p className="text-xs font-medium text-muted-foreground">{t('toolCall.output')}</p>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium text-muted-foreground/80">{t('toolCall.output')}</p>
         <CopyBtn text={output} />
       </div>
       <pre
-        className="max-h-48 overflow-auto whitespace-pre-wrap break-words text-xs font-mono"
+        className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 font-mono text-xs text-foreground/85 dark:border-white/[0.08] dark:bg-white/[0.02]"
         style={{ fontFamily: MONO_FONT }}
       >
         {displayed}
@@ -791,7 +791,7 @@ function OutputBlock({ output }: { output: string }): React.JSX.Element {
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
         >
           {expanded
             ? t('action.showLess', { ns: 'common' })
@@ -818,46 +818,50 @@ function ReadOutputBlock({
   const displayed = isLong && !expanded ? lines.slice(0, 40).join('\n') : rawContent
   const lang = detectLang(filePath)
   return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <FileCode className="size-3 text-blue-500 dark:text-blue-400" />
-        <span
-          className="cursor-pointer truncate text-xs font-medium text-sky-600 transition-colors hover:text-sky-700 dark:text-muted-foreground dark:hover:text-blue-400"
-          title={t('toolCall.clickToInsert', { path: filePath })}
-          onClick={() => {
-            const short = filePath.split(/[\\/]/).slice(-2).join('/')
-            import('@renderer/stores/ui-store').then(({ useUIStore }) =>
-              useUIStore.getState().setPendingInsertText(short)
-            )
-          }}
-        >
-          {filePath.split(/[\\/]/).slice(-2).join('/')}
-        </span>
-        <span className="text-[9px] text-muted-foreground/55 font-mono">
-          {lang} · {t('toolCall.lineCount', { count: lines.length })}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <FileCode className="size-3.5 text-sky-500 dark:text-sky-400" />
+          <span
+            className="cursor-pointer truncate font-mono text-xs font-medium text-sky-600 transition-colors hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+            title={t('toolCall.clickToInsert', { path: filePath })}
+            onClick={() => {
+              const short = filePath.split(/[\\/]/).slice(-2).join('/')
+              import('@renderer/stores/ui-store').then(({ useUIStore }) =>
+                useUIStore.getState().setPendingInsertText(short)
+              )
+            }}
+          >
+            {filePath.split(/[\\/]/).slice(-2).join('/')}
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+            {lang} · {t('toolCall.lineCount', { count: lines.length })}
+          </span>
+        </div>
         <CopyBtn text={rawContent} />
       </div>
-      <LazySyntaxHighlighter
-        language={lang}
-        showLineNumbers
-        customStyle={{
-          margin: 0,
-          padding: '0.5rem',
-          borderRadius: '0.375rem',
-          fontSize: '11px',
-          maxHeight: '300px',
-          overflow: 'auto',
-          fontFamily: MONO_FONT
-        }}
-        codeTagProps={{ style: { fontFamily: 'inherit' } }}
-      >
-        {displayed}
-      </LazySyntaxHighlighter>
+      <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/20 dark:border-white/[0.08] dark:bg-white/[0.02]">
+        <LazySyntaxHighlighter
+          language={lang}
+          showLineNumbers
+          customStyle={{
+            margin: 0,
+            padding: '0.75rem',
+            fontSize: '11px',
+            maxHeight: '320px',
+            overflow: 'auto',
+            fontFamily: MONO_FONT,
+            background: 'transparent'
+          }}
+          codeTagProps={{ style: { fontFamily: 'inherit' } }}
+        >
+          {displayed}
+        </LazySyntaxHighlighter>
+      </div>
       {isLong && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
         >
           {expanded
             ? t('toolCall.showFirst40')
@@ -1106,20 +1110,32 @@ function BashOutputBlock({
 
   return (
     <div className="space-y-2">
-      <div className="overflow-hidden rounded-xl border border-border/70 bg-transparent shadow-none dark:border-white/[0.08]">
-        <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-transparent px-3 py-2 dark:border-white/[0.08]">
+      <div className="overflow-hidden rounded-xl border border-border/70 bg-[#0d1117] text-[#e6edf3] shadow-xs dark:border-white/[0.1] dark:bg-[#090d13]">
+        {/* Terminal Title Bar */}
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.08] bg-white/[0.03] px-3 py-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-[12px] font-medium text-foreground/85">
-              {t('toolCall.shell')}
-            </span>
+            <div className="flex items-center gap-1.5 pr-1">
+              <span className="size-2.5 rounded-full bg-rose-500/80" />
+              <span className="size-2.5 rounded-full bg-amber-500/80" />
+              <span className="size-2.5 rounded-full bg-emerald-500/80" />
+            </div>
+            <span className="font-mono text-[11px] font-medium text-zinc-300">{name}</span>
+            {cwd ? (
+              <span
+                className="hidden max-w-[200px] truncate font-mono text-[10px] text-zinc-500 sm:inline-block"
+                title={cwd}
+              >
+                {cwd}
+              </span>
+            ) : null}
             {processId ? (
-              <span className="rounded-md border border-border/60 bg-transparent px-1.5 py-0.5 text-[9px] text-muted-foreground dark:border-white/[0.08]">
-                {processId}
+              <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.2 font-mono text-[9px] text-zinc-400">
+                pid:{processId}
               </span>
             ) : null}
             {inputTerminalId ? (
-              <span className="rounded-md border border-border/60 bg-transparent px-1.5 py-0.5 text-[9px] text-muted-foreground dark:border-white/[0.08]">
-                {inputTerminalId}
+              <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.2 font-mono text-[9px] text-zinc-400">
+                term:{inputTerminalId}
               </span>
             ) : null}
           </div>
@@ -1128,29 +1144,31 @@ function BashOutputBlock({
           </div>
         </div>
 
+        {/* Terminal Body */}
         <pre
           ref={terminalRef}
-          className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 text-[11px] leading-5 text-foreground/90"
+          className="max-h-[360px] overflow-auto whitespace-pre-wrap break-words px-3.5 py-3 font-mono text-[11.5px] leading-relaxed text-[#c9d1d9] selection:bg-sky-500/30"
           style={{ fontFamily: MONO_FONT }}
         >
           {text}
         </pre>
 
+        {/* Terminal Status Footer */}
         {(statusText || exitCode !== undefined || lineCount > 0) && (
-          <div className="flex items-center justify-between gap-2 border-t border-border/60 bg-transparent px-3 py-2 dark:border-white/[0.08]">
-            <span className="text-[10px] text-muted-foreground/70">
+          <div className="flex items-center justify-between gap-2 border-t border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[11px]">
+            <span className="font-mono text-[10px] text-zinc-400">
               {t('toolCall.lineCount', { count: lineCount })} ·{' '}
               {t('toolCall.tokenCount', { value: formatTokens(tokenCount) })}
             </span>
-            <div className="flex items-center gap-2 text-[11px]">
+            <div className="flex items-center gap-2">
               {statusText && exitCode === undefined ? (
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5',
+                    'rounded-full px-2 py-0.5 text-[10px] font-medium',
                     process?.status === 'running'
-                      ? 'bg-blue-500/12 text-blue-300'
+                      ? 'bg-sky-500/15 text-sky-400 border border-sky-500/25'
                       : process?.status === 'error'
-                        ? 'bg-destructive/10 text-destructive'
+                        ? 'bg-rose-500/15 text-rose-400 border border-rose-500/25'
                         : 'bg-white/[0.06] text-zinc-400'
                   )}
                 >
@@ -1159,12 +1177,12 @@ function BashOutputBlock({
               ) : null}
               {exitCode !== undefined ? (
                 exitCode === 0 ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-emerald-300">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                     <Check className="size-3" />
                     {t('toolCall.success')}
                   </span>
                 ) : (
-                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-rose-500/25 bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-300">
                     {t('toolCall.exitCode', { code: exitCode })}
                   </span>
                 )
@@ -1556,24 +1574,26 @@ function GrepOutputBlock({
   const copyText = output
 
   return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <Search className="size-3 text-amber-500 dark:text-amber-400" />
-        <p className="text-xs font-medium text-muted-foreground">{t('toolCall.grepResults')}</p>
-        <SearchStateBadge state={visualState} />
-        {engineLabel && (
-          <span className="rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] text-muted-foreground">
-            {engineLabel}
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Search className="size-3.5 text-amber-500 dark:text-amber-400" />
+          <p className="text-[11px] font-medium text-foreground/80">{t('toolCall.grepResults')}</p>
+          <SearchStateBadge state={visualState} />
+          {engineLabel && (
+            <span className="rounded border border-border/60 bg-muted/40 px-1.5 py-0.2 font-mono text-[9px] text-muted-foreground/70">
+              {engineLabel}
+            </span>
+          )}
+          {pattern && (
+            <span className="font-mono text-[10px] text-amber-600/80 dark:text-amber-400/70">
+              /{pattern}/
+            </span>
+          )}
+          <span className="font-mono text-[10px] text-muted-foreground/60">
+            {t('toolCall.matchesInFiles', { matches: matchCount, files: groups.length })}
           </span>
-        )}
-        {pattern && (
-          <span className="text-[9px] font-mono text-amber-600/70 dark:text-amber-400/50">
-            /{pattern}/
-          </span>
-        )}
-        <span className="text-[9px] text-muted-foreground/55">
-          {t('toolCall.matchesInFiles', { matches: matchCount, files: groups.length })}
-        </span>
+        </div>
         <CopyBtn text={copyText} />
       </div>
       <SearchMetaHint meta={parsed.meta} />
@@ -1581,13 +1601,13 @@ function GrepOutputBlock({
         <SearchEmptyState />
       ) : (
         <div
-          className="max-h-72 overflow-auto rounded-md border border-border/70 bg-zinc-50 text-[11px] font-mono divide-y divide-border/70 dark:bg-zinc-950 dark:divide-zinc-800"
+          className="max-h-72 divide-y divide-border/50 overflow-auto rounded-xl border border-border/60 bg-muted/20 font-mono text-[11px] dark:divide-white/[0.06] dark:border-white/[0.08] dark:bg-white/[0.02]"
           style={{ fontFamily: MONO_FONT }}
         >
           {groups.map(([file, matches]) => (
-            <div key={file} className="px-2 py-1.5">
+            <div key={file} className="px-2.5 py-2">
               <div
-                className="text-sky-600 truncate mb-0.5 cursor-pointer hover:text-sky-700 transition-colors dark:text-blue-400/70 dark:hover:text-blue-300"
+                className="mb-1 cursor-pointer truncate font-medium text-sky-600 transition-colors hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
                 title={t('toolCall.clickToInsert', { path: file })}
                 onClick={() => {
                   const short = file.split(/[\\/]/).slice(-2).join('/')
@@ -1598,22 +1618,24 @@ function GrepOutputBlock({
               >
                 {file.split(/[\\/]/).slice(-3).join('/')}
               </div>
-              {matches.map((m, i) => (
-                <div key={i} className="flex gap-2 text-foreground/70 dark:text-zinc-400">
-                  <span className="w-12 shrink-0 select-none text-right text-muted-foreground/70 dark:text-zinc-600">
-                    {typeof m.count === 'number'
-                      ? m.count
-                      : typeof m.line === 'number'
-                        ? m.column
-                          ? `${m.line}:${m.column}`
-                          : m.line
-                        : ''}
-                  </span>
-                  <span className="truncate">
-                    {m.text ? <HighlightText text={m.text} pattern={pattern} /> : null}
-                  </span>
-                </div>
-              ))}
+              <div className="space-y-0.5">
+                {matches.map((m, i) => (
+                  <div key={i} className="flex gap-2 text-foreground/75 dark:text-zinc-300">
+                    <span className="w-10 shrink-0 select-none text-right font-mono text-[10px] tabular-nums text-muted-foreground/50">
+                      {typeof m.count === 'number'
+                        ? m.count
+                        : typeof m.line === 'number'
+                          ? m.column
+                            ? `${m.line}:${m.column}`
+                            : m.line
+                          : ''}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      {m.text ? <HighlightText text={m.text} pattern={pattern} /> : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -1633,15 +1655,17 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
   const visualState = getSearchVisualState(parsed.meta, parsed.matches.length)
 
   return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
-          {t('Glob')}
-        </span>
-        <SearchStateBadge state={visualState} />
-        <span className="text-[9px] text-muted-foreground">
-          {t('toolCall.pathCount', { count: parsed.matches.length })}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="font-mono text-[10px] font-medium text-muted-foreground/70">
+            {t('Glob')}
+          </span>
+          <SearchStateBadge state={visualState} />
+          <span className="font-mono text-[10px] text-muted-foreground/60">
+            {t('toolCall.pathCount', { count: parsed.matches.length })}
+          </span>
+        </div>
         <CopyBtn text={parsed.matches.join('\n')} />
       </div>
       <SearchMetaHint meta={parsed.meta} />
@@ -1649,13 +1673,13 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
         <SearchEmptyState />
       ) : (
         <div
-          className="max-h-48 space-y-0.5 overflow-auto rounded-xl border border-border/70 bg-zinc-50 px-3 py-2 text-[11px] font-mono text-zinc-700 dark:border-white/[0.06] dark:bg-[#111214] dark:text-zinc-400"
+          className="max-h-48 space-y-0.5 overflow-auto rounded-xl border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] text-foreground/80 dark:border-white/[0.08] dark:bg-white/[0.02]"
           style={{ fontFamily: MONO_FONT }}
         >
           {visibleItems.map((p, i) => (
             <div
               key={i}
-              className="truncate cursor-pointer text-sky-600 transition-colors hover:text-sky-700 dark:text-sky-300 dark:hover:text-sky-200"
+              className="cursor-pointer truncate text-sky-600 transition-colors hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
               title={t('toolCall.clickToInsert', { path: p })}
               onClick={() => {
                 const short = p.split(/[\\/]/).slice(-2).join('/')
@@ -1668,7 +1692,7 @@ function GlobOutputBlock({ output }: { output: string }): React.JSX.Element {
             </div>
           ))}
           {hiddenCount > 0 && (
-            <div className="pt-1 text-[10px] text-muted-foreground">
+            <div className="pt-1 text-[10px] text-muted-foreground/60">
               {t('toolCall.moreResultsHidden', { shown: visibleItems.length, hidden: hiddenCount })}
             </div>
           )}
@@ -1707,25 +1731,27 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
   const files = parsed.filter((e) => e.type === 'file')
 
   return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <FolderTree className="size-3 text-amber-500 dark:text-amber-400" />
-        <p className="text-xs font-medium text-muted-foreground">
-          {t('toolCall.directoryListing')}
-        </p>
-        <span className="text-[9px] text-muted-foreground/55">
-          {t('toolCall.foldersAndFiles', { folders: dirs.length, files: files.length })}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <FolderTree className="size-3.5 text-amber-500 dark:text-amber-400" />
+          <p className="text-[11px] font-medium text-foreground/80">
+            {t('toolCall.directoryListing')}
+          </p>
+          <span className="font-mono text-[10px] text-muted-foreground/60">
+            {t('toolCall.foldersAndFiles', { folders: dirs.length, files: files.length })}
+          </span>
+        </div>
         <CopyBtn text={parsed.map((e) => e.name).join('\n')} />
       </div>
       <div
-        className="max-h-48 overflow-auto rounded-md border border-border/70 bg-zinc-50 px-3 py-2 text-[11px] font-mono space-y-0.5 dark:bg-zinc-950"
+        className="max-h-48 space-y-1 overflow-auto rounded-xl border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] dark:border-white/[0.08] dark:bg-white/[0.02]"
         style={{ fontFamily: MONO_FONT }}
       >
         {dirs.map((e) => (
           <div
             key={e.name}
-            className="flex items-center gap-1.5 text-amber-600/80 dark:text-amber-400/70"
+            className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400"
           >
             <Folder className="size-3 shrink-0" />
             <span>{e.name}/</span>
@@ -1734,7 +1760,7 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
         {files.map((e) => (
           <div
             key={e.name}
-            className="flex cursor-pointer items-center gap-1.5 text-foreground/70 transition-colors hover:text-sky-600 dark:text-zinc-400 dark:hover:text-blue-400"
+            className="flex cursor-pointer items-center gap-1.5 text-foreground/75 transition-colors hover:text-sky-600 dark:text-zinc-300 dark:hover:text-sky-300"
             title={t('toolCall.clickToInsert', { path: e.path || e.name })}
             onClick={() => {
               const short = (e.path || e.name).split(/[\\/]/).slice(-2).join('/')
@@ -1743,7 +1769,7 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
               )
             }}
           >
-            <File className="size-3 shrink-0 text-zinc-500" />
+            <File className="size-3 shrink-0 text-muted-foreground/50" />
             <span>{e.name}</span>
           </div>
         ))}
@@ -1824,12 +1850,12 @@ function InputField({
   if (!value) return null
   return (
     <div className="flex items-start gap-2 text-[12px]">
-      <span className="shrink-0 text-muted-foreground/50 min-w-[70px] text-right select-none flex items-center justify-end gap-1">
+      <span className="flex min-w-[75px] shrink-0 select-none items-center justify-end gap-1 font-mono text-[11px] text-muted-foreground/60">
         {icon}
         {label}
       </span>
       <span
-        className={cn('break-all', mono && 'font-mono text-[11px]')}
+        className={cn('break-all text-foreground/85', mono && 'font-mono text-[11px]')}
         style={mono ? { fontFamily: MONO_FONT } : undefined}
       >
         {value}
@@ -1840,7 +1866,7 @@ function InputField({
 
 function ToolDetailSectionHeader({ label }: { label: string }): React.JSX.Element {
   return (
-    <div className="flex items-center justify-between border-b border-border/45 pb-2 pt-0.5 text-[12px] font-semibold text-foreground/88 dark:border-white/[0.08]">
+    <div className="flex items-center justify-between border-b border-border/40 pb-1.5 pt-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/75 dark:border-white/[0.08]">
       <span>{label}</span>
     </div>
   )
@@ -2887,9 +2913,7 @@ function ToolCallCardInner({
 }: ToolCallCardProps): React.JSX.Element {
   const { t } = useTranslation('chat')
   const isProcessing = status === 'streaming' || status === 'running'
-  const isActive = isProcessing || status === 'pending_approval'
   const isCommandTool = COMMAND_TOOL_NAMES.has(name)
-  const isLiveCommandTool = isCommandTool && isProcessing
   const toolNamePulseClass =
     status === 'running'
       ? `tool-name-live-pulse tool-name-live-pulse--${isCommandTool ? 'shell' : 'running'}`
@@ -2898,21 +2922,17 @@ function ToolCallCardInner({
         : null
   const hasVisualOutput = hasImageBlocks(output)
   const isReadTextTool = name === 'Read' && !hasVisualOutput
-  const [open, setOpen] = React.useState(
-    forceOpen || (isActive && !isReadTextTool) || hasVisualOutput
-  )
+  // Live execution (including shell) stays collapsed by default; users expand manually.
+  const [open, setOpen] = React.useState(forceOpen || hasVisualOutput)
   // Text Read output can be large; only mount it after the user opens the Read card.
   const [readTextOutputRevealed, setReadTextOutputRevealed] = React.useState(false)
-  const prevIsActiveRef = React.useRef(isActive)
-  const wasLiveCommandToolRef = React.useRef(isLiveCommandTool)
   const toggleOpen = React.useCallback(() => {
     if (forceOpen) return
-    if (isLiveCommandTool) return
     if (name === 'Read' && !open) {
       setReadTextOutputRevealed(true)
     }
     setOpen((current) => !current)
-  }, [forceOpen, isLiveCommandTool, name, open])
+  }, [forceOpen, name, open])
 
   React.useEffect(() => {
     if (forceOpen) {
@@ -2920,49 +2940,12 @@ function ToolCallCardInner({
       if (isReadTextTool) {
         setReadTextOutputRevealed(true)
       }
-      prevIsActiveRef.current = isActive
-      wasLiveCommandToolRef.current = isLiveCommandTool
       return
     }
     if (hasVisualOutput) {
       setOpen(true)
-      prevIsActiveRef.current = isActive
-      wasLiveCommandToolRef.current = isLiveCommandTool
-      return
     }
-    if (isLiveCommandTool) {
-      setOpen(true)
-      prevIsActiveRef.current = isActive
-      wasLiveCommandToolRef.current = true
-      return
-    }
-    if (wasLiveCommandToolRef.current) {
-      setOpen(false)
-      wasLiveCommandToolRef.current = false
-      prevIsActiveRef.current = isActive
-      return
-    }
-    if (isReadTextTool) {
-      if (!readTextOutputRevealed) {
-        setOpen(false)
-      }
-      prevIsActiveRef.current = isActive
-      wasLiveCommandToolRef.current = isLiveCommandTool
-      return
-    }
-    if (prevIsActiveRef.current && !isActive) {
-      setOpen(false)
-    }
-    prevIsActiveRef.current = isActive
-    wasLiveCommandToolRef.current = isLiveCommandTool
-  }, [
-    forceOpen,
-    hasVisualOutput,
-    isActive,
-    isLiveCommandTool,
-    isReadTextTool,
-    readTextOutputRevealed
-  ])
+  }, [forceOpen, hasVisualOutput, isReadTextTool])
   const outputText = React.useMemo(() => outputAsString(output), [output])
   const extensionToolResult = React.useMemo(
     () => (open ? parseExtensionToolResult(output) : null),
@@ -3180,14 +3163,14 @@ function ToolCallCardInner({
         className={cn(
           'min-w-0 overflow-hidden',
           useCompactToolHeader
-            ? 'ml-3 mt-1.5 border-l border-border/45 pl-5 dark:border-white/[0.08]'
+            ? 'ml-3.5 mt-1 border-l border-border/50 pl-4.5 dark:border-white/[0.08]'
             : 'mt-1.5 pl-5'
         )}
         contentClassName={cn(
           'space-y-2 pb-0.5',
           useCompactToolHeader &&
             !isCommandTool &&
-            'rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]'
+            'rounded-xl border border-border/60 bg-muted/20 px-3.5 py-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]'
         )}
       >
         {hideLivePayload ? (

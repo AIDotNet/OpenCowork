@@ -39,7 +39,6 @@ export interface FileDiffProps {
   open?: boolean
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
-  collapseOnComplete?: boolean
   maxHeight?: number
   language?: AgentCodeLanguage
   copyText?: string
@@ -52,10 +51,10 @@ function ChangeCount({ value, type }: { value: number; type: 'added' | 'removed'
   return (
     <span
       className={cn(
-        'font-mono text-xs tabular-nums',
+        'rounded border px-1 py-0.2 font-mono text-[10px] font-medium tabular-nums',
         type === 'added'
-          ? 'text-emerald-600 dark:text-emerald-400'
-          : 'text-rose-600 dark:text-rose-400'
+          ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
+          : 'border-rose-500/25 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
       )}
     >
       {type === 'added' ? '+' : '−'}
@@ -71,7 +70,6 @@ export function FileDiff({
   open,
   defaultOpen = true,
   onOpenChange,
-  collapseOnComplete = true,
   maxHeight = 220,
   language = 'typescript',
   copyText,
@@ -83,7 +81,6 @@ export function FileDiff({
   const triggerId = `${baseId}-trigger`
   const contentId = `${baseId}-content`
   const viewportRef = useRef<HTMLDivElement>(null)
-  const previousStatus = useRef(status)
   const copyTimer = useRef<number | undefined>(undefined)
   const [copied, setCopied] = useState(false)
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
@@ -102,16 +99,6 @@ export function FileDiff({
     },
     [onOpenChange, open]
   )
-
-  useEffect(() => {
-    if (previousStatus.current !== 'streaming' && status === 'streaming') {
-      setOpen(true)
-    }
-    if (previousStatus.current === 'streaming' && status === 'complete' && collapseOnComplete) {
-      setOpen(false)
-    }
-    previousStatus.current = status
-  }, [collapseOnComplete, setOpen, status])
 
   useEffect(
     () => () => {
@@ -155,11 +142,11 @@ export function FileDiff({
         aria-expanded={currentOpen}
         aria-controls={contentId}
         onClick={() => setOpen(!currentOpen)}
-        className="group flex min-h-9 w-full items-center gap-2 rounded-md py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left outline-none transition-all duration-150 hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/[0.04]"
       >
-        <FileCode2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/80">{file}</span>
-        <span className="flex shrink-0 items-center gap-2">
+        <FileCode2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground/70" />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/85">{file}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
           <ChangeCount value={additions} type="added" />
           <ChangeCount value={deletions} type="removed" />
         </span>
@@ -170,12 +157,12 @@ export function FileDiff({
               className={cn('size-3.5', !reduce && 'animate-spin')}
             />
           ) : (
-            <Check aria-label="Changes applied" className="size-3.5" />
+            <Check aria-label="Changes applied" className="size-3.5 text-emerald-500" />
           )}
         </span>
         <motion.span
           aria-hidden="true"
-          animate={{ rotate: currentOpen ? 180 : 0 }}
+          animate={{ rotate: currentOpen ? 0 : -90 }}
           transition={reduce ? { duration: 0 } : SPRING_SWAP}
           className="shrink-0 text-muted-foreground/45 transition-colors group-hover:text-muted-foreground"
         >
@@ -184,8 +171,8 @@ export function FileDiff({
       </button>
 
       <AgentDisclosure id={contentId} role="region" aria-labelledby={triggerId} open={currentOpen}>
-        <div className="pl-6 pt-1.5">
-          <div className="overflow-hidden rounded-xl bg-muted/80">
+        <div className="ml-3.5 border-l border-border/50 pl-4.5 pt-1.5 dark:border-white/[0.08]">
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/20 dark:border-white/[0.08] dark:bg-white/[0.02]">
             <div
               ref={viewportRef}
               data-slot="file-diff-viewport"
@@ -201,9 +188,10 @@ export function FileDiff({
                     <div
                       key={line.id}
                       className={cn(
-                        'grid grid-cols-[2.25rem_2.25rem_1rem_minmax(0,1fr)]',
-                        type === 'added' && 'bg-emerald-500/[0.07]',
-                        type === 'removed' && 'bg-rose-500/[0.07]'
+                        'grid grid-cols-[2.25rem_2.25rem_1rem_minmax(0,1fr)] transition-colors',
+                        type === 'added' && 'border-l-2 border-l-emerald-500 bg-emerald-500/[0.08]',
+                        type === 'removed' && 'border-l-2 border-l-rose-500 bg-rose-500/[0.08]',
+                        type === 'context' && 'border-l-2 border-l-transparent'
                       )}
                     >
                       <span className="select-none pr-2 text-right tabular-nums text-muted-foreground/40">
@@ -233,7 +221,7 @@ export function FileDiff({
             </div>
 
             {canCopy ? (
-              <div className="flex justify-end px-2 pb-1.5 pt-1">
+              <div className="flex justify-end border-t border-border/40 bg-muted/20 px-2 py-1 dark:border-white/[0.04]">
                 <motion.button
                   type="button"
                   aria-label={copied ? 'Copied' : 'Copy diff'}
@@ -241,9 +229,13 @@ export function FileDiff({
                   onClick={handleCopy}
                   whileTap={reduce ? undefined : { scale: 0.9 }}
                   transition={SPRING_PRESS}
-                  className="grid size-7 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-background/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  {copied ? (
+                    <Check className="size-3.5 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
                 </motion.button>
               </div>
             ) : null}

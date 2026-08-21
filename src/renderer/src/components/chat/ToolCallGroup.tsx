@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight, ChevronDown, Loader2, Check, X } from 'lucide-react'
+import { ChevronDown, Loader2, Check, X } from 'lucide-react'
+import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import { inputSummary, summarizeSearchToolOutput } from './tool-call-summary'
@@ -96,7 +97,8 @@ export function ToolCallGroup({
   const { t } = useTranslation('chat')
   const status = groupStatus(items)
   const isActive = status === 'running' || status === 'streaming' || status === 'pending_approval'
-  const shouldForceOpen = isActive || status === 'error' || status === 'canceled'
+  // Active tools no longer force the group open; only failures do.
+  const shouldForceOpen = status === 'error' || status === 'canceled'
 
   const [expanded, setExpanded] = useState(shouldForceOpen || !collapsible)
   const previousCollapsibleRef = React.useRef(collapsible)
@@ -117,7 +119,7 @@ export function ToolCallGroup({
   const contentVisible = !collapsible || expanded
   const statusTone =
     status === 'error'
-      ? 'text-destructive/85'
+      ? 'text-destructive/90'
       : isActive
         ? 'text-sky-600 dark:text-sky-300'
         : 'text-muted-foreground'
@@ -129,30 +131,44 @@ export function ToolCallGroup({
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className={`group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035] ${statusTone}`}
+          className={cn(
+            'group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-all duration-150 hover:bg-muted/45 hover:text-foreground dark:hover:bg-white/[0.04]',
+            statusTone
+          )}
         >
-          <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-lime-500/25 text-lime-600 dark:text-lime-400">
+          <span
+            className={cn(
+              'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
+              status === 'error' || status === 'canceled'
+                ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
+                : isActive
+                  ? 'border-sky-500/35 bg-sky-500/[0.1] text-sky-600 dark:text-sky-300'
+                  : 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
+            )}
+          >
             {isActive ? (
-              <Loader2 className="size-3 animate-spin text-sky-500" />
+              <Loader2 className="size-3 animate-spin" />
             ) : status === 'error' || status === 'canceled' ? (
-              <X
-                className={
-                  status === 'error' ? 'size-3 text-destructive' : 'size-3 text-muted-foreground/60'
-                }
-              />
+              <X className="size-3 animate-in zoom-in-75 duration-200" />
             ) : (
-              <Check className="size-3 text-emerald-500" />
+              <Check className="size-3 animate-in zoom-in-75 duration-200" />
             )}
           </span>
-          <span className="shrink-0 text-muted-foreground/55">{toolName}</span>
-          <span className="shrink-0 text-muted-foreground/40">&gt;</span>
-          <span className="shrink-0 font-mono font-medium text-foreground/82">x{items.length}</span>
-          <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({summaryLabel})</span>
-          {expanded ? (
-            <ChevronDown className="size-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
-          ) : (
-            <ChevronRight className="size-3 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
-          )}
+          <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/85">
+            {toolName}
+          </span>
+          <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
+            ×{items.length}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65">
+            ({summaryLabel})
+          </span>
+          <ChevronDown
+            className={cn(
+              'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+              !expanded && '-rotate-90'
+            )}
+          />
         </button>
       ) : null}
 
@@ -161,7 +177,7 @@ export function ToolCallGroup({
         enabled={collapsible}
         className={
           collapsible
-            ? 'ml-3 mt-1.5 overflow-hidden border-l border-border/50 pl-5 dark:border-white/[0.08]'
+            ? 'ml-3.5 mt-1 overflow-hidden border-l border-border/50 pl-4.5 dark:border-white/[0.08]'
             : 'overflow-visible'
         }
       >

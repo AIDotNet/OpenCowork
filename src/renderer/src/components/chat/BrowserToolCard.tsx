@@ -307,13 +307,13 @@ export function BrowserToolCard({
     }
   }, [output])
 
-  const autoOpenKey = `${isRunning ? 'active' : 'idle'}:${images.length}`
+  // Running no longer auto-opens the card; screenshots arriving still do.
+  const autoOpenKey = `images:${images.length}`
   const [openState, setOpenState] = useState<{ key: string; open: boolean }>(() => ({
     key: autoOpenKey,
-    open: forceOpen || isRunning || images.length > 0
+    open: forceOpen || images.length > 0
   }))
-  const open =
-    forceOpen || (openState.key === autoOpenKey ? openState.open : isRunning || images.length > 0)
+  const open = forceOpen || (openState.key === autoOpenKey ? openState.open : images.length > 0)
 
   const summary = buildSummary(name, input, jsonOutput, notes, t)
   const mainPreview = getMainPreview(name, jsonOutput)
@@ -351,7 +351,7 @@ export function BrowserToolCard({
             open: !open
           })
         }}
-        className="group w-full rounded-md px-2 py-0.5 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-accent/50"
+        className="group w-full rounded-lg p-0 text-left transition-colors"
       >
         <CompactToolCallHeader
           model={model}
@@ -371,11 +371,11 @@ export function BrowserToolCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={CONTENT_TRANSITION}
-            className="mt-0.5 overflow-hidden pl-4"
+            className="ml-3.5 mt-1 border-l border-border/50 pl-4.5 overflow-hidden dark:border-white/[0.08]"
           >
-            <div className="space-y-2 pb-0.5">
+            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
               {isRunning ? (
-                <div className="flex items-center gap-2 rounded-md border border-dashed px-2.5 py-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/30 bg-sky-500/5 px-2.5 py-2 text-xs text-sky-600 dark:text-sky-300">
                   <Loader2 className="size-3.5 animate-spin" />
                   <span
                     className={
@@ -392,7 +392,7 @@ export function BrowserToolCard({
               ) : null}
 
               {hasError ? (
-                <div className="rounded-md border border-destructive/25 bg-destructive/[0.035] px-2.5 py-2 text-xs text-destructive">
+                <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
                   <div className="flex items-start gap-2">
                     <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
                     <span className="break-words">{parsedError}</span>

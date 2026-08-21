@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.15] - 2026-08-21
+
+### Added
+
+- Added a dismissible `/init` banner when the selected project folder has no `AGENTS.md`, so Cowork, Code, and ACP sessions can seed workspace protocol without hunting for the command.
+
+### Changed
+
+- Removed Auto model routing and the session “follow global model” option; sessions now bind a concrete model, and new sessions snapshot the current global, project, or configured default.
+- Refreshed the model switcher and Model settings panel around search results and capability chips so the catalog’s context, thinking, and tool support is visible while picking a model.
+
+### Fixed
+
+- Fixed transient provider failures aborting a turn that had not yet produced output: OpenAI Responses stream errors (`overloaded_error`, `rate_limit_error`, `server_error`, and the other retryable codes), response-header timeouts, and HTTP 408/409/425 now retry; a rejected `previous_response_id` on the WebSocket path falls back to HTTP SSE instead of failing the turn.
+- Fixed hosted-session open or send failures stranding the turn: Main now falls back to an idempotent legacy `agent/run` with the same run id, restores persisted sessions after a worker restart, and forwards the raw error detail through IPC so the chat card shows the actual cause instead of a generic unknown.
+- Fixed compaction dividers vanishing into the collapsed tool-process section and landing on the wrong assistant turn: the recorded cut now keeps the summary above the spared streaming row.
+- Fixed Stop/terminate hooks never reaching the host after the user cancelled a run, because the reverse request inherited the already-cancelled run token.
+
 ## [1.3.14] - 2026-08-20
 
 ### Added
@@ -15,11 +33,9 @@ All notable changes to this project will be documented in this file.
 
 - New user turns now pin to the top of the viewport via a bottom spacer, so a long reply scrolls beneath the question instead of pushing it off screen.
 - Split the 4,000-line `SettingsPage` into focused panels (General, Model, Runtime, Data, Memory, Analytics, System, About, plus the provider and AI-coding workbenches) behind a shared nav and primitives module, and dropped the unused `SettingsDialog`.
-- Removed Auto model routing and the session “follow global model” option; sessions now bind a concrete model, and new sessions snapshot the current global, project, or configured default.
 
 ### Fixed
 
-- Fixed the plan review actions staying disabled after a plan landed, most often in Cowork mode: they were gated on any session activity, so a background command left running, an open team, or a sub-agent record that never got its end event kept Implement stuck on its spinner for the rest of the session. Both the actions and the plan panel reload now follow the session's own in-flight turn, which is what actually decides whether a send dispatches or queues.
 - Fixed Fast mode being forced on for every hosted-session, cron, and channel run: the main-process provider config copied the model catalog's `priority` service tier straight onto the request, so fast-capable models like GPT-5.6 Sol/Terra/Luna were billed at the priority tier even with the Fast toggle off. Only Codex OAuth still ignores the toggle, because its plans are always priority.
 - Fixed auto-compression silently never running for models without a configured context length: an unknown window produced a null compression config while the input-area gauge kept measuring against the 200K default, so both the hosted-session assembler and the interactive run path now fall back to that same default.
 - Fixed a session staying permanently busy after a send failed during preflight (#159): the streaming pointer, abort controller, and sidecar run id leaked, which disabled the plan review actions and queued every later message instead of dispatching it, leaving Continue as the only path that still worked. Such a failure now also reports an error card instead of the turn silently disappearing.

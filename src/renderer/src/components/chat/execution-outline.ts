@@ -348,7 +348,8 @@ export function buildToolExecutionOutline({
       summary,
       category,
       visibility,
-      forceExpanded: hasError || isActive || requiresApproval,
+      // Live execution stays collapsed by default; only errors and approvals force open.
+      forceExpanded: hasError || requiresApproval,
       hasError,
       isActive,
       requiresApproval,

@@ -1,15 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ImageIcon,
-  Loader2,
-  TriangleAlert,
-  X
-} from 'lucide-react'
+import { Check, ChevronDown, ImageIcon, Loader2, TriangleAlert, X } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import {
@@ -98,14 +90,14 @@ function lifecycleShellClassName({
   isRunning: boolean
   hasError: boolean
 }): string {
-  if (hasError) return 'border-destructive/25 text-destructive'
-  if (isRunning) return 'border-sky-500/25 text-sky-600 dark:text-sky-300'
-  return 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+  if (hasError) return 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
+  if (isRunning) return 'border-sky-500/35 bg-sky-500/[0.1] text-sky-600 dark:text-sky-300'
+  return 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
 }
 
 function SectionHeader({ label }: { label: string }): React.JSX.Element {
   return (
-    <div className="border-b border-border/45 pb-2 pt-0.5 text-[12px] font-semibold text-foreground/88 dark:border-white/[0.08]">
+    <div className="border-b border-border/40 pb-1.5 pt-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/75 dark:border-white/[0.08]">
       {label}
     </div>
   )
@@ -151,11 +143,12 @@ export function ImagePluginToolCard({
   const hasError =
     !isAwaitingRetry &&
     (status === 'error' || status === 'canceled' || (!!parsedError && images.length === 0))
-  const [collapsed, setCollapsed] = useState(!(forceOpen || isRunning))
+  // Collapsed by default even while running; users expand manually.
+  const [collapsed, setCollapsed] = useState(!forceOpen)
 
   useEffect(() => {
-    if (forceOpen || isRunning) setCollapsed(false)
-  }, [forceOpen, isRunning])
+    if (forceOpen) setCollapsed(false)
+  }, [forceOpen])
 
   const statusLabel = isAwaitingRetry
     ? t('toolCall.imagePlugin.waitingRetry')
@@ -193,9 +186,9 @@ export function ImagePluginToolCard({
           setCollapsed((value) => !value)
         }}
         className={cn(
-          'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]',
+          'group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-all duration-150 hover:bg-muted/45 hover:text-foreground dark:hover:bg-white/[0.04]',
           hasError
-            ? 'text-destructive/85'
+            ? 'text-destructive/90'
             : isRunning
               ? 'text-sky-600 dark:text-sky-300'
               : 'text-muted-foreground'
@@ -203,31 +196,35 @@ export function ImagePluginToolCard({
       >
         <span
           className={cn(
-            'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
+            'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
             lifecycleShellClassName({ isRunning, hasError })
           )}
         >
           {lifecycleIcon({ isRunning, hasError })}
         </span>
-        <span className="shrink-0 text-muted-foreground/55">image</span>
-        <span className="shrink-0 text-muted-foreground/40">&gt;</span>
+        <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
+          image
+        </span>
         <span
           className={cn(
-            'shrink-0 font-mono font-medium',
-            isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/82'
+            'shrink-0 font-mono text-[12px] font-medium tracking-tight',
+            isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/85'
           )}
         >
           ImageGenerate
         </span>
-        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({promptSummary})</span>
-        <span className="hidden shrink-0 rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground sm:inline-flex dark:bg-white/[0.035]">
+        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65">
+          ({promptSummary})
+        </span>
+        <span className="hidden shrink-0 rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-flex dark:bg-white/[0.04]">
           {t('toolCall.imagePlugin.countValue', { count: requestedCount })}
         </span>
-        {collapsed ? (
-          <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
-        ) : (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
-        )}
+        <ChevronDown
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+            collapsed && '-rotate-90'
+          )}
+        />
       </button>
 
       <AnimatePresence initial={false}>
@@ -239,9 +236,9 @@ export function ImagePluginToolCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={CONTENT_TRANSITION}
-            className="ml-3 mt-1.5 overflow-hidden border-l border-border/45 pl-5 dark:border-white/[0.08]"
+            className="ml-3.5 mt-1 overflow-hidden border-l border-border/50 pl-4.5 dark:border-white/[0.08]"
           >
-            <div className="space-y-3 rounded-lg border border-border/55 bg-background/55 px-3 py-3 dark:border-white/[0.08] dark:bg-[#0d0d0e]">
+            <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
               <div className="space-y-2">
                 <SectionHeader label={t('toolCall.parameters')} />
                 <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">

@@ -173,6 +173,8 @@
     "vision": "Vision",
     "tools": "Tools",
     "thinking": "Thinking",
+    "computerUse": "Computer Use",
+    "contextLength": "Context Length",
     "modelSettings": "Model settings",
     "capabilities": "Capabilities",
     "deepThinking": "Deep Thinking",

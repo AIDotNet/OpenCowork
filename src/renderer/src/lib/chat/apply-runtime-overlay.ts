@@ -9,6 +9,14 @@ import type {
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running'])
 
+// Same normalization the chat store applies to thinking deltas before they land in
+// blocks. The overlay accumulates the raw provider stream, so without this the length
+// comparison in appendOverlaySuffix sees a phantom "extra" on models that emit
+// <think> markers and appends a duplicated tail block after the run settled.
+function stripThinkTagMarkers(text: string): string {
+  return text.replace(/<\s*\/?\s*think\s*>/gi, '')
+}
+
 export type RuntimeOverlayView = {
   messages: UnifiedMessage[]
   streamingMessageId: string | null
@@ -54,6 +62,22 @@ export function applyRuntimeOverlayToMessages(
 
   const targetId = streamingMessageId ?? overlayMessage?.messageId ?? null
   const existingIndex = targetId ? messages.findIndex((message) => message.id === targetId) : -1
+
+  // While a local stream consumer is feeding this message (live run or reattach
+  // replay), the store already holds the ordered timeline — every delta and tool
+  // block lands in stream order. The overlay only knows cumulative text/thinking
+  // strings, so merging it here can only reorder interleaved blocks, never improve
+  // them. Keep the overlay's tool statuses (liveToolCallMap) and activity flag, and
+  // reserve content merging for stale transcripts nobody is streaming into.
+  if (existingIndex >= 0 && streamingMessageId && targetId === streamingMessageId) {
+    return {
+      messages,
+      streamingMessageId,
+      targetMessageId: targetId,
+      liveToolCallMap,
+      isActive
+    }
+  }
 
   if (existingIndex >= 0) {
     const merged = mergeOverlayIntoMessage(
@@ -135,16 +159,13 @@ function mergeOverlayIntoMessage(
   overlay: AgentRuntimeProjection
 ): UnifiedMessage {
   const blocks = existingContentBlocks(message)
-  const preserved = blocks.filter(
-    (block) => block.type !== 'text' && block.type !== 'thinking' && block.type !== 'tool_use'
-  )
-  const existingHasTools = blocks.some((block) => block.type === 'tool_use')
-  const existingText = messageText(message)
-  const existingThinking = messageThinking(message)
   const overlayText = overlayMessage?.text ?? ''
   const overlayThinking = overlayMessage?.thinking ?? null
 
-  if (existingHasTools) {
+  // Any resident content is an ordered timeline the merge must respect — rebuilding
+  // wholesale as [thinking, text, tools] would flatten interleaved blocks back into
+  // the wrong order. Only a message with no blocks at all can be built from scratch.
+  if (blocks.length > 0) {
     return {
       ...message,
       content: mergeOverlayIntoStructuredTimeline(
@@ -157,14 +178,9 @@ function mergeOverlayIntoMessage(
     }
   }
 
-  const text = overlayText.length >= existingText.length ? overlayText : existingText
-  const thinking = longerOptionalText(overlayThinking, existingThinking)
-  const toolBlocks =
-    overlayTools.length > 0 ? overlayTools.map(toolCallToBlock) : existingToolUseBlocks(message)
-
   return {
     ...message,
-    content: buildBlocks(thinking, text, toolBlocks, preserved),
+    content: buildBlocks(overlayThinking, overlayText, overlayTools.map(toolCallToBlock), []),
     _revision: overlay.projectionRevision
   }
 }
@@ -214,35 +230,12 @@ function toolCallToBlock(toolCall: RuntimeToolCallOverlay): ContentBlock {
   }
 }
 
-function messageText(message: UnifiedMessage): string {
-  if (typeof message.content === 'string') return message.content
-  return message.content
-    .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
-    .map((block) => block.text)
-    .join('')
-}
-
-function messageThinking(message: UnifiedMessage): string | null {
-  if (!Array.isArray(message.content)) return null
-  const thinking = message.content
-    .filter(
-      (block): block is Extract<ContentBlock, { type: 'thinking' }> => block.type === 'thinking'
-    )
-    .map((block) => block.thinking)
-    .join('')
-  return thinking.length > 0 ? thinking : null
-}
-
 function existingContentBlocks(message: UnifiedMessage): ContentBlock[] {
   if (Array.isArray(message.content)) return message.content
   if (typeof message.content === 'string' && message.content) {
     return [{ type: 'text', text: message.content }]
   }
   return []
-}
-
-function existingToolUseBlocks(message: UnifiedMessage): ContentBlock[] {
-  return existingContentBlocks(message).filter((block) => block.type === 'tool_use')
 }
 
 function mergeOverlayIntoStructuredTimeline(
@@ -252,9 +245,13 @@ function mergeOverlayIntoStructuredTimeline(
   overlayTools: RuntimeToolCallOverlay[]
 ): ContentBlock[] {
   let next = blocks.map((block) => ({ ...block }))
-  next = mergeOverlayToolsInPlace(next, overlayTools)
-  next = appendOverlaySuffix(next, 'thinking', overlayThinking ?? '')
+  const missingTools = updateOverlayToolsInPlace(next, overlayTools)
+  // Suffixes land before overlay-only tools: within an iteration the model emits its
+  // narration/thinking first and calls tools after, so when both are missing from the
+  // resident timeline the prose belongs ahead of the new tool cards.
+  next = appendOverlaySuffix(next, 'thinking', stripThinkTagMarkers(overlayThinking ?? ''))
   next = appendOverlaySuffix(next, 'text', overlayText)
+  next = appendMissingOverlayTools(next, missingTools)
   return next
 }
 
@@ -295,47 +292,42 @@ function appendOverlaySuffix(
   return [...blocks, { type: 'text', text: extra }]
 }
 
-function mergeOverlayToolsInPlace(
+// Refresh name/input of tool blocks the timeline already holds; return overlay tools
+// with no matching block, in overlay (stream) order, for the caller to append.
+function updateOverlayToolsInPlace(
   blocks: ContentBlock[],
   overlayTools: RuntimeToolCallOverlay[]
-): ContentBlock[] {
-  if (overlayTools.length === 0) return blocks
+): RuntimeToolCallOverlay[] {
+  if (overlayTools.length === 0) return []
 
   const remaining = new Map(overlayTools.map((tool) => [tool.toolCallId, tool]))
-  let next = blocks.map((block) => {
-    if (block.type !== 'tool_use') return block
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index]
+    if (block.type !== 'tool_use') continue
     const overlay = remaining.get(block.id)
-    if (!overlay) return block
+    if (!overlay) continue
     remaining.delete(block.id)
-    return {
+    blocks[index] = {
       ...block,
       name: overlay.toolName || block.name,
       input: overlay.input ? { ...overlay.input } : block.input
     }
-  })
-
-  let sealedIncompleteThinking = false
-  for (const overlay of overlayTools) {
-    if (!remaining.has(overlay.toolCallId)) continue
-    if (!sealedIncompleteThinking) {
-      next = next.map((block) =>
-        block.type === 'thinking' && block.completedAt == null
-          ? { ...block, completedAt: block.startedAt ?? 1 }
-          : block
-      )
-      sealedIncompleteThinking = true
-    }
-    next.push(toolCallToBlock(overlay))
-    remaining.delete(overlay.toolCallId)
   }
-  return next
+  return overlayTools.filter((tool) => remaining.has(tool.toolCallId))
 }
 
-function longerOptionalText(left: string | null, right: string | null): string | null {
-  const leftText = left ?? ''
-  const rightText = right ?? ''
-  if (leftText.length === 0 && rightText.length === 0) return null
-  return leftText.length >= rightText.length ? leftText : rightText
+function appendMissingOverlayTools(
+  blocks: ContentBlock[],
+  missingTools: RuntimeToolCallOverlay[]
+): ContentBlock[] {
+  if (missingTools.length === 0) return blocks
+
+  const sealed = blocks.map((block) =>
+    block.type === 'thinking' && block.completedAt == null
+      ? { ...block, completedAt: block.startedAt ?? 1 }
+      : block
+  )
+  return [...sealed, ...missingTools.map(toolCallToBlock)]
 }
 
 function toLiveToolCallMap(toolCalls: RuntimeToolCallOverlay[]): Map<string, ToolCallState> {

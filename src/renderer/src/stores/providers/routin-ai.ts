@@ -14,7 +14,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v13: DeepSeek V4 支持 reasoning_effort（low/high/max）
   // v14: default main model → grok-4.6（快速模型默认在 provider-store 中为 deepseek-v4-flash）
   // v15: add GLM-5.3（思考不可关闭，reasoning_effort 仅 low/high/max）
-  version: 15,
+  // v16: add muse-spark-1.2, ox-alpha, hy3
+  // v17: GPT models first, gpt-5.6-sol at top
+  version: 17,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -38,6 +40,35 @@ export const routinAiPreset: BuiltinProviderPreset = {
     'claude-3-5-haiku-20241022'
   ],
   defaultModels: [
+    {
+      id: 'gpt-5.6-sol',
+      name: 'GPT 5.6 Sol',
+      icon: 'openai',
+      enabled: true,
+      serviceTier: 'priority',
+      supportsWebsocket: true,
+      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
+      contextLength: 372_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 5,
+      outputPrice: 30,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
+        // automatic subagent task delegation); Terra and Sol expose it.
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
     {
       id: 'gpt-5.6-terra',
       name: 'GPT 5.6 Terra',
@@ -67,239 +98,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       enableSystemPromptCache: true,
       type: 'openai-responses'
     },
-    {
-      id: 'claude-fable-5',
-      name: 'Claude Fable 5',
-      icon: 'claude',
-      type: 'anthropic',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 10,
-      outputPrice: 50,
-      cacheCreationPrice: 12.5,
-      cacheHitPrice: 1,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'adaptive' } },
-        forceTemperature: 1,
-        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'high'
-      }
-    },
-    {
-      id: 'claude-opus-5',
-      name: 'Claude Opus 5',
-      icon: 'claude',
-      type: 'anthropic',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'adaptive' } },
-        forceTemperature: 1,
-        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'high'
-      }
-    },
-    {
-      id: 'mimo-v2.5-pro',
-      name: 'MiMo V2.5 Pro',
-      icon: 'mimo',
-      enabled: true,
-      type: 'anthropic',
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.435,
-      outputPrice: 0.87,
-      cacheHitPrice: 0.0036,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
-      }
-    },
-    {
-      id: 'kimi-k3',
-      name: 'Kimi K3',
-      icon: 'kimi',
-      enabled: true,
-      type: 'anthropic',
-      contextLength: 1_048_576,
-      maxOutputTokens: 131_072,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 3,
-      outputPrice: 15,
-      cacheHitPrice: 0.3,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        reasoningEffortLevels: ['max'],
-        defaultReasoningEffort: 'max'
-      },
-      requestOverrides: {
-        omitBodyKeys: ['temperature', 'max_tokens', 'max_completion_tokens']
-      }
-    },
-    {
-      id: 'kimi-k2.7-code',
-      name: 'Kimi K2.7 Code',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 262_144,
-      maxOutputTokens: 32_768,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.95,
-      outputPrice: 4,
-      cacheHitPrice: 0.19,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
-      id: 'kimi-k2.7-code-highspeed',
-      name: 'Kimi K2.7 Code HighSpeed',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 262_144,
-      maxOutputTokens: 32_768,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      // HighSpeed 只加价输出 token，input/cache 与 kimi-k2.7-code 一致（此前误将三者一并翻倍）
-      inputPrice: 0.95,
-      outputPrice: 8,
-      cacheHitPrice: 0.19,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
-      id: 'kimi-k2.6',
-      name: 'Kimi K2.6',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 262_144,
-      maxOutputTokens: 32_768,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.15,
-      outputPrice: 0.9,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
-      id: 'kimi-k2.5',
-      name: 'Kimi K2.5',
-      icon: 'kimi',
-      enabled: true,
-      contextLength: 262_144,
-      maxOutputTokens: 32_768,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.23,
-      outputPrice: 3,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      }
-    },
-    {
-      id: 'glm-5.3',
-      name: 'GLM 5.3',
-      icon: 'chatglm',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.694,
-      outputPrice: 2.778,
-      cacheHitPrice: 0.069,
-      supportsThinking: true,
-      // GLM-5.3 不再支持关闭思考；API 仅接受 reasoning_effort=low/high/max（默认 max）。
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        reasoningEffortLevels: ['low', 'high', 'max'],
-        defaultReasoningEffort: 'max'
-      }
-    },
-    {
-      id: 'glm-5.2',
-      name: 'GLM 5.2',
-      icon: 'chatglm',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 0.694,
-      outputPrice: 2.778,
-      cacheHitPrice: 0.069,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
-      }
-    },
-    {
-      id: 'mimo-v2.5',
-      name: 'MiMo V2.5',
-      icon: 'mimo',
-      enabled: true,
-      type: 'anthropic',
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.14,
-      outputPrice: 0.28,
-      cacheHitPrice: 0.0028,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
-      }
-    },
-    {
-      id: 'mimo-v2.5-pro-ultraspeed',
-      name: 'MiMo V2.5 Pro UltraSpeed',
-      icon: 'mimo',
-      enabled: true,
-      type: 'anthropic',
-      contextLength: 1_000_000,
-      maxOutputTokens: 131_072,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 1.305,
-      outputPrice: 2.61,
-      cacheHitPrice: 0.0108,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
-      }
-    },
     // ── OpenAI — GPT-4o family (cache: 50% off input) ──
     {
       id: 'gpt-4o',
@@ -328,135 +126,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 0.6,
       cacheCreationPrice: 0.15,
       cacheHitPrice: 0.075
-    },
-    // ── OpenAI — O-series reasoning (cache: 50% off input) ──
-    {
-      id: 'o1',
-      name: 'o1',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 15.0,
-      outputPrice: 60.0,
-      cacheCreationPrice: 15.0,
-      cacheHitPrice: 7.5,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'o1-pro',
-      name: 'o1 Pro',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 150.0,
-      outputPrice: 600.0,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'o1-mini',
-      name: 'o1 Mini',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 1.1,
-      outputPrice: 4.4,
-      cacheCreationPrice: 1.1,
-      cacheHitPrice: 0.55,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'o3-mini',
-      name: 'o3 Mini',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 1.1,
-      outputPrice: 4.4,
-      cacheCreationPrice: 1.1,
-      cacheHitPrice: 0.55,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'o3-pro',
-      name: 'o3 Pro',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: false,
-      supportsFunctionCall: true,
-      inputPrice: 20.0,
-      outputPrice: 80.0,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'o4-mini',
-      name: 'o4 Mini',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 100_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 1.1,
-      outputPrice: 4.4,
-      cacheCreationPrice: 1.1,
-      cacheHitPrice: 0.55,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {
-          reasoning_effort: 'medium'
-        },
-        reasoningEffortLevels: ['low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
     },
     // ── OpenAI — GPT-4.1 family (cache: 75% off input) ──
     {
@@ -783,35 +452,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
-      id: 'gpt-5.6-sol',
-      name: 'GPT 5.6 Sol',
-      icon: 'openai',
-      enabled: true,
-      serviceTier: 'priority',
-      supportsWebsocket: true,
-      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
-      contextLength: 372_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 5,
-      outputPrice: 30,
-      cacheCreationPrice: 6.25,
-      cacheHitPrice: 0.5,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
-        // automatic subagent task delegation); Terra and Sol expose it.
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true,
-      type: 'openai-responses'
-    },
-    {
       id: 'gpt-5-pro',
       name: 'GPT 5 Pro',
       icon: 'openai',
@@ -879,30 +519,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
-      id: 'mimo-v2.5-tts',
-      name: 'MiMo V2.5 TTS',
-      icon: 'mimo',
-      enabled: true,
-      category: 'speech',
-      audio: true
-    },
-    {
-      id: 'mimo-v2.5-tts-voicedesign',
-      name: 'MiMo V2.5 TTS VoiceDesign',
-      icon: 'mimo',
-      enabled: true,
-      category: 'speech',
-      audio: true
-    },
-    {
-      id: 'mimo-v2.5-tts-voiceclone',
-      name: 'MiMo V2.5 TTS VoiceClone',
-      icon: 'mimo',
-      enabled: true,
-      category: 'speech',
-      audio: true
-    },
-    {
       id: 'gpt-4o-transcribe',
       name: 'GPT-4o Transcribe',
       icon: 'openai',
@@ -916,7 +532,6 @@ export const routinAiPreset: BuiltinProviderPreset = {
       enabled: true,
       category: 'speech'
     },
-
     {
       id: 'gpt-image-1.5',
       name: 'GPT Image 1.5',
@@ -966,6 +581,445 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-images',
       supportsVision: true,
       supportsFunctionCall: false
+    },
+    {
+      id: 'claude-fable-5',
+      name: 'Claude Fable 5',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'mimo-v2.5-pro',
+      name: 'MiMo V2.5 Pro',
+      icon: 'mimo',
+      enabled: true,
+      type: 'anthropic',
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.435,
+      outputPrice: 0.87,
+      cacheHitPrice: 0.0036,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'kimi-k3',
+      name: 'Kimi K3',
+      icon: 'kimi',
+      enabled: true,
+      type: 'anthropic',
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 3,
+      outputPrice: 15,
+      cacheHitPrice: 0.3,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['max'],
+        defaultReasoningEffort: 'max'
+      },
+      requestOverrides: {
+        omitBodyKeys: ['temperature', 'max_tokens', 'max_completion_tokens']
+      }
+    },
+    {
+      id: 'kimi-k2.7-code',
+      name: 'Kimi K2.7 Code',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.95,
+      outputPrice: 4,
+      cacheHitPrice: 0.19,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
+      id: 'kimi-k2.7-code-highspeed',
+      name: 'Kimi K2.7 Code HighSpeed',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      // HighSpeed 只加价输出 token，input/cache 与 kimi-k2.7-code 一致（此前误将三者一并翻倍）
+      inputPrice: 0.95,
+      outputPrice: 8,
+      cacheHitPrice: 0.19,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
+      id: 'kimi-k2.6',
+      name: 'Kimi K2.6',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.15,
+      outputPrice: 0.9,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
+      id: 'kimi-k2.5',
+      name: 'Kimi K2.5',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.23,
+      outputPrice: 3,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
+      id: 'glm-5.3',
+      name: 'GLM 5.3',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.694,
+      outputPrice: 2.778,
+      cacheHitPrice: 0.069,
+      supportsThinking: true,
+      // GLM-5.3 不再支持关闭思考；API 仅接受 reasoning_effort=low/high/max（默认 max）。
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'max'
+      }
+    },
+    {
+      id: 'glm-5.2',
+      name: 'GLM 5.2',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.694,
+      outputPrice: 2.778,
+      cacheHitPrice: 0.069,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'muse-spark-1.2',
+      name: 'Muse Spark 1.2',
+      icon: 'meta',
+      enabled: true,
+      type: 'openai-chat',
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.1,
+      outputPrice: 0.2,
+      cacheHitPrice: 0.002,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'ox-alpha',
+      name: 'Ox Alpha',
+      enabled: true,
+      type: 'openai-chat',
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'hy3',
+      name: 'Hy3',
+      icon: 'hunyuan',
+      enabled: true,
+      type: 'openai-chat',
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.14,
+      outputPrice: 0.58,
+      cacheHitPrice: 0.035,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'mimo-v2.5',
+      name: 'MiMo V2.5',
+      icon: 'mimo',
+      enabled: true,
+      type: 'anthropic',
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.14,
+      outputPrice: 0.28,
+      cacheHitPrice: 0.0028,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    {
+      id: 'mimo-v2.5-pro-ultraspeed',
+      name: 'MiMo V2.5 Pro UltraSpeed',
+      icon: 'mimo',
+      enabled: true,
+      type: 'anthropic',
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.305,
+      outputPrice: 2.61,
+      cacheHitPrice: 0.0108,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } }
+      }
+    },
+    // ── OpenAI — O-series reasoning (cache: 50% off input) ──
+    {
+      id: 'o1',
+      name: 'o1',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 15.0,
+      outputPrice: 60.0,
+      cacheCreationPrice: 15.0,
+      cacheHitPrice: 7.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o1-pro',
+      name: 'o1 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 150.0,
+      outputPrice: 600.0,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o1-mini',
+      name: 'o1 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o3-mini',
+      name: 'o3 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o3-pro',
+      name: 'o3 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 20.0,
+      outputPrice: 80.0,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'o4-mini',
+      name: 'o4 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 200_000,
+      maxOutputTokens: 100_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.1,
+      outputPrice: 4.4,
+      cacheCreationPrice: 1.1,
+      cacheHitPrice: 0.55,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {
+          reasoning_effort: 'medium'
+        },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'mimo-v2.5-tts',
+      name: 'MiMo V2.5 TTS',
+      icon: 'mimo',
+      enabled: true,
+      category: 'speech',
+      audio: true
+    },
+    {
+      id: 'mimo-v2.5-tts-voicedesign',
+      name: 'MiMo V2.5 TTS VoiceDesign',
+      icon: 'mimo',
+      enabled: true,
+      category: 'speech',
+      audio: true
+    },
+    {
+      id: 'mimo-v2.5-tts-voiceclone',
+      name: 'MiMo V2.5 TTS VoiceClone',
+      icon: 'mimo',
+      enabled: true,
+      category: 'speech',
+      audio: true
     },
     {
       id: 'grok-imagine-image-2.0',
@@ -1888,11 +1942,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
 
 /** Model IDs for Routin 套餐（https://api.routin.ai/plan/v1）：Codex 全系、GPT-5.4 系、Claude 全系 */
 const ROUTIN_AI_PLAN_MODEL_ORDER = [
-  'gpt-5.3-codex-spark',
-  'gpt-5.5',
+  'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
-  'gpt-5.6-sol',
+  'gpt-5.5',
+  'gpt-5.3-codex-spark',
   'claude-fable-5',
   'claude-opus-5',
   'claude-sonnet-5',
@@ -1911,7 +1965,8 @@ export const routinAiPlanPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai-plan',
   // v2: gpt-5.4+ models support the Responses WebSocket transport (supportsWebsocket)
   // v3: add Claude Opus 5 to the plan model list.
-  version: 3,
+  // v4: GPT 5.6 Sol first in the plan model list.
+  version: 4,
   name: 'Routin AI（套餐）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/plan/v1',

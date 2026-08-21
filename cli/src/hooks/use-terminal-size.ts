@@ -10,10 +10,11 @@ function readSize(revision = 0): TerminalSize {
   return {
     columns: Math.max(36, process.stdout.columns ?? 80),
     revision,
-    // Keep the floor below any realistic terminal: reporting more rows than the terminal
-    // actually has makes the fullscreen frame taller than the alt screen, so its top —
-    // the transcript — scrolls off irrecoverably.
-    rows: Math.max(8, process.stdout.rows ?? 24)
+    // Keep the floor below any realistic terminal (the desktop host clamps its PTY to
+    // >= 5 rows): reporting more rows than the terminal actually has makes the layout
+    // taller than the screen, which triggers Ink's whole-screen clearTerminal fallback in
+    // classic mode and scrolls the fullscreen transcript off irrecoverably.
+    rows: Math.max(4, process.stdout.rows ?? 24)
   }
 }
 

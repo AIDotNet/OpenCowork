@@ -173,6 +173,8 @@
     "vision": "视觉",
     "tools": "工具",
     "thinking": "思考",
+    "computerUse": "电脑操作",
+    "contextLength": "上下文长度",
     "modelSettings": "模型设置",
     "capabilities": "能力",
     "deepThinking": "深度思考",

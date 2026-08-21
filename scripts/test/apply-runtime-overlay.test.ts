@@ -22,7 +22,7 @@ function assistant(id: string, text: string): UnifiedMessage {
   }
 }
 
-test('merges overlay text thinking and tools onto the streaming assistant', () => {
+test('keeps store content while a live stream is feeding the assistant', () => {
   const messages = [assistant('asst-live', 'Hel')]
   const view = applyRuntimeOverlayToMessages(
     messages,
@@ -67,6 +67,66 @@ test('merges overlay text thinking and tools onto the streaming assistant', () =
   assert.equal(view.targetMessageId, 'asst-live')
   assert.equal(view.messages.length, 1)
   assert.equal(view.messages[0]?.id, 'asst-live')
+  // Overlay text/thinking is a concatenated bag, so merging it onto a live
+  // timeline would flatten interleaved blocks. The store already has stream
+  // order; overlay only supplies live tool status while that stream is open.
+  assert.deepEqual(view.messages[0]?.content, [{ type: 'text', text: 'Hel' }])
+  assert.equal(view.liveToolCallMap?.get('tool-1')?.output, 'file contents')
+  assert.equal(view.liveToolCallMap?.get('tool-1')?.status, 'completed')
+})
+
+test('merges overlay text thinking and tools onto a stale assistant', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst:run-1',
+      role: 'assistant',
+      content: [],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 3
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: 'Hello',
+          thinking: 'plan'
+        }
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Read',
+          status: 'completed',
+          input: { path: 'a.ts' },
+          output: 'file contents'
+        }
+      ]
+    }),
+    null,
+    'session-1'
+  )
+
+  assert.equal(view.isActive, true)
+  assert.equal(view.streamingMessageId, 'asst:run-1')
+  assert.equal(view.targetMessageId, 'asst:run-1')
+  assert.equal(view.messages.length, 1)
+  assert.equal(view.messages[0]?.id, 'asst:run-1')
   assert.deepEqual(view.messages[0]?.content, [
     { type: 'thinking', thinking: 'plan' },
     { type: 'text', text: 'Hello' },
@@ -145,7 +205,7 @@ test('does not inject a second assistant when the streaming id is off-screen', (
 
 test('keeps longer chat-store text while overlay is still catching up', () => {
   const view = applyRuntimeOverlayToMessages(
-    [assistant('asst-live', 'Hello world')],
+    [assistant('asst:run-1', 'Hello world')],
     projection({
       runs: [
         {
@@ -167,7 +227,7 @@ test('keeps longer chat-store text while overlay is still catching up', () => {
         }
       ]
     }),
-    'asst-live',
+    null,
     'session-1'
   )
 
@@ -177,7 +237,7 @@ test('keeps longer chat-store text while overlay is still catching up', () => {
 test('keeps a later thinking block after tools instead of rewriting the first think', () => {
   const messages: UnifiedMessage[] = [
     {
-      id: 'asst-live',
+      id: 'asst:run-1',
       role: 'assistant',
       content: [
         { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
@@ -231,7 +291,7 @@ test('keeps a later thinking block after tools instead of rewriting the first th
         }
       ]
     }),
-    'asst-live',
+    null,
     'session-1'
   )
 
@@ -246,7 +306,7 @@ test('keeps a later thinking block after tools instead of rewriting the first th
 test('starts a new thinking block when overlay thinking continues after tools', () => {
   const messages: UnifiedMessage[] = [
     {
-      id: 'asst-live',
+      id: 'asst:run-1',
       role: 'assistant',
       content: [
         { type: 'thinking', thinking: 'plan A', startedAt: 10 },
@@ -289,7 +349,7 @@ test('starts a new thinking block when overlay thinking continues after tools', 
         }
       ]
     }),
-    'asst-live',
+    null,
     'session-1'
   )
 
@@ -303,7 +363,7 @@ test('starts a new thinking block when overlay thinking continues after tools', 
 test('seals an open think after text when overlay already has the next tools', () => {
   const messages: UnifiedMessage[] = [
     {
-      id: 'asst-live',
+      id: 'asst:run-1',
       role: 'assistant',
       content: [
         { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
@@ -357,7 +417,7 @@ test('seals an open think after text when overlay already has the next tools', (
         }
       ]
     }),
-    'asst-live',
+    null,
     'session-1'
   )
 
@@ -365,8 +425,7 @@ test('seals an open think after text when overlay already has the next tools', (
     { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
     { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
     { type: 'text', text: 'I will explore the frontend.' },
-    { type: 'thinking', thinking: 'plan B', startedAt: 30, completedAt: 30 },
-    { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } },
-    { type: 'thinking', thinking: ' more' }
+    { type: 'thinking', thinking: 'plan B more', startedAt: 30, completedAt: 30 },
+    { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } }
   ])
 })

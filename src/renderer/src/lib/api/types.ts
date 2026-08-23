@@ -575,6 +575,18 @@ export interface ModelPeakHourWindow {
 
 export interface ModelPricingSchedule {
   peakHoursUtc: ModelPeakHourWindow[]
+  /**
+   * ISO weekdays (1 = Monday … 7 = Sunday) the windows apply on. Omit for every day.
+   * DeepSeek restricts its peak windows to weekdays; a card that leaves this out is
+   * billed at peak whenever the hour matches, which is what we do today.
+   */
+  peakDaysIso?: number[]
+  /**
+   * Hour offset of the clock `peakDaysIso` is counted on. Omit to count the day in
+   * UTC. DeepSeek states its weekday rule in Beijing time, so its card sets 8: the
+   * hours stay UTC, only the calendar date shifts.
+   */
+  peakDaysUtcOffset?: number
 }
 
 /**

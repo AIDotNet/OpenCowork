@@ -6,8 +6,19 @@ export const DEEPSEEK_PEAK_HOURS_UTC: ModelPricingSchedule['peakHoursUtc'] = [
   { startHour: 6, endHour: 10 }
 ]
 
+/**
+ * DeepSeek charges peak on weekdays only, and it counts the weekday on its own clock
+ * (Beijing, UTC+8) rather than on UTC. The two calendars disagree for 16:00–24:00 UTC,
+ * which is outside both windows above, so with today's windows the distinction never
+ * changes a bill -- it only starts mattering the day a window moves past 16:00 UTC.
+ */
+export const DEEPSEEK_PEAK_DAYS_ISO = [1, 2, 3, 4, 5]
+export const DEEPSEEK_PEAK_DAYS_UTC_OFFSET = 8
+
 export const DEEPSEEK_PRICING_SCHEDULE: ModelPricingSchedule = {
-  peakHoursUtc: DEEPSEEK_PEAK_HOURS_UTC
+  peakHoursUtc: DEEPSEEK_PEAK_HOURS_UTC,
+  peakDaysIso: DEEPSEEK_PEAK_DAYS_ISO,
+  peakDaysUtcOffset: DEEPSEEK_PEAK_DAYS_UTC_OFFSET
 }
 
 export interface ResolvedModelPrices {
@@ -54,13 +65,45 @@ export function formatPeakHoursUtc(schedule?: ModelPricingSchedule | null): stri
     .join(', ')
 }
 
+/**
+ * Whether `at` is billed at the peak rate: the UTC hour is inside a window, and -- if
+ * the schedule restricts them -- the day is one of the peak days. A schedule with no
+ * `peakDaysIso` keeps today's behaviour and bills peak on every day of the week.
+ */
 export function isPeakPricingHour(
   at: Date = new Date(),
   schedule?: ModelPricingSchedule | null
 ): boolean {
   const windows = schedule?.peakHoursUtc?.length ? schedule.peakHoursUtc : DEEPSEEK_PEAK_HOURS_UTC
   const hour = at.getUTCHours()
-  return windows.some((window) => hour >= window.startHour && hour < window.endHour)
+  if (!windows.some((window) => hour >= window.startHour && hour < window.endHour)) return false
+  const days = usablePeakDays(schedule)
+  if (days.length === 0) return true
+  return days.includes(isoWeekdayAt(at, peakDayOffsetHours(schedule)))
+}
+
+/**
+ * One unusable entry drops the whole restriction rather than just that entry. Dropping
+ * entries would narrow the peak days and hand out a discount the vendor never gave;
+ * dropping the restriction only ever charges the rate we already charge today.
+ */
+function usablePeakDays(schedule?: ModelPricingSchedule | null): number[] {
+  const days = schedule?.peakDaysIso
+  if (!Array.isArray(days) || days.length === 0) return []
+  const usable = days.every((day) => Number.isInteger(day) && day >= 1 && day <= 7)
+  return usable ? days : []
+}
+
+function peakDayOffsetHours(schedule?: ModelPricingSchedule | null): number {
+  const offset = schedule?.peakDaysUtcOffset
+  if (!Number.isInteger(offset as number) || Math.abs(offset as number) > 14) return 0
+  return offset as number
+}
+
+/** ISO weekday (1 = Monday … 7 = Sunday) of `at` on a clock `offsetHours` from UTC. */
+function isoWeekdayAt(at: Date, offsetHours: number): number {
+  const day = new Date(at.getTime() + offsetHours * 3_600_000).getUTCDay()
+  return day === 0 ? 7 : day
 }
 
 export function hasTieredPricing(model: AIModelConfig | null | undefined): boolean {

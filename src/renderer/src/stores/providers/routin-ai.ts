@@ -16,7 +16,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v15: add GLM-5.3（思考不可关闭，reasoning_effort 仅 low/high/max）
   // v16: add muse-spark-1.2, ox-alpha, hy3
   // v17: GPT models first, gpt-5.6-sol at top
-  version: 17,
+  // v18: ox-alpha 思考不可关闭，reasoning_effort 仅 low/high/max（与 GLM-5.3 相同）
+  // v19: add DeepSeek V4 Flash Vision Exp
+  version: 19,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -806,9 +808,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsVision: false,
       supportsFunctionCall: true,
       supportsThinking: true,
+      // Ox Alpha（GLM-5.x stealth）不再支持关闭思考；API 仅接受 reasoning_effort=low/high/max。
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'max'
       }
     },
     {
@@ -1227,6 +1231,28 @@ export const routinAiPreset: BuiltinProviderPreset = {
       contextLength: 1_000_000,
       maxOutputTokens: 384_000,
       supportsVision: false,
+      supportsFunctionCall: true,
+      type: 'openai-chat',
+      inputPrice: 1,
+      outputPrice: 2,
+      cacheCreationPrice: 1,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'deepseek-v4-flash-vision-exp',
+      name: 'DeepSeek V4 Flash Vision Exp',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsVision: true,
       supportsFunctionCall: true,
       type: 'openai-chat',
       inputPrice: 1,

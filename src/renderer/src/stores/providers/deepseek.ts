@@ -15,7 +15,8 @@ export const deepseekPreset: BuiltinProviderPreset = {
   // v2: DeepSeek 模型改用 OpenAI Chat Completions 协议（/chat/completions）
   // v3: DeepSeek V4 支持 reasoning_effort（low/high/max）
   // v4: 2026-08-17 官方峰谷定价（高峰 UTC 01:00–04:00、06:00–10:00，低谷为高峰一半）
-  version: 4,
+  // v5: add DeepSeek V4 Flash Vision Exp
+  version: 5,
   name: 'DeepSeek',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.deepseek.com/v1',
@@ -31,6 +32,27 @@ export const deepseekPreset: BuiltinProviderPreset = {
       contextLength: 1_000_000,
       maxOutputTokens: 384_000,
       supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.44,
+      outputPrice: 1.32,
+      cacheCreationPrice: 0.44,
+      cacheHitPrice: 0.014,
+      offPeakInputPrice: 0.22,
+      offPeakOutputPrice: 0.66,
+      offPeakCacheCreationPrice: 0.22,
+      offPeakCacheHitPrice: 0.007,
+      pricingSchedule: DEEPSEEK_PRICING_SCHEDULE,
+      supportsThinking: true,
+      thinkingConfig: deepseekV4ThinkingConfig
+    },
+    {
+      id: 'deepseek-v4-flash-vision-exp',
+      name: 'DeepSeek V4 Flash Vision Exp',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 384_000,
+      supportsVision: true,
       supportsFunctionCall: true,
       inputPrice: 0.44,
       outputPrice: 1.32,

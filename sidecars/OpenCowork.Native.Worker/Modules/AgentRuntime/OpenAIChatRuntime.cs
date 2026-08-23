@@ -853,7 +853,7 @@ internal static class OpenAIChatRuntime
         AgentRuntimeTokenUsage? finalUsage = null;
         var finalStopReason = "stop";
         var assistantText = new StringBuilder();
-        var toolBuffers = new ToolCallAggregationState();
+        var toolBuffers = new Dictionary<int, ToolCallBuffer>();
         var toolCalls = new List<AgentRuntimeNativeToolCall>();
 
         using var response = await AgentRuntimeRequestTimeout.SendAsync(

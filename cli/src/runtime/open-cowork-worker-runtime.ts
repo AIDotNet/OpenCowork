@@ -333,6 +333,7 @@ const DEFAULT_PEAK_HOURS_UTC = [
   { startHour: 6, endHour: 10 }
 ] as const
 
+/** Mirrors `isPeakPricingHour` in `src/renderer/src/lib/model-pricing.ts`. */
 function isPeakPricingHour(model: JsonRecord | null, at = new Date()): boolean {
   const schedule = model && isRecord(model.pricingSchedule) ? model.pricingSchedule : null
   const rawWindows = schedule && Array.isArray(schedule.peakHoursUtc) ? schedule.peakHoursUtc : null
@@ -349,7 +350,36 @@ function isPeakPricingHour(model: JsonRecord | null, at = new Date()): boolean {
           .filter((window): window is { startHour: number; endHour: number } => window !== null)
       : DEFAULT_PEAK_HOURS_UTC
   const hour = at.getUTCHours()
-  return windows.some((window) => hour >= window.startHour && hour < window.endHour)
+  if (!windows.some((window) => hour >= window.startHour && hour < window.endHour)) return false
+  const days = usablePeakDays(schedule)
+  if (days.length === 0) return true
+  return days.includes(isoWeekdayAt(at, peakDayOffsetHours(schedule)))
+}
+
+/**
+ * One unusable entry drops the whole restriction rather than just that entry: dropping
+ * entries would narrow the peak days and discount a request the vendor charges full
+ * rate for. The schedule arrives here as persisted JSON, so every field is re-checked.
+ */
+function usablePeakDays(schedule: JsonRecord | null): number[] {
+  const days = schedule && Array.isArray(schedule.peakDaysIso) ? schedule.peakDaysIso : null
+  if (!days || days.length === 0) return []
+  const usable = days.every(
+    (day) => Number.isInteger(day) && (day as number) >= 1 && (day as number) <= 7
+  )
+  return usable ? (days as number[]) : []
+}
+
+function peakDayOffsetHours(schedule: JsonRecord | null): number {
+  const offset = schedule ? schedule.peakDaysUtcOffset : null
+  if (!Number.isInteger(offset as number) || Math.abs(offset as number) > 14) return 0
+  return offset as number
+}
+
+/** ISO weekday (1 = Monday … 7 = Sunday) of `at` on a clock `offsetHours` from UTC. */
+function isoWeekdayAt(at: Date, offsetHours: number): number {
+  const day = new Date(at.getTime() + offsetHours * 3_600_000).getUTCDay()
+  return day === 0 ? 7 : day
 }
 
 interface ModelPrices {

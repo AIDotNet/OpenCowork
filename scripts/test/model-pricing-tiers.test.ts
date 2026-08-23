@@ -10,6 +10,8 @@ import {
   resolveModelPrices
 } from '../../src/renderer/src/lib/model-pricing.ts'
 import type { AIModelConfig, ModelPricingSchedule } from '../../src/renderer/src/lib/api/types.ts'
+import { deepseekPreset } from '../../src/renderer/src/stores/providers/deepseek.ts'
+import { routinAiPreset } from '../../src/renderer/src/stores/providers/routin-ai.ts'
 
 const tieredModel: AIModelConfig = {
   id: 'MiniMax-M3',
@@ -211,4 +213,83 @@ test('a weekend request resolves to the off-peak rates end to end', () => {
   assert.equal(weekend.isPeak, false)
   assert.equal(weekend.inputPrice, 0.22)
   assert.equal(weekend.outputPrice, 0.66)
+})
+
+test('official DeepSeek V4 Flash Vision Exp uses weekday peak pricing like Flash', () => {
+  const flash = deepseekPreset.defaultModels.find((model) => model.id === 'deepseek-v4-flash')
+  const vision = deepseekPreset.defaultModels.find(
+    (model) => model.id === 'deepseek-v4-flash-vision-exp'
+  )
+  const pro = deepseekPreset.defaultModels.find((model) => model.id === 'deepseek-v4-pro')
+  assert.ok(flash)
+  assert.ok(vision)
+  assert.ok(pro)
+
+  for (const model of [flash, vision, pro]) {
+    assert.equal(model.pricingSchedule, DEEPSEEK_PRICING_SCHEDULE)
+    assert.equal(model.offPeakInputPrice != null, true, model.id)
+    assert.equal(model.offPeakOutputPrice != null, true, model.id)
+  }
+
+  // Official docs bill Vision Exp at the Flash rate, not Pro.
+  assert.equal(vision.inputPrice, flash.inputPrice)
+  assert.equal(vision.outputPrice, flash.outputPrice)
+  assert.equal(vision.cacheCreationPrice, flash.cacheCreationPrice)
+  assert.equal(vision.cacheHitPrice, flash.cacheHitPrice)
+  assert.equal(vision.offPeakInputPrice, flash.offPeakInputPrice)
+  assert.equal(vision.offPeakOutputPrice, flash.offPeakOutputPrice)
+  assert.equal(vision.offPeakCacheCreationPrice, flash.offPeakCacheCreationPrice)
+  assert.equal(vision.offPeakCacheHitPrice, flash.offPeakCacheHitPrice)
+
+  const weekdayPeak = resolveModelPrices(vision, at('2026-01-01T02:00:00Z'))
+  const weekendWindow = resolveModelPrices(vision, at('2026-01-03T02:00:00Z'))
+  const weekdayOffPeak = resolveModelPrices(vision, at('2026-01-01T20:00:00Z'))
+
+  assert.equal(weekdayPeak.isPeak, true)
+  assert.equal(weekdayPeak.inputPrice, 0.44)
+  assert.equal(weekdayPeak.outputPrice, 1.32)
+  assert.equal(weekdayPeak.cacheHitPrice, 0.014)
+
+  assert.equal(weekendWindow.isPeak, false)
+  assert.equal(weekendWindow.inputPrice, 0.22)
+  assert.equal(weekendWindow.outputPrice, 0.66)
+  assert.equal(weekendWindow.cacheHitPrice, 0.007)
+
+  assert.equal(weekdayOffPeak.isPeak, false)
+  assert.equal(weekdayOffPeak.inputPrice, 0.22)
+})
+
+test('Routin DeepSeek models use the same weekday peak windows as official', () => {
+  const ids = ['deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4-pro'] as const
+  const models = ids.map((id) => {
+    const model = routinAiPreset.defaultModels.find((entry) => entry.id === id)
+    assert.ok(model, id)
+    return model
+  })
+
+  for (const model of models) {
+    assert.equal(model.pricingSchedule, DEEPSEEK_PRICING_SCHEDULE, model.id)
+    assert.equal(model.offPeakInputPrice, (model.inputPrice ?? 0) / 2, model.id)
+    assert.equal(model.offPeakOutputPrice, (model.outputPrice ?? 0) / 2, model.id)
+    assert.equal(model.offPeakCacheCreationPrice, (model.cacheCreationPrice ?? 0) / 2, model.id)
+    assert.equal(model.offPeakCacheHitPrice, (model.cacheHitPrice ?? 0) / 2, model.id)
+  }
+
+  const vision = models[1]
+  const weekdayPeak = resolveModelPrices(vision, at('2026-01-01T02:00:00Z'))
+  const weekendWindow = resolveModelPrices(vision, at('2026-01-03T02:00:00Z'))
+  const weekdayOffPeak = resolveModelPrices(vision, at('2026-01-01T20:00:00Z'))
+
+  assert.equal(weekdayPeak.isPeak, true)
+  assert.equal(weekdayPeak.inputPrice, 1)
+  assert.equal(weekdayPeak.outputPrice, 2)
+  assert.equal(weekdayPeak.cacheHitPrice, 0.2)
+
+  assert.equal(weekendWindow.isPeak, false)
+  assert.equal(weekendWindow.inputPrice, 0.5)
+  assert.equal(weekendWindow.outputPrice, 1)
+  assert.equal(weekendWindow.cacheHitPrice, 0.1)
+
+  assert.equal(weekdayOffPeak.isPeak, false)
+  assert.equal(weekdayOffPeak.inputPrice, 0.5)
 })

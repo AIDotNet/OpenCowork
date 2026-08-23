@@ -1,4 +1,5 @@
-﻿import type { BuiltinProviderPreset } from './types'
+﻿import { DEEPSEEK_PRICING_SCHEDULE } from '../../lib/model-pricing'
+import type { BuiltinProviderPreset } from './types'
 
 export const routinAiPreset: BuiltinProviderPreset = {
   builtinId: 'routin-ai',
@@ -18,7 +19,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v17: GPT models first, gpt-5.6-sol at top
   // v18: ox-alpha 思考不可关闭，reasoning_effort 仅 low/high/max（与 GLM-5.3 相同）
   // v19: add DeepSeek V4 Flash Vision Exp
-  version: 19,
+  // v20: DeepSeek 模型使用官方工作日峰谷定价（高峰为现价，低谷一半）
+  version: 20,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -1237,6 +1239,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 2,
       cacheCreationPrice: 1,
       cacheHitPrice: 0.2,
+      offPeakInputPrice: 0.5,
+      offPeakOutputPrice: 1,
+      offPeakCacheCreationPrice: 0.5,
+      offPeakCacheHitPrice: 0.1,
+      pricingSchedule: DEEPSEEK_PRICING_SCHEDULE,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -1259,6 +1266,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 2,
       cacheCreationPrice: 1,
       cacheHitPrice: 0.2,
+      offPeakInputPrice: 0.5,
+      offPeakOutputPrice: 1,
+      offPeakCacheCreationPrice: 0.5,
+      offPeakCacheHitPrice: 0.1,
+      pricingSchedule: DEEPSEEK_PRICING_SCHEDULE,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
@@ -1281,6 +1293,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
       outputPrice: 24,
       cacheCreationPrice: 12,
       cacheHitPrice: 1,
+      offPeakInputPrice: 6,
+      offPeakOutputPrice: 12,
+      offPeakCacheCreationPrice: 6,
+      offPeakCacheHitPrice: 0.5,
+      pricingSchedule: DEEPSEEK_PRICING_SCHEDULE,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },

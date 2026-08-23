@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.16] - 2026-08-23
+
+### Added
+
+- Added DeepSeek V4 Flash Vision Exp (`deepseek-v4-flash-vision-exp`) to the official DeepSeek and Routin AI catalogs, with vision enabled and the same context, thinking, and pricing as V4 Flash.
+
+### Changed
+
+- Ox Alpha on Routin AI no longer allows turning thinking off; `reasoning_effort` is now low/high/max (default max), matching GLM-5.3.
+
+### Fixed
+
+- Fixed a healthy provider stream dying mid-read (connection reset or truncated SSE body) aborting the turn: the Worker now retries that class of fault when nothing visible has been emitted yet, so a headers-only drop no longer wastes a long wait.
+- Fixed live tool cards staying on “receiving args” after the model finished the call: `tool_use_generated` now marks the call running, and a persisted `tool_result` wins over a stale overlay `streaming` status.
+- Fixed compaction cuts storing the Worker’s run-scoped `asst:<runId>` handle, which never matches a transcript row: the host now spares the streaming desktop message, and the in-chat divider falls back to the last assistant turn before the summary instead of disappearing.
+
 ## [1.3.15] - 2026-08-21
 
 ### Added

@@ -28,6 +28,7 @@ const projection = run(process.execPath, [
   '--test',
   'scripts/test/runtime-projection.test.ts',
   'scripts/test/apply-runtime-overlay.test.ts',
+  'scripts/test/execution-outline.test.ts',
   'scripts/test/worker-event-consumer.test.ts',
   'scripts/test/ui-capability-router.test.ts',
   'scripts/test/agent-session-service.test.ts',

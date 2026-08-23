@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text;
@@ -853,7 +853,7 @@ internal static class OpenAIChatRuntime
         AgentRuntimeTokenUsage? finalUsage = null;
         var finalStopReason = "stop";
         var assistantText = new StringBuilder();
-        var toolBuffers = new Dictionary<int, ToolCallBuffer>();
+        var toolBuffers = new ToolCallAggregationState();
         var toolCalls = new List<AgentRuntimeNativeToolCall>();
 
         using var response = await AgentRuntimeRequestTimeout.SendAsync(
@@ -2681,22 +2681,20 @@ internal static class OpenAIChatRuntime
 
         var thinkingEnabled = JsonHelpers.GetBool(provider, "thinkingEnabled", false);
         var propertyName = thinkingEnabled ? "bodyParams" : "disabledBodyParams";
-        if (!thinkingConfig.TryGetProperty(propertyName, out var bodyParams) ||
-            bodyParams.ValueKind != JsonValueKind.Object)
+        if (thinkingConfig.TryGetProperty(propertyName, out var bodyParams) &&
+            bodyParams.ValueKind == JsonValueKind.Object)
         {
-            return;
-        }
-
-        foreach (var property in bodyParams.EnumerateObject())
-        {
-            if (omitted.Contains(property.Name))
+            foreach (var property in bodyParams.EnumerateObject())
             {
-                continue;
+                if (omitted.Contains(property.Name))
+                {
+                    continue;
+                }
+                property.WriteTo(writer);
             }
-            property.WriteTo(writer);
         }
 
-        if (thinkingEnabled &&
+        if (ShouldWriteReasoningEffort(thinkingEnabled, thinkingConfig) &&
             !omitted.Contains("reasoning_effort") &&
             JsonHelpers.GetString(provider, "reasoningEffort") is { Length: > 0 } reasoningEffort &&
             JsonHelpers.ResolveEffectiveReasoningEffort(reasoningEffort, thinkingConfig)
@@ -2706,6 +2704,42 @@ internal static class OpenAIChatRuntime
             // value passes through unchanged. See JsonHelpers.ResolveEffectiveReasoningEffort.
             writer.WriteString("reasoning_effort", effectiveEffort);
         }
+    }
+
+    // Models such as GLM-5.3 / Ox Alpha always reason. They reject thinking.type=disabled
+    // and only accept reasoning_effort=low|high|max. If the catalog cannot represent "off"
+    // (no disabledBodyParams, no none/minimal effort), still emit the effort field.
+    private static bool ShouldWriteReasoningEffort(bool thinkingEnabled, JsonElement thinkingConfig)
+    {
+        if (thinkingEnabled)
+        {
+            return true;
+        }
+
+        if (thinkingConfig.TryGetProperty("disabledBodyParams", out var disabled) &&
+            disabled.ValueKind == JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (!thinkingConfig.TryGetProperty("reasoningEffortLevels", out var levels) ||
+            levels.ValueKind != JsonValueKind.Array ||
+            levels.GetArrayLength() == 0)
+        {
+            return false;
+        }
+
+        foreach (var item in levels.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String &&
+                item.GetString() is { Length: > 0 } level &&
+                (level is "none" or "minimal"))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool TryWritePromptCacheKey(Utf8JsonWriter writer, JsonElement provider)

@@ -5850,6 +5850,8 @@ export function useChatActions(): {
                       event.toolUseBlock.id,
                       {
                         input: liveCardInput,
+                        status: 'running',
+                        startedAt: Date.now(),
                         ...(event.toolUseBlock.extraContent
                           ? { extraContent: event.toolUseBlock.extraContent }
                           : {})

@@ -98,6 +98,7 @@ import {
   IMAGE_GENERATE_TOOL_NAME
 } from '@renderer/lib/app-plugin/types'
 import { isBrowserToolName } from '@renderer/lib/app-plugin/browser-tool-names'
+import { mergeLiveToolCallMaps } from '@renderer/lib/chat/live-tool-call-status'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
@@ -1899,7 +1900,10 @@ export function AssistantMessage({
   }, [isStreaming, messageToolUseIds])
   const liveToolCalls = useAgentStore(
     useShallow((s) => {
-      if (!isLiveMode || liveToolCallMap || !isStreaming || liveToolCallIds.length === 0) {
+      // Keep reading the agent store even when an overlay map exists: the overlay
+      // can stay on `streaming` after args land, while the store already has
+      // running/completed from tool_call_start/result.
+      if (!isLiveMode || !isStreaming || liveToolCallIds.length === 0) {
         return EMPTY_LIVE_TOOL_CALLS
       }
       const idSet = new Set(liveToolCallIds)
@@ -1914,14 +1918,12 @@ export function AssistantMessage({
     })
   )
   const effectiveLiveToolCallMap = useMemo(() => {
-    if (liveToolCallMap) return liveToolCallMap
-    if (!isStreaming || liveToolCalls.length === 0) return null
-    const map = new Map<string, ToolCallState>()
+    const storeMap = new Map<string, ToolCallState>()
     for (const toolCall of liveToolCalls) {
-      map.set(toolCall.id, toolCall)
+      storeMap.set(toolCall.id, toolCall)
     }
-    return map
-  }, [isStreaming, liveToolCalls, liveToolCallMap])
+    return mergeLiveToolCallMaps(liveToolCallMap, storeMap.size > 0 ? storeMap : null)
+  }, [liveToolCalls, liveToolCallMap])
   const orchestrationAnchorIndex = useMemo(() => {
     if (!normalizedContent || orchestrationRun?.kind !== 'team') return -1
     return normalizedContent.findIndex(

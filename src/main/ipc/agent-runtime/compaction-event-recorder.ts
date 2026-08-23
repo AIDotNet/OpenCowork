@@ -1,4 +1,6 @@
 import type { AgentStreamEvent } from '../../../shared/agent-stream-protocol'
+import { isRunScopedAssistantMessageId } from '../../../shared/runtime-projection/reducer'
+import { getRuntimeRegistry } from '../runtime-registry'
 import { recordSessionCompaction } from './session-compaction'
 
 /**
@@ -10,6 +12,7 @@ import { recordSessionCompaction } from './session-compaction'
  * execution paths. Recording it in the renderer instead is what left headless
  * runs replaying their entire history after every compression.
  */
+
 export function recordCompactionEvents(sessionId: string, events: AgentStreamEvent[]): void {
   for (const event of events) {
     if (event?.type !== 'context_compressed') continue
@@ -34,10 +37,35 @@ export function recordCompactionEvents(sessionId: string, events: AgentStreamEve
         createdAt: summaryMessage.createdAt
       },
       compactedMessageIds: event.compactedMessageIds ?? [],
-      keepMessageIds: event.assistantMessageId ? [event.assistantMessageId] : [],
+      keepMessageIds: resolveKeepMessageIds(sessionId, event.assistantMessageId),
       compactedMessageCount: event.keptMessageCount ?? 0,
       trigger: 'auto',
       preTokens: event.preTokens ?? 0
     })
   }
+}
+
+/**
+ * The turn the cut must spare, named in host terms.
+ *
+ * The Worker reports the turn it was streaming by its own handle
+ * (`asst:<runId>`); no transcript row carries that id, so recording it spares
+ * nothing. The turn then drops out of the model-visible history on the next
+ * request even though the tool results it produced after the compaction point
+ * survive the cut, leaving those results without the `tool_use` blocks they
+ * answer — and the transcript divider, keyed off the same id, falls back to the
+ * summary row's own position instead of the compaction point. The host-local id
+ * for that turn is the streaming message id the renderer announces on
+ * `session-runtime:sync`, which the registry tracks per session.
+ */
+function resolveKeepMessageIds(sessionId: string, workerAssistantMessageId?: string): string[] {
+  const streamingMessageId = getRuntimeRegistry().getStreamingMessageId(sessionId)
+  if (streamingMessageId) return [streamingMessageId]
+
+  // Hosted-only runs (cron, channel auto-reply) assemble their own turn and own
+  // no desktop row, so an unresolvable handle means there is nothing to spare.
+  if (!workerAssistantMessageId || isRunScopedAssistantMessageId(workerAssistantMessageId)) {
+    return []
+  }
+  return [workerAssistantMessageId]
 }

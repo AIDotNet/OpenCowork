@@ -7,6 +7,7 @@ import { isBrowserToolName } from '@renderer/lib/app-plugin/browser-tool-names'
 import { isDesktopControlToolName } from '@renderer/lib/app-plugin/desktop-routing'
 import { isMcpTool } from '@renderer/lib/mcp/mcp-tools'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { resolveLiveToolCallStatus } from '@renderer/lib/chat/live-tool-call-status'
 import { inputSummary } from './tool-call-summary'
 
 export type ToolExecutionVisibility = 'hidden' | 'ordinary' | 'force'
@@ -161,10 +162,7 @@ function resolveToolStatus(
   liveToolCall: ToolCallState | undefined,
   result: ToolResultEntry | undefined
 ): ToolCallStatus | 'completed' {
-  if (result?.isError) return 'error'
-  if (liveToolCall?.status) return liveToolCall.status
-  if (!result) return isStreaming ? 'streaming' : 'canceled'
-  return 'completed'
+  return resolveLiveToolCallStatus(isStreaming, liveToolCall, result)
 }
 
 function getToolCategory(options: {

@@ -18,8 +18,23 @@ export type ProjectStreamContext = {
   seq: number
 }
 
+const RUN_SCOPED_ASSISTANT_MESSAGE_PREFIX = 'asst:'
+
 export function assistantMessageIdForRun(runId: string): string {
-  return `asst:${runId}`
+  return `${RUN_SCOPED_ASSISTANT_MESSAGE_PREFIX}${runId}`
+}
+
+/**
+ * Whether an id is the runtime's own handle for a run's assistant turn rather
+ * than a stored transcript row.
+ *
+ * The Worker names the turn it is streaming this way, so the handle travels on
+ * stream events and overlays, but no `messages` row ever carries it. Anything
+ * that has to point at a real row must reject it instead of storing an id that
+ * can never resolve.
+ */
+export function isRunScopedAssistantMessageId(id: string | null | undefined): boolean {
+  return typeof id === 'string' && id.startsWith(RUN_SCOPED_ASSISTANT_MESSAGE_PREFIX)
 }
 
 export function createEmptyProjection(
@@ -145,6 +160,19 @@ export function projectStreamEvent(
           toolName: event.toolName,
           status: 'streaming',
           input: null,
+          output: null
+        }
+      ]
+    case 'tool_use_generated':
+      return [
+        {
+          type: 'runtime.tool-call-changed',
+          runId: ctx.runId,
+          sessionId: ctx.sessionId,
+          toolCallId: event.toolUseBlock.id,
+          toolName: event.toolUseBlock.name,
+          status: 'running',
+          input: toJsonObject(event.toolUseBlock.input),
           output: null
         }
       ]

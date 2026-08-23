@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 
@@ -89,6 +89,54 @@ internal sealed class AgentRuntimeProviderTransportException : InvalidOperationE
 }
 
 /// <summary>
+/// Raised when an established provider stream dies mid-read: a reset, a truncated body, or any
+/// other transport fault after response headers arrived. Carries what had already been emitted so
+/// the retry policy can distinguish "nothing streamed yet — replay is free" from "partial text or
+/// tool calls are already in the UI — only a resume-style replay without them is safe".
+/// </summary>
+internal sealed class AgentRuntimeProviderStreamTransportException : InvalidOperationException
+{
+    public AgentRuntimeProviderStreamTransportException(
+        string providerName,
+        WorkerHttpFault fault,
+        bool anyContentEmitted,
+        bool anyToolCallsCompleted,
+        Exception innerException)
+        : base(BuildMessage(providerName, fault), innerException)
+    {
+        Fault = fault;
+        AnyContentEmitted = anyContentEmitted;
+        AnyToolCallsCompleted = anyToolCallsCompleted;
+    }
+
+    public WorkerHttpFault Fault { get; }
+
+    /// <summary>Text, reasoning, or image deltas already streamed for this turn.</summary>
+    public bool AnyContentEmitted { get; }
+
+    /// <summary>Complete tool calls already handed back for execution this turn.</summary>
+    public bool AnyToolCallsCompleted { get; }
+
+    /// <summary>
+    /// True when replaying the request would duplicate anything the user can see. A turn that
+    /// emitted nothing (headers-only stream) replays cleanly; one whose visible content was empty
+    /// still replays cleanly because the renderer has nothing to duplicate.
+    /// </summary>
+    public bool WouldDuplicateOutput => AnyContentEmitted || AnyToolCallsCompleted;
+
+    private static string BuildMessage(string providerName, WorkerHttpFault fault)
+    {
+        var reason = fault.Kind switch
+        {
+            WorkerHttpFaultKind.Reset => "the connection was reset mid-stream.",
+            WorkerHttpFaultKind.StreamEnded => "the response ended before it was complete.",
+            _ => "the stream was interrupted."
+        };
+        return $"{providerName} request failed: {reason}";
+    }
+}
+
+/// <summary>
 /// Raised when a provider returns a terminal error inside an otherwise successful streaming
 /// response. Some providers report overload and rate-limit failures this way instead of using an
 /// HTTP error status.
@@ -123,6 +171,7 @@ internal static class AgentRuntimeProviderRetryPolicy
         var statusAttempts = 0;
         var requestTimeoutAttempts = 0;
         var transportAttempts = 0;
+        var streamTransportAttempts = 0;
         var previousStatusDelayMs = 0;
         var startedAt = Stopwatch.GetTimestamp();
 
@@ -224,6 +273,28 @@ internal static class AgentRuntimeProviderRetryPolicy
                     statusCode: null);
                 await Task.Delay(delayMs, state.CancellationToken);
             }
+            catch (AgentRuntimeProviderStreamTransportException ex) when (
+                CanRetryStreamTransport(ex, streamTransportAttempts, state, startedAt))
+            {
+                streamTransportAttempts++;
+                // A mid-stream drop means the link worked and died; give it a bit more room than
+                // the pre-header ladder but still bounded — a dead route should fail visibly.
+                var maxAttempts = WorkerHttpTuning.StreamRetryAttempts;
+                var delayMs = ComputeTransportDelayMs(transportAttempts + streamTransportAttempts);
+
+                WorkerLog.Warn(
+                    $"provider stream fault={ex.Fault.Code}; resuming in {delayMs}ms " +
+                    $"attempt={streamTransportAttempts}/{maxAttempts}");
+                await EmitRetryAsync(
+                    state,
+                    context,
+                    ex.Fault.Code,
+                    streamTransportAttempts,
+                    maxAttempts,
+                    delayMs,
+                    statusCode: null);
+                await Task.Delay(delayMs, state.CancellationToken);
+            }
         }
     }
 
@@ -249,6 +320,31 @@ internal static class AgentRuntimeProviderRetryPolicy
         }
 
         return transportAttempts < WorkerHttpTuning.ResolveAttempts(exception.Fault.Budget);
+    }
+
+    private static bool CanRetryStreamTransport(
+        AgentRuntimeProviderStreamTransportException exception,
+        int streamTransportAttempts,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        long startedAt)
+    {
+        if (!WorkerHttpTuning.TransportRetryEnabled ||
+            !exception.Fault.Retryable ||
+            state.IsCancellationRequested ||
+            !HasTimeRemaining(startedAt))
+        {
+            return false;
+        }
+
+        // Replaying a turn whose deltas already reached the renderer would duplicate text and tool
+        // calls, because the renderer appends and cannot discard. A silent drop (no content yet)
+        // or one where the model had produced nothing visible replays cleanly.
+        if (exception.WouldDuplicateOutput)
+        {
+            return false;
+        }
+
+        return streamTransportAttempts < WorkerHttpTuning.StreamRetryAttempts;
     }
 
     private static Task EmitRetryAsync(

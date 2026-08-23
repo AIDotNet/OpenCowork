@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 /// <summary>
 /// HTTP retry and connection knobs.
@@ -34,6 +34,15 @@ internal static class WorkerHttpTuning
     /// </summary>
     public static int ConfigRetryAttempts { get; } = ReadInt(
         "OPEN_COWORK_NATIVE_RETRY_CONFIG_ATTEMPTS", 2, min: 0, max: 10);
+
+    /// <summary>
+    /// Attempts to resume after an established provider stream dies mid-read. The request already
+    /// cleared DNS, connect, and TLS once, so these failures are usually a transient link blip or
+    /// an idle-timeout drop in a middlebox — but each replay re-runs the model from scratch, so
+    /// keep this shallow and only allow it when nothing was emitted yet.
+    /// </summary>
+    public static int StreamRetryAttempts { get; } = ReadInt(
+        "OPEN_COWORK_NATIVE_RETRY_STREAM_ATTEMPTS", 2, min: 0, max: 10);
 
     /// <summary>
     /// Wall-clock ceiling across all retries of one provider turn. Without it, ten responses

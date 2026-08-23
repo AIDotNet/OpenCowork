@@ -5,7 +5,9 @@ import { RuntimeProjectionEngine } from '../../src/shared/runtime-projection/eng
 import { RuntimePatchJournal } from '../../src/shared/runtime-projection/journal.ts'
 import {
   applyRuntimeEnvelope,
+  assistantMessageIdForRun,
   createEmptyProjection,
+  isRunScopedAssistantMessageId,
   sessionOverlayRefsEqual
 } from '../../src/shared/runtime-projection/reducer.ts'
 import type { AgentRuntimeProjection } from '../../src/shared/runtime-contracts/generated/contracts.ts'
@@ -245,4 +247,49 @@ test('loop_start assistantMessageId is reused for later deltas on the same run',
   assert.equal(engine.snapshot.runs[0]?.assistantMessageId, 'msg-worker')
   assert.equal(engine.snapshot.messages[0]?.messageId, 'msg-worker')
   assert.equal(engine.snapshot.messages[0]?.text, 'Hi there')
+})
+
+test('tool_use_generated leaves streaming so live cards stop showing receiving args', () => {
+  const engine = new RuntimeProjectionEngine('epoch-a', 'worker-a', { ids: sequentialIds() })
+  engine.applyStreamEnvelope({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    seq: 1,
+    events: [
+      { type: 'loop_start' },
+      {
+        type: 'tool_use_streaming_start',
+        toolCallId: 'call-1',
+        toolName: 'Read'
+      }
+    ]
+  })
+  assert.equal(engine.snapshot.toolCalls[0]?.status, 'streaming')
+
+  engine.applyStreamEnvelope({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    seq: 2,
+    events: [
+      {
+        type: 'tool_use_generated',
+        toolUseBlock: {
+          id: 'call-1',
+          name: 'Read',
+          input: { path: 'AGENTS.md' }
+        }
+      }
+    ]
+  })
+
+  assert.equal(engine.snapshot.toolCalls[0]?.status, 'running')
+  assert.equal(engine.snapshot.toolCalls[0]?.input?.path, 'AGENTS.md')
+})
+
+test('run-scoped assistant message ids are recognisable so they never reach stored records', () => {
+  assert.equal(isRunScopedAssistantMessageId(assistantMessageIdForRun('run-1')), true)
+  // Transcript rows are renderer-generated nanoids; anything that must name a
+  // stored row relies on this telling the two apart.
+  assert.equal(isRunScopedAssistantMessageId('rca2c5z5sSm4zy2j2aMCd'), false)
+  assert.equal(isRunScopedAssistantMessageId(null), false)
 })

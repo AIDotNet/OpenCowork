@@ -205,6 +205,7 @@ internal static class AgentRuntimeRequestTimeout
         CancellationToken cancellationToken)
     {
         var host = request.RequestUri?.Host;
+
         var configured = Resolve(provider);
 
         try
@@ -252,5 +253,81 @@ internal static class AgentRuntimeRequestTimeout
                 anyEventsEmitted: false,
                 ex);
         }
+    }
+
+    /// <summary>
+    /// Wraps a transport fault raised while the SSE body was already being read. Without this the
+    /// raw HttpRequestException/IOException escapes the retry policy entirely and kills a run that
+    /// minutes of healthy streaming had invested — the classic "network looks fine but the turn
+    /// died" failure. The emitted-state flags let the policy replay only when nothing visible was
+    /// lost, so partial text is never duplicated.
+    /// </summary>
+    public static Exception WrapStreamReadFault(
+        Exception exception,
+        string providerLabel,
+        string? requestUrl,
+        bool anyContentEmitted,
+        bool anyToolCallsCompleted,
+        CancellationToken cancellationToken)
+    {
+        if (exception is OperationCanceledException or TimeoutException ||
+            cancellationToken.IsCancellationRequested)
+        {
+            return exception;
+        }
+
+        var host = Uri.TryCreate(requestUrl, UriKind.Absolute, out var uri) ? uri.Host : null;
+        var fault = WorkerHttpFaultClassifier.Classify(exception, host);
+        return fault.Retryable
+            ? new AgentRuntimeProviderStreamTransportException(
+                providerLabel,
+                fault,
+                anyContentEmitted,
+                anyToolCallsCompleted,
+                exception)
+            : exception;
+    }
+
+    /// <summary>
+    /// Reads one SSE line with idle-timeout classification applied. Transport faults during the
+    /// read are wrapped for the stream-retry path; callers supply what has already been emitted
+    /// via <paramref name="emitted"/> so replay safety can be judged at the moment of failure.
+    /// </summary>
+    public static async ValueTask<string?> ReadLineAsync(
+        StreamReader reader,
+        JsonElement provider,
+        string providerLabel,
+        string? requestUrl,
+        CancellationToken cancellationToken,
+        (bool AnyContentEmitted, bool AnyToolCallsCompleted) emitted,
+        bool imageGenerationInFlight = false)
+    {
+        try
+        {
+            return await ReadLineAsync(
+                reader,
+                provider,
+                providerLabel,
+                cancellationToken,
+                imageGenerationInFlight);
+        }
+        catch (Exception ex) when (
+            ex is not OperationCanceledException and not TimeoutException &&
+            !cancellationToken.IsCancellationRequested &&
+            WorkerHttpFaultClassifier.IsRetryable(ex, ResolveHost(requestUrl)))
+        {
+            throw WrapStreamReadFault(
+                ex,
+                providerLabel,
+                requestUrl,
+                emitted.AnyContentEmitted,
+                emitted.AnyToolCallsCompleted,
+                cancellationToken);
+        }
+    }
+
+    private static string? ResolveHost(string? url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : null;
     }
 }

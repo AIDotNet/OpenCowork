@@ -37,6 +37,7 @@ import {
 } from '@renderer/lib/agent/context-compression'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { DB_MESSAGES_LIST_LOCATOR_MSGPACK_CHANNEL } from '../../../../shared/messagepack/binary-ipc'
+import { isRunScopedAssistantMessageId } from '../../../../shared/runtime-projection/reducer'
 import { applyRuntimeOverlayToMessages } from '@renderer/lib/chat/apply-runtime-overlay'
 import { useSessionRuntimeProjection } from '@renderer/lib/chat/use-session-runtime-projection'
 
@@ -709,24 +710,39 @@ function useInlineCompactSummaryState(
     () => (summaryId ? (messages.find((message) => message.id === summaryId) ?? null) : null),
     [messages, summaryId]
   )
-  const anchorId =
+  const recordedAnchorId =
     summary?.meta?.compactSummary?.displayAnchor?.assistantMessageId ??
     (recordedSummaryId ? (compactSummary?.anchorAssistantMessageId ?? null) : null)
-  const anchorIsResident = React.useMemo(
-    () =>
-      anchorId
-        ? messages.some((message) => message.id === anchorId && message.role === 'assistant')
-        : false,
-    [anchorId, messages]
-  )
+  const anchorId = React.useMemo(() => {
+    if (!recordedAnchorId) return null
+    // Cuts recorded before the host translated the Worker's run handle into a
+    // transcript row name an assistant message that does not exist. The turn it
+    // meant is the last assistant message before the summary row, since the
+    // summary is written at the cut and that turn is what the cut spared.
+    if (isRunScopedAssistantMessageId(recordedAnchorId)) {
+      const summaryIndex = summaryId
+        ? messages.findIndex((message) => message.id === summaryId)
+        : -1
+      if (summaryIndex < 0) return null
+      for (let index = summaryIndex - 1; index >= 0; index -= 1) {
+        if (messages[index].role === 'assistant') return messages[index].id
+      }
+      return null
+    }
+    return messages.some(
+      (message) => message.id === recordedAnchorId && message.role === 'assistant'
+    )
+      ? recordedAnchorId
+      : null
+  }, [messages, recordedAnchorId, summaryId])
 
   return React.useMemo(() => {
-    if (!summary || !anchorId || !anchorIsResident) return EMPTY_INLINE_COMPACT_SUMMARY_STATE
+    if (!summary || !anchorId) return EMPTY_INLINE_COMPACT_SUMMARY_STATE
     return {
       byAssistantId: new Map([[anchorId, [summary]]]),
       summaryIds: new Set([summary.id])
     }
-  }, [anchorId, anchorIsResident, summary])
+  }, [anchorId, summary])
 }
 
 function shouldShowAssistantRailMarker(

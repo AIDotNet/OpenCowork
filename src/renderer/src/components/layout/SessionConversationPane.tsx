@@ -394,34 +394,9 @@ export function SessionConversationPane({
                   </TooltipContent>
                 </Tooltip>
 
-                {hasProjectFolderAction || hasTranscriptActions ? (
-                  <div className="mx-0.5 h-4 w-px bg-border/60" />
-                ) : null}
-
-                {hasProjectFolderAction ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 rounded-md text-muted-foreground/80 hover:text-foreground"
-                        onClick={() => void handleOpenWorkingFolder()}
-                      >
-                        <ExternalLink className="size-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('layout.openFolder', { defaultValue: 'Open folder' })}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-
-                {hasProjectFolderAction && hasTranscriptActions ? (
-                  <div className="mx-0.5 h-4 w-px bg-border/60" />
-                ) : null}
-
                 {hasTranscriptActions ? (
                   <>
+                    <div className="mx-0.5 h-4 w-px bg-border/60" />
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button

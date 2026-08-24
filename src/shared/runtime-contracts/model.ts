@@ -35,6 +35,15 @@ export type JsonValue =
 export type JsonObject = { readonly [key: string]: JsonValue }
 
 export type RuntimeRolloutMode = 'legacy' | 'shadow' | 'v2'
+export type CompressionPhase = 'idle' | 'summarizing' | 'completed'
+export type SubAgentPhase = 'queued' | 'running' | 'completed'
+export type SubAgentReportStatus =
+  | 'pending'
+  | 'queued'
+  | 'submitted'
+  | 'retrying'
+  | 'fallback'
+  | 'missing'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'error' | 'cancelled' | 'interrupted'
 export type ApprovalDecision = 'approved' | 'denied'
 export type AttachMode = 'snapshot' | 'patches' | 'expired'
@@ -328,6 +337,47 @@ export interface AgentRuntimeProjection {
   toolCalls: RuntimeToolCallOverlay[]
   approvals: RuntimeApprovalOverlay[]
   pendingUiCapabilities: RuntimeUiCapabilityOverlay[]
+  subAgents: RuntimeSubAgentOverlay[]
+}
+
+/**
+ * A provider request being retried for the current iteration.
+ *
+ * Carried on the run because the UI shows it against the run, not a message: a
+ * retry banner, the composer status, and the session list indicator all read the
+ * same state.
+ */
+export interface RuntimeRequestRetryOverlay {
+  /** @cs int */
+  attempt: number
+  /** @cs int */
+  maxAttempts: number
+  /** @cs int */
+  delayMs: number
+  /** @cs int */
+  statusCode: number | null
+  reason: string
+}
+
+/**
+ * Context summarization progress for a run.
+ *
+ * The draft text the summarizer streams is deliberately absent: the worker emits
+ * those tokens as live-only frames that never enter the durable outbox, so they
+ * cannot reach this projection at all. Only the phase transitions can.
+ */
+export interface RuntimeCompressionOverlay {
+  phase: CompressionPhase
+  /** @cs int */
+  attempt: number | null
+  /** @cs int */
+  maxAttempts: number | null
+  /** @cs int */
+  preTokens: number | null
+  /** @cs int */
+  keptMessageCount: number | null
+  summarizerFailed: boolean | null
+  summaryMessageId: string | null
 }
 
 export interface RuntimeRunOverlay {
@@ -337,6 +387,47 @@ export interface RuntimeRunOverlay {
   assistantMessageId: string | null
   /** @cs int */
   lastSeq: number
+  /** Current provider turn, or null before the first iteration is announced. */
+  /** @cs int */
+  iteration: number | null
+  /** Stop reason from the last completed iteration. */
+  lastStopReason: string | null
+  requestRetry: RuntimeRequestRetryOverlay | null
+  compression: RuntimeCompressionOverlay | null
+}
+
+/**
+ * A sub-agent spawned by a run, keyed by the parent tool-use id.
+ *
+ * This is the lifecycle spine only — phase, progress, outcome and a short live
+ * text preview. It deliberately does not carry the sub-agent's inner transcript.
+ * Patches land in a journal capped at 2000 entries and 8 MiB, and a transcript
+ * snapshot on every inner tool or image event would exhaust that budget within
+ * one busy sub-agent, forcing every late attach onto the expensive full-snapshot
+ * path. Inner transcript detail stays with the legacy render path.
+ */
+export interface RuntimeSubAgentOverlay {
+  toolUseId: string
+  runId: string
+  sessionId: string
+  name: string
+  displayName: string | null
+  description: string | null
+  phase: SubAgentPhase
+  reportStatus: SubAgentReportStatus
+  report: string
+  /** @cs int */
+  iteration: number
+  success: boolean | null
+  endReason: string | null
+  errorMessage: string | null
+  /** Bounded live preview of the sub-agent's assistant text. */
+  streamingText: string
+  usage: JsonObject | null
+  /** @cs long */
+  startedAt: number
+  /** @cs long */
+  completedAt: number | null
 }
 
 export interface RuntimeMessageOverlay {
@@ -346,6 +437,18 @@ export interface RuntimeMessageOverlay {
   role: string
   text: string
   thinking: string | null
+  /**
+   * Ordered content the flat text and thinking strings cannot hold: generated
+   * images, image failures, and web-search activity. Serialized content blocks,
+   * in arrival order.
+   *
+   * A window that opens part-way through a turn starts its own subscription live,
+   * so this overlay is the only place the turn's earlier media can come from —
+   * the transcript in the database covers only what a window was around to write.
+   */
+  blocks: JsonObject[]
+  /** Token usage reported at the end of a provider call. */
+  usage: JsonObject | null
 }
 
 export interface RuntimeToolCallOverlay {
@@ -381,12 +484,24 @@ export interface RuntimeReset {
   workerInstanceId: string
 }
 
+/**
+ * A patch to a run's overlay.
+ *
+ * Lifecycle fields are carried here rather than as their own event variants
+ * because they arrive interleaved with status changes and always describe the
+ * same row. Null clears a field; the reducer leaves anything absent untouched.
+ */
 export interface RunChanged {
   type: 'runtime.run-changed'
   runId: string
   sessionId: string
   status: RunStatus
   assistantMessageId: string | null
+  /** @cs int */
+  iteration: number | null
+  lastStopReason: string | null
+  requestRetry: RuntimeRequestRetryOverlay | null
+  compression: RuntimeCompressionOverlay | null
 }
 
 export interface MessageStarted {
@@ -405,12 +520,63 @@ export interface MessageDelta {
   thinking: string | null
 }
 
+/**
+ * Adds or replaces one content block on a message overlay.
+ *
+ * `blockKey` identifies a block that can be revised in place — web-search
+ * activity arrives twice, first as `searching` and then `completed`, and the
+ * second must not appear as a duplicate chip.
+ */
 export interface MessageBlockChanged {
   type: 'runtime.message-block-changed'
   runId: string
   sessionId: string
   messageId: string
   block: JsonObject
+  blockKey: string | null
+}
+
+/** Usage and provider metadata reported when a provider call finishes. */
+export interface MessageMetadataChanged {
+  type: 'runtime.message-metadata-changed'
+  runId: string
+  sessionId: string
+  messageId: string
+  usage: JsonObject | null
+}
+
+/**
+ * A patch to one sub-agent's overlay. Null clears a field; the reducer leaves
+ * anything the emitter had no opinion about untouched.
+ */
+export interface SubAgentChanged {
+  type: 'runtime.sub-agent-changed'
+  runId: string
+  sessionId: string
+  toolUseId: string
+  name: string
+  displayName: string | null
+  description: string | null
+  phase: SubAgentPhase
+  reportStatus: SubAgentReportStatus | null
+  report: string | null
+  /** @cs int */
+  iteration: number | null
+  success: boolean | null
+  endReason: string | null
+  errorMessage: string | null
+  usage: JsonObject | null
+  /** @cs long */
+  completedAt: number | null
+}
+
+/** Streamed assistant text from a sub-agent, appended to its live preview. */
+export interface SubAgentTextDelta {
+  type: 'runtime.sub-agent-delta'
+  runId: string
+  sessionId: string
+  toolUseId: string
+  text: string
 }
 
 export interface ToolCallChanged {
@@ -469,6 +635,9 @@ export type RuntimeEvent =
   | UiCapabilityChanged
   | RunCompleted
   | SessionTranscriptCommitted
+  | SubAgentChanged
+  | SubAgentTextDelta
+  | MessageMetadataChanged
 
 export interface UiCapabilityIdentity {
   requestId: string
@@ -597,6 +766,9 @@ export interface RuntimeEvents {
   'runtime.ui-capability-changed': { payload: UiCapabilityChanged }
   'runtime.run-completed': { payload: RunCompleted }
   'runtime.session-transcript-committed': { payload: SessionTranscriptCommitted }
+  'runtime.sub-agent-changed': { payload: SubAgentChanged }
+  'runtime.sub-agent-delta': { payload: SubAgentTextDelta }
+  'runtime.message-metadata-changed': { payload: MessageMetadataChanged }
 }
 
 export interface UiCapabilities {

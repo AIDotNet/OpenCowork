@@ -19,7 +19,7 @@ import {
   normalizeRendererRequestRecord,
   readNonEmptyString
 } from '../ipc/agent-runtime/request-utils'
-import { decodeAgentStreamEnvelope } from '../../shared/messagepack/agent-stream-codec'
+import { readAgentStreamEnvelope } from '../../shared/messagepack/agent-stream-codec'
 import { readChannelPlugins } from './channel-config-store'
 import type { ChannelInstance, ChannelPermissions } from './channel-types'
 import { downloadFeishuMessageResourceFromMain, executePluginAction } from '../ipc/channel-handlers'
@@ -509,11 +509,9 @@ async function executeHeadlessTask(task: HeadlessChannelTask): Promise<void> {
   let eventChain: Promise<void> = Promise.resolve()
   const unsubscribe = manager.addRawEventListener((frame) => {
     if (frame.runId !== activeRunId) return
-    let envelope: StreamEnvelope | null = null
-    try {
-      envelope = decodeAgentStreamEnvelope(frame.bytes) as StreamEnvelope
-    } catch (err) {
-      console.warn('[HeadlessAutoReply] Failed to decode stream frame:', err)
+    const envelope = readAgentStreamEnvelope(frame.envelope) as StreamEnvelope | null
+    if (!envelope) {
+      console.warn('[HeadlessAutoReply] Unreadable stream frame')
       return
     }
     if (

@@ -13,7 +13,6 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
-import { AutoMemoryPanel } from '@renderer/components/memory/AutoMemoryPanel'
 import { SettingsPanel } from '../settings-primitives'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
@@ -492,8 +491,6 @@ export function MemoryPanel(): React.JSX.Element {
         </div>
         <p className="text-xs text-muted-foreground">{t('memory.effectiveHint')}</p>
       </section>
-
-      <AutoMemoryPanel variant="global" />
 
       <section className="space-y-4">
         <div className="flex flex-wrap gap-2">

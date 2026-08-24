@@ -1,12 +1,12 @@
-﻿# AGENTS.md
+# AGENTS.md
 
 ## Package scope
 - This is the standalone `cli/` package (`@aidotnet/opencowork`): a Node.js ≥18, TypeScript ESM package. Work from this directory and use npm/package-lock; it is not the repository root npm dependency tree.
-- Layout: `src/index.tsx` starts Commander and Ink; `src/app.tsx` owns terminal state; `src/components/` contains UI; `src/runtime/` contains Native Worker adapters; `src/terminal/` controls terminal behavior; `src/lib/` holds shared helpers; `test/` contains Node/PTY tests and committed golden snapshots.
+- Layout: `src/index.tsx` starts Commander and Ink; `src/app.tsx` owns terminal state; `src/components/` contains UI; `src/runtime/` contains agent-runtime adapters; `src/terminal/` controls terminal behavior; `src/lib/` holds shared helpers; `test/` contains Node/PTY tests and committed golden snapshots.
 
 ## Runtime boundary
-- The CLI is a terminal renderer and host adapter. `OpenCowork.Native.Worker` remains the only agent loop, provider transport, tool dispatcher/executor, permission-policy evaluator, context compressor, sub-agent runtime, and durable data backend.
-- Do not add a parallel model/provider client, direct tool execution path, agent loop, duplicate credential store, or simulated production runtime. Use versioned Worker IPC and canonical events instead.
+- The CLI is a terminal renderer and host adapter. Agent-loop authority lives behind `WorkerBackendClient`, backed by the .NET Native Worker the CLI spawns for itself (`--worker <path>` overrides the binary).
+- Do not add a second agent loop, a parallel model/provider client, a direct tool execution path, a duplicate credential store, or a simulated production runtime. Talk to the worker through the same request/event surface.
 - Do not present OpenCowork UI or documentation as Anthropic or Claude Code.
 
 ## Code conventions

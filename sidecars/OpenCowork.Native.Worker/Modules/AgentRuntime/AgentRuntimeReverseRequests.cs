@@ -5,6 +5,18 @@ using OpenCowork.Contracts.Generated;
 internal static class AgentRuntimeReverseRequests
 {
     private static readonly ConcurrentDictionary<string, PendingReverseRequest> Pending = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How long a reverse request waits for the host before giving up.
+    ///
+    /// There was no deadline here at all: a host that never answered left the run
+    /// blocked forever, holding its lane and looking indistinguishable from a slow
+    /// tool. The host's own UI prompts expire after ten minutes, so this sits just
+    /// past that — long enough that a human deciding on an approval is never cut
+    /// off, short enough that a lost host surfaces as an error.
+    /// </summary>
+    private static readonly TimeSpan ReverseRequestTimeout = TimeSpan.FromMinutes(11);
+
     private static long nextId;
 
     public static async Task<JsonElement> RequestAsync(
@@ -20,7 +32,12 @@ internal static class AgentRuntimeReverseRequests
             throw new InvalidOperationException($"Duplicate reverse request id: {id}");
         }
 
-        using var registration = cancellationToken.Register(static state =>
+        using var deadline = new CancellationTokenSource(ReverseRequestTimeout);
+        using var combined = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            deadline.Token);
+
+        using var registration = combined.Token.Register(static state =>
         {
             var requestId = (string)state!;
             if (Pending.TryRemove(requestId, out var request))
@@ -41,6 +58,18 @@ internal static class AgentRuntimeReverseRequests
                 AgentRuntimeContractsJsonContext.Default.ReverseRequestEnvelope);
 
             return await pending.Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            // The host never answered. Surfacing this as an error fails the tool
+            // rather than the whole run, which is what a caller can act on.
+            WorkerLog.Warn(
+                $"reverse request timed out id={id} method={method} " +
+                $"afterSeconds={ReverseRequestTimeout.TotalSeconds:0}");
+            throw new TimeoutException(
+                $"Host did not answer reverse request '{method}' within " +
+                $"{ReverseRequestTimeout.TotalMinutes:0} minutes.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

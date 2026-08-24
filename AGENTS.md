@@ -1,4 +1,4 @@
-﻿# Repository Guidelines
+# Repository Guidelines
 
 OpenCowork is an Electron desktop app plus a terminal CLI that share one .NET Native Worker. Keep process boundaries explicit: system access stays in Main, UI state stays in Renderer, the agent loop belongs in the Worker, shared types go through `src/shared`.
 
@@ -46,7 +46,9 @@ resources/             # Bundled runtime assets (not compiled source)
 **Key architectural patterns:**
 
 - **IPC:** Renderer calls `ipcClient.invoke(channel)`; Main handles in `src/main/ipc/*-handlers.ts`. New runtime code must use the generated runtime API (`src/shared/runtime-contracts/`), not ad-hoc channel strings.
-- **Agent runtime:** The Native Worker owns the provider loop, tool execution, approvals, cancellation, hosted sessions, and durable jobs/events. `src/main/ipc/native-agent-runtime.ts` is only the handshake/subscribe/request/lifecycle shim. Interactive runs start from the renderer via `agent:run`; cron assembles them in Main. Both call Worker `agent/run`. Do not add a JavaScript agent loop. Boundaries: `docs/architecture/agent-runtime-boundaries.md`. ADR: `docs/adr/0001-agent-runtime-authority.md`.
+- **Agent runtime:** The runtime owns the provider loop, tool execution, approvals, cancellation, hosted sessions, and durable jobs/events. `src/main/ipc/native-agent-runtime.ts` is only the handshake/subscribe/request/lifecycle shim. Interactive runs start from the renderer via `agent:run`; cron assembles them in Main. Both call `agent/run`. Never iterate a provider or execute a tool from Main or Renderer. Boundaries: `docs/architecture/agent-runtime-boundaries.md`. ADR: `docs/adr/0001-agent-runtime-authority.md`.
+- **One runtime, HTTP only:** `getNativeWorker()` returns a `WorkerRuntimeClient` (`src/shared/worker-runtime-client.ts`), always the .NET Native Worker child process, reached over a loopback HTTP API (`--http-token`, required; `POST /rpc`, `POST /cancel`, `GET /events?consumerId=…` SSE, `GET /reverse` SSE, `GET /health`, port published on stdout). Shared wire: `src/shared/worker-http-channel.ts`. There is no socket fallback. Reverse RPC has its own stream so a stalled event consumer cannot block an approval; `/events` is per-consumer so the renderer and the host each keep their own durable cursor.
+- **Renderer talks to the worker directly:** commands and queries go from the window to `/rpc` (`src/renderer/src/lib/runtime/worker-http-client.ts`), and each window subscribes to `/events` under its own durable consumer id (`src/renderer/src/lib/runtime/worker-event-stream.ts`), checkpointing after it applies. Main supplies the endpoint and token through `sidecar:connection`. Keep a channel in Main only when Main contributes state the renderer does not have (hooks, permission policy, goals, window routing) — not as a transport hop.
 - **Desktop vs CLI:** Two clients of one worker and `~/.open-cowork/` data. The CLI must not grow a parallel provider client, tool executor, or credential store.
 - **Tool system:** Worker executes tools. Renderer `src/renderer/src/lib/tools/` is a catalog / legacy / UI-only layer (`ToolHandler` in `tool-types.ts`). Register via `registerAllTools()` in phases (core → skills → sub-agents → teams). WebSearch, CodeGraph, and channel plugins register dynamically from settings.
 - **Session modes:** `chat`, `clarify`, `cowork`, `code`, `acp` — distinct prompts/tools/UI. Mode lives in `SessionPromptSnapshot` (`chat-store.ts`).
@@ -81,16 +83,16 @@ npm run cli:test            # Build CLI then Node test suite (from repo root)
 
 ## Coding Style & Naming Conventions
 
-| Rule             | Convention |
-| ---------------- | ---------- |
-| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas |
-| Indentation      | 2 spaces, LF, UTF-8, final newline (EditorConfig) |
-| React components | PascalCase (`Layout.tsx`) |
-| Stores/helpers   | kebab-case (`chat-store.ts`) |
-| Path aliases     | `@renderer/*` → `src/renderer/src/*` |
+| Rule             | Convention                                                                                                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Formatting       | Prettier: single quotes, no semicolons, 100-col width, no trailing commas                                                                                                                                                                              |
+| Indentation      | 2 spaces, LF, UTF-8, final newline (EditorConfig)                                                                                                                                                                                                      |
+| React components | PascalCase (`Layout.tsx`)                                                                                                                                                                                                                              |
+| Stores/helpers   | kebab-case (`chat-store.ts`)                                                                                                                                                                                                                           |
+| Path aliases     | `@renderer/*` → `src/renderer/src/*`                                                                                                                                                                                                                   |
 | i18n             | `t('key', { defaultValue: 'English text' })` — never hardcode Chinese in UI. Namespaced JSON under `src/renderer/src/locales/` (common, layout, chat, settings, cowork, agent, ssh, pet, taskboard). Language is static at init; changes need restart. |
-| Comments         | Intent, invariants, boundaries — not restating the code. |
-| CLI              | ESM relative imports ending in `.js`; do not hand-edit `cli/src/vendor/*` (generated by `cli/scripts/sync-shared.mjs`). |
+| Comments         | Intent, invariants, boundaries — not restating the code.                                                                                                                                                                                               |
+| CLI              | ESM relative imports ending in `.js`; do not hand-edit `cli/src/vendor/*` (generated by `cli/scripts/sync-shared.mjs`).                                                                                                                                |
 
 Run `npm run lint` and `npm run format` before pushing.
 
@@ -135,7 +137,7 @@ When bumping `package.json` version, keep download/release notes aligned with Gi
 
 - **Prompts:** Bundled in `resources/prompts/`; user overrides in `~/.open-cowork/prompts/`. Loaded via IPC (`prompt-loader.ts` → `prompts:load`). Each mode has its own template.
 - **Tools:** Prefer Worker modules under `sidecars/OpenCowork.Native.Worker/Modules/`. Remaining renderer handlers must implement `ToolHandler` and register in `src/renderer/src/lib/tools/index.ts`. Slow Worker routes use `RegisterJob(...)`.
-- **Runtime protocol:** New commands/queries/events belong in `src/shared/runtime-contracts/model.ts`, then `npm run contracts:gen`. Do not add a JavaScript agent loop.
+- **Runtime protocol:** New commands/queries/events belong in `src/shared/runtime-contracts/model.ts`, then `npm run contracts:gen`. Do not add a third agent loop; extend one of the two backends behind `WorkerRuntimeClient`.
 - **MCP:** Loaded dynamically. Test connected and disconnected servers.
 - **Skills & agents:** Bundled skills `resources/skills/`; bundled agents `resources/agents/`. Custom skills `~/.agents/skills/`; custom agents `~/.open-cowork/agents/`.
 - **Extensions:** Bundled under `resources/extensions/`. Use the `create-extension` skill for new ones.

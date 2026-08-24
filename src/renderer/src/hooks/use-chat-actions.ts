@@ -183,10 +183,6 @@ import {
   loadLayeredMemorySnapshot,
   type SessionMemoryScope
 } from '@renderer/lib/agent/memory-files'
-import {
-  installMemoryAutomationDailyRollup,
-  runMemoryAutomationForSession
-} from '@renderer/lib/agent/memory-automation'
 import { IMAGE_GENERATE_TOOL_NAME } from '@renderer/lib/app-plugin/types'
 import {
   isDesktopControlToolName,
@@ -3652,7 +3648,6 @@ function createSidecarEventStream(options: {
               recovered: boolean
               published: number
               jobState: string | null
-              journalFrames: number
               lastEventAt: number | null
             } | null = null
 
@@ -3684,7 +3679,6 @@ function createSidecarEventStream(options: {
                 jobState,
                 check: firstProgressChecks,
                 published: recovery?.published ?? 0,
-                journalFrames: recovery?.journalFrames ?? 0,
                 logLabel
               })
               if (!finished && !pendingFailure && !sawProgressEvent) {
@@ -3695,18 +3689,13 @@ function createSidecarEventStream(options: {
 
             // Terminal Job with no frames yet: give replay a couple more beats
             // before treating delivery as permanently lost.
-            if (
-              (recovery?.published ?? 0) > 0 ||
-              (recovery?.journalFrames ?? 0) > 0 ||
-              firstProgressChecks < 3
-            ) {
+            if ((recovery?.published ?? 0) > 0 || firstProgressChecks < 3) {
               console.warn('[ChatActions] Sidecar terminal run awaiting recovered stream', {
                 sessionId,
                 runId,
                 jobState,
                 check: firstProgressChecks,
                 published: recovery?.published ?? 0,
-                journalFrames: recovery?.journalFrames ?? 0,
                 logLabel
               })
               if (!finished && !pendingFailure && !sawProgressEvent) {
@@ -4754,17 +4743,6 @@ export function useChatActions(): {
             agentStore.setSessionStatus(sessionId, 'completed')
             sessionAbortControllers.delete(sessionId)
             sessionSidecarRunIds.delete(sessionId)
-            if (sessionScope === 'main' && !abortController.signal.aborted) {
-              void runMemoryAutomationForSession({
-                sessionId,
-                assistantMessageId: assistantMsgId,
-                memorySnapshot,
-                source,
-                aborted: abortController.signal.aborted
-              }).catch((error) => {
-                console.warn('[MemoryAutomation] Session run failed:', error)
-              })
-            }
             if (!isSessionForeground(sessionId)) {
               const sessionTitle =
                 useChatStore.getState().sessions.find((item) => item.id === sessionId)?.title ??
@@ -6429,17 +6407,6 @@ export function useChatActions(): {
               if (!dispatchedQueuedMessage) {
                 tryDispatchPendingGoalContinuation(sessionId)
               }
-              if (sessionScope === 'main' && !abortController.signal.aborted) {
-                void runMemoryAutomationForSession({
-                  sessionId,
-                  assistantMessageId: assistantMsgId,
-                  memorySnapshot,
-                  source,
-                  aborted: abortController.signal.aborted
-                }).catch((error) => {
-                  console.warn('[MemoryAutomation] Session run failed:', error)
-                })
-              }
 
               if (!isSessionForeground(sessionId)) {
                 const sessionTitle =
@@ -6499,7 +6466,6 @@ export function useChatActions(): {
   )
 
   useEffect(() => {
-    installMemoryAutomationDailyRollup()
     ensureTeamLeadListener()
     ensureBackgroundSubAgentListener()
     if (useTeamStore.getState().activeTeam || pendingTeamWakeMessages.length > 0) {

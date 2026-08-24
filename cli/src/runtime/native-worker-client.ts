@@ -1,19 +1,14 @@
-import { decode, encode } from '@msgpack/msgpack'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { existsSync, rmSync } from 'node:fs'
-import { createConnection, type Socket } from 'node:net'
+import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   WORKER_PROTOCOL_VERSION,
-  WorkerFrameDecoder,
-  WORKER_HEARTBEAT_INTERVAL_MS as HEARTBEAT_INTERVAL_MS,
-  WORKER_CONNECT_TIMEOUT_MS as CONNECT_TIMEOUT_MS,
-  WORKER_CONNECT_RETRY_DELAY_MS,
-  createWorkerFrame as createFrame
+  WORKER_HEARTBEAT_INTERVAL_MS as HEARTBEAT_INTERVAL_MS
 } from '../vendor/native-worker-protocol.js'
+import { WorkerHttpChannel } from '../vendor/worker-http-channel.js'
 
 const REQUEST_TIMEOUT_MS = 60_000
 
@@ -177,60 +172,12 @@ function resolveWorkerPath(explicitPath?: string): string | null {
   return candidates.find((candidate) => existsSync(candidate)) ?? null
 }
 
-function createEndpoint(): string {
-  const suffix = randomUUID().replaceAll('-', '')
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\open-cowork-cli-${process.pid}-${suffix}`
-    : `/tmp/open-cowork-cli-${process.pid}-${suffix}.sock`
-}
-
-async function connectToEndpoint(endpoint: string, child: ChildProcess): Promise<Socket> {
-  const startedAt = Date.now()
-  let lastError: Error | null = null
-
-  while (Date.now() - startedAt < CONNECT_TIMEOUT_MS) {
-    if (child.exitCode !== null) {
-      throw new Error(`Native worker exited before IPC connected (code ${child.exitCode})`)
-    }
-
-    try {
-      return await new Promise<Socket>((resolveConnection, rejectConnection) => {
-        const socket = createConnection(endpoint)
-        const handleConnect = (): void => {
-          socket.off('error', handleError)
-          resolveConnection(socket)
-        }
-        const handleError = (error: Error): void => {
-          socket.off('connect', handleConnect)
-          socket.destroy()
-          rejectConnection(error)
-        }
-        socket.once('connect', handleConnect)
-        socket.once('error', handleError)
-      })
-    } catch (error) {
-      lastError = asError(error)
-      await new Promise<void>((resolveDelay) =>
-        setTimeout(resolveDelay, WORKER_CONNECT_RETRY_DELAY_MS)
-      )
-    }
-  }
-
-  throw new Error(`Timed out connecting to Native Worker: ${lastError?.message ?? endpoint}`)
-}
-
 export class NativeWorkerClient {
   private child: ChildProcess | null = null
-  private socket: Socket | null = null
-  private eventSocket: Socket | null = null
-  private endpoint: string | null = null
-  private eventEndpoint: string | null = null
+  private channel: WorkerHttpChannel | null = null
   private readonly hostId = `cli-${randomUUID().replaceAll('-', '')}`
   private executable: string | null = null
   private startPromise: Promise<void> | null = null
-  private frameDecoder = new WorkerFrameDecoder()
-  private eventFrameDecoder = new WorkerFrameDecoder()
-  private eventReconnect: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private pending = new Map<number, PendingRequest>()
   private events = new EventEmitter()
@@ -247,8 +194,7 @@ export class NativeWorkerClient {
       this.child &&
       this.child.exitCode === null &&
       !this.child.killed &&
-      this.socket &&
-      !this.socket.destroyed
+      this.channel?.endpoint != null
     )
   }
 
@@ -259,7 +205,7 @@ export class NativeWorkerClient {
 
   ackEvent(jobId: string, throughSeq: number): void {
     if (!this.isRunning || !jobId || throughSeq <= 0) return
-    void this.request('events/ack', { consumerId: this.hostId, jobId, throughSeq }, 10_000).catch(
+    void this.request('events/checkpoint', { consumerId: this.hostId, jobId, throughSeq }, 10_000).catch(
       () => {}
     )
   }
@@ -269,11 +215,13 @@ export class NativeWorkerClient {
    * consumer cursor (and optional sinceSeq). Used when the live Event socket
    * skipped a sequence without disconnecting.
    */
-  async replayEvents(options: {
-    jobId?: string
-    sinceSeq?: number
-    limit?: number
-  } = {}): Promise<number> {
+  async replayEvents(
+    options: {
+      jobId?: string
+      sinceSeq?: number
+      limit?: number
+    } = {}
+  ): Promise<number> {
     if (!this.isRunning) return 0
     const result = await this.request<{ published?: number }>(
       'events/replay',
@@ -307,8 +255,8 @@ export class NativeWorkerClient {
     if (signal?.aborted) throw createAbortError(method)
     await this.ensureStarted()
     if (signal?.aborted) throw createAbortError(method)
-    const socket = this.socket
-    if (!socket || !this.isRunning) throw new Error('Native worker is not running')
+    const channel = this.channel
+    if (!channel || !this.isRunning) throw new Error('Native worker is not running')
 
     const jobRoute = this.jobRoutes.get(method)
     if (jobRoute) {
@@ -345,14 +293,11 @@ export class NativeWorkerClient {
       }
 
       this.pending.set(id, pending)
-      try {
-        socket.write(createFrame(encode({ id, method, params })), (error) => {
-          if (!error) return
-          this.rejectPending(id, error)
-        })
-      } catch (error) {
+      // The response comes back through handleFrame, the same ingress the event
+      // stream uses, so correlation stays in one place.
+      channel.send(id, method, params).catch((error) => {
         this.rejectPending(id, asError(error))
-      }
+      })
     })
   }
 
@@ -466,26 +411,13 @@ export class NativeWorkerClient {
   async stop(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
-    const socket = this.socket
-    const eventSocket = this.eventSocket
+    const channel = this.channel
     const child = this.child
-    const endpoint = this.endpoint
-    const eventEndpoint = this.eventEndpoint
-    this.socket = null
-    this.eventSocket = null
+    this.channel = null
     this.child = null
-    this.endpoint = null
-    this.eventEndpoint = null
     this.executable = null
-    socket?.removeAllListeners()
-    socket?.destroy()
-    eventSocket?.removeAllListeners()
-    eventSocket?.destroy()
-    if (this.eventReconnect) clearTimeout(this.eventReconnect)
-    this.eventReconnect = null
+    channel?.dispose()
     if (child && child.exitCode === null && !child.killed) child.kill()
-    if (endpoint && process.platform !== 'win32') rmSync(endpoint, { force: true })
-    if (eventEndpoint && process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
     this.failPending(new Error('Native worker stopped'))
   }
 
@@ -498,28 +430,52 @@ export class NativeWorkerClient {
       )
     }
 
-    const endpoint = createEndpoint()
-    const eventEndpoint = createEndpoint()
-    if (process.platform !== 'win32') rmSync(endpoint, { force: true })
-    if (process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
-    const child = spawn(
-      workerPath,
-      ['--control-ipc', endpoint, '--event-ipc', eventEndpoint, '--host-id', this.hostId],
-      {
-        cwd: dirname(workerPath),
-        env: {
-          ...process.env,
-          OPEN_COWORK_APP_VERSION: this.options.appVersion,
-          OPEN_COWORK_NATIVE_SLOW_MS: process.env.OPEN_COWORK_NATIVE_SLOW_MS ?? '750'
+    // Assigned right after spawn so the channel's guards can tell this worker
+    // from a predecessor that is still dying.
+    let ownChild: ChildProcess | null = null
+    const ownsWorker = (): boolean => ownChild !== null && this.child === ownChild
+    const channel = new WorkerHttpChannel({
+      // Same id this client subscribes and acknowledges with, so the worker routes
+      // its durable backlog to this client's stream.
+      consumerId: this.hostId,
+      isActive: () => ownsWorker() && this.isRunning,
+      hooks: {
+        onFrame: (frame, source) => this.handleFrame(frame, source),
+        onControlFailure: (error) => {
+          if (ownsWorker()) this.handleDisconnect(error)
         },
-        stdio: ['ignore', 'ignore', 'pipe'],
-        windowsHide: true
+        onEventDisconnected: () => {
+          // Requests still work; the channel retries on its own. The durable
+          // outbox is authoritative, so nothing is lost meanwhile.
+        },
+        onEventReconnected: () => {
+          if (!ownsWorker()) return
+          // Republish anything the stream missed while it was detached.
+          void this.request(
+            'events/replay',
+            { consumerId: this.hostId, limit: 4096 },
+            30_000
+          ).catch(() => {})
+          this.events.emit('worker/event-reconnected', {}, { event: 'worker/event-reconnected' })
+        }
       }
-    )
+    })
+
+    // stdout is piped because the worker publishes its chosen HTTP port there.
+    const child = spawn(workerPath, channel.spawnArgs(this.hostId), {
+      cwd: dirname(workerPath),
+      env: {
+        ...process.env,
+        OPEN_COWORK_APP_VERSION: this.options.appVersion,
+        OPEN_COWORK_NATIVE_SLOW_MS: process.env.OPEN_COWORK_NATIVE_SLOW_MS ?? '750'
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    ownChild = child
 
     this.child = child
-    this.endpoint = endpoint
-    this.eventEndpoint = eventEndpoint
+    this.channel = channel
     this.executable = workerPath
     this.stderrTail = []
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -541,17 +497,7 @@ export class NativeWorkerClient {
     })
 
     try {
-      const socket = await connectToEndpoint(endpoint, child)
-      this.socket = socket
-      socket.on('data', (chunk) => this.handleSocketData(chunk))
-      socket.on('error', (error) => this.handleDisconnect(error))
-      socket.on('close', () => {
-        if (this.socket === socket) this.handleDisconnect(new Error('Native worker IPC closed'))
-      })
-
-      const eventSocket = await connectToEndpoint(eventEndpoint, child)
-      this.eventSocket = eventSocket
-      this.installEventSocket(eventSocket)
+      await channel.connect(child)
 
       const hello = await this.request<Record<string, unknown>>('worker/hello', {}, 10_000)
       if (hello.protocolVersion !== WORKER_PROTOCOL_VERSION) {
@@ -595,7 +541,7 @@ export class NativeWorkerClient {
         'jobs/submit',
         'jobs/result',
         'events/subscribe',
-        'events/ack'
+        'events/checkpoint'
       ]) {
         if (!methods.includes(required)) {
           throw new Error(`Native worker is missing required route: ${required}`)
@@ -651,91 +597,11 @@ export class NativeWorkerClient {
   }
 
   private sendCancellation(id: number): void {
-    if (!this.socket || !this.isRunning) return
-    try {
-      this.socket.write(createFrame(encode({ method: 'worker/cancel', params: { requestId: id } })))
-    } catch {
-      // The original request is already rejected locally.
-    }
+    if (!this.channel || !this.isRunning) return
+    this.channel.cancel(id)
   }
 
-  private handleSocketData(chunk: Buffer): void {
-    try {
-      this.frameDecoder.push(chunk, (payload) => this.handleFrame(payload, 'control'))
-    } catch (error) {
-      this.handleDisconnect(asError(error))
-    }
-  }
-
-  private installEventSocket(socket: Socket): void {
-    socket.on('data', (chunk) => this.handleEventSocketData(chunk))
-    socket.on('error', () => this.resetEventSocket(socket))
-    socket.on('close', () => this.resetEventSocket(socket))
-  }
-
-  private resetEventSocket(socket: Socket): void {
-    if (this.eventSocket !== socket) return
-    this.eventSocket = null
-    socket.removeAllListeners()
-    socket.destroy()
-    this.eventFrameDecoder.reset()
-    this.scheduleEventReconnect()
-  }
-
-  private scheduleEventReconnect(): void {
-    if (this.eventReconnect || !this.child || !this.eventEndpoint || !this.isRunning) return
-    this.eventReconnect = setTimeout(() => {
-      this.eventReconnect = null
-      void this.reconnectEventSocket()
-    }, 250)
-    this.eventReconnect.unref?.()
-  }
-
-  private async reconnectEventSocket(): Promise<void> {
-    const child = this.child
-    const endpoint = this.eventEndpoint
-    if (!child || !endpoint || !this.isRunning || this.eventSocket) return
-    try {
-      const socket = await connectToEndpoint(endpoint, child)
-      if (this.child !== child || !this.isRunning) {
-        socket.destroy()
-        return
-      }
-      this.eventSocket = socket
-      this.installEventSocket(socket)
-      void this.request('events/replay', { consumerId: this.hostId, limit: 4096 }, 30_000).catch(
-        () => {}
-      )
-      this.events.emit('worker/event-reconnected', {}, { event: 'worker/event-reconnected' })
-    } catch {
-      if (this.child === child && this.isRunning) this.scheduleEventReconnect()
-    }
-  }
-
-  private handleEventSocketData(chunk: Buffer): void {
-    try {
-      this.eventFrameDecoder.push(chunk, (payload) => this.handleFrame(payload, 'event'))
-    } catch {
-      if (this.eventSocket) this.resetEventSocket(this.eventSocket)
-    }
-  }
-
-  private handleFrame(payload: Buffer, source: 'control' | 'event'): void {
-    let decoded: unknown
-    try {
-      decoded = decode(payload)
-    } catch (error) {
-      const failure = new Error(
-        `Invalid worker ${source === 'event' ? 'Event IPC' : 'Control IPC'} ` +
-          `MessagePack frame: ${asError(error).message}`
-      )
-      if (source === 'event' && this.eventSocket) {
-        this.resetEventSocket(this.eventSocket)
-      } else {
-        this.handleDisconnect(failure)
-      }
-      return
-    }
+  private handleFrame(decoded: unknown, _source: 'control' | 'event'): void {
     if (!isRecord(decoded)) return
 
     const eventFrame = decoded as WorkerEventFrame
@@ -778,30 +644,15 @@ export class NativeWorkerClient {
   }
 
   private handleDisconnect(error: unknown): void {
-    if (!this.child && !this.socket) return
-    const socket = this.socket
-    const eventSocket = this.eventSocket
+    if (!this.child && !this.channel) return
+    const channel = this.channel
     const child = this.child
-    const endpoint = this.endpoint
-    const eventEndpoint = this.eventEndpoint
-    this.socket = null
-    this.eventSocket = null
+    this.channel = null
     this.child = null
-    this.endpoint = null
-    this.eventEndpoint = null
-    this.frameDecoder.reset()
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
-    socket?.removeAllListeners()
-    socket?.destroy()
-    eventSocket?.removeAllListeners()
-    eventSocket?.destroy()
-    if (this.eventReconnect) clearTimeout(this.eventReconnect)
-    this.eventReconnect = null
-    this.eventFrameDecoder.reset()
+    channel?.dispose()
     if (child && child.exitCode === null && !child.killed) child.kill()
-    if (endpoint && process.platform !== 'win32') rmSync(endpoint, { force: true })
-    if (eventEndpoint && process.platform !== 'win32') rmSync(eventEndpoint, { force: true })
     const failure = asError(error)
     this.failPending(failure)
     this.events.emit('worker/disconnected', failure, { event: 'worker/disconnected' })

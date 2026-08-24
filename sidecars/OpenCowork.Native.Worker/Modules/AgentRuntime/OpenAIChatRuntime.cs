@@ -1417,9 +1417,12 @@ internal static class OpenAIChatRuntime
                 state,
                 context);
         }
-        var validation = AgentRuntimeToolSchemaValidator.Validate(
-            authorization.InputSchema!.Value,
-            call.Input);
+        var inputSchema = authorization.InputSchema!.Value;
+        call = call with
+        {
+            Input = AgentRuntimeToolInputNormalizer.Normalize(call.Name, inputSchema, call.Input)
+        };
+        var validation = AgentRuntimeToolSchemaValidator.Validate(inputSchema, call.Input);
         if (!validation.Valid)
         {
             return await RejectToolCallBeforeExecutionAsync(
@@ -1446,10 +1449,14 @@ internal static class OpenAIChatRuntime
         AppendHookContextText(hookContextTexts, preHook);
         if (preHook.UpdatedInput.HasValue && preHook.UpdatedInput.Value.ValueKind == JsonValueKind.Object)
         {
-            call = call with { Input = preHook.UpdatedInput.Value.Clone() };
-            validation = AgentRuntimeToolSchemaValidator.Validate(
-                authorization.InputSchema!.Value,
-                call.Input);
+            call = call with
+            {
+                Input = AgentRuntimeToolInputNormalizer.Normalize(
+                    call.Name,
+                    inputSchema,
+                    preHook.UpdatedInput.Value)
+            };
+            validation = AgentRuntimeToolSchemaValidator.Validate(inputSchema, call.Input);
             if (!validation.Valid)
             {
                 return await RejectToolCallBeforeExecutionAsync(

@@ -244,36 +244,63 @@ function sortManagedModels(models: ManagedModelConfig[]): ManagedModelConfig[] {
  * the saved one is missing or a strict subset. Lists carrying levels the preset doesn't
  * know (user customizations) are left untouched.
  */
+function hasThinkingBodyParams(config?: ThinkingConfig): boolean {
+  const body = config?.bodyParams
+  return !!body && Object.keys(body).length > 0
+}
+
 function reconcileReasoningEffortLevels<T extends AIModelConfig>(
   model: T,
   canonical: AIModelConfig
 ): T {
   const canonicalThinking = canonical.thinkingConfig
   const canonicalLevels = canonicalThinking?.reasoningEffortLevels
-  if (!canonicalLevels?.length) return model
+  const canonicalBodyPresent = hasThinkingBodyParams(canonicalThinking)
+  if (!canonicalLevels?.length && !canonicalBodyPresent) return model
 
   const savedThinking = model.thinkingConfig
   const savedLevels = savedThinking?.reasoningEffortLevels
-  const canonicalSet = new Set(canonicalLevels)
+  const canonicalSet = new Set(canonicalLevels ?? [])
   const savedMissing = !savedLevels?.length
   const savedIsSubset =
     !!savedLevels?.length &&
+    !!canonicalLevels?.length &&
     savedLevels.length < canonicalLevels.length &&
     savedLevels.every((level) => canonicalSet.has(level))
-  if (!savedMissing && !savedIsSubset) return model
+  const savedHasUnsupported =
+    !!savedLevels?.length &&
+    canonicalSet.size > 0 &&
+    savedLevels.some((level) => !canonicalSet.has(level))
+  const savedBodyMissing = !hasThinkingBodyParams(savedThinking)
+  if (
+    !savedMissing &&
+    !savedIsSubset &&
+    !savedHasUnsupported &&
+    !(savedBodyMissing && canonicalBodyPresent)
+  ) {
+    return model
+  }
 
+  const nextLevels = canonicalLevels?.length ? [...canonicalLevels] : savedLevels
   const savedDefault = savedThinking?.defaultReasoningEffort
   return {
     ...model,
     thinkingConfig: {
       ...canonicalThinking,
       ...savedThinking,
-      bodyParams: savedThinking?.bodyParams ?? canonicalThinking?.bodyParams ?? {},
-      reasoningEffortLevels: [...canonicalLevels],
+      bodyParams:
+        savedBodyMissing && canonicalBodyPresent
+          ? { ...canonicalThinking.bodyParams }
+          : (savedThinking?.bodyParams ?? canonicalThinking?.bodyParams ?? {}),
+      ...(canonicalThinking?.forceTemperature !== undefined &&
+      savedThinking?.forceTemperature === undefined
+        ? { forceTemperature: canonicalThinking.forceTemperature }
+        : {}),
+      ...(nextLevels ? { reasoningEffortLevels: nextLevels } : {}),
       defaultReasoningEffort:
-        savedDefault && canonicalLevels.includes(savedDefault)
+        savedDefault && nextLevels?.includes(savedDefault)
           ? savedDefault
-          : (canonicalThinking?.defaultReasoningEffort ?? canonicalLevels[0])
+          : (canonicalThinking?.defaultReasoningEffort ?? nextLevels?.[0])
     }
   }
 }
@@ -284,14 +311,13 @@ export function resolveModelThinkingConfig(
   builtinId?: string | null
 ): ThinkingConfig | undefined {
   const own = model?.thinkingConfig
-  if (own?.reasoningEffortLevels?.length) return own
   if (!model?.id || !builtinId) return own
 
   const preset = builtinProviderPresets.find((item) => item.builtinId === builtinId)
   const canonical = preset?.defaultModels.find(
     (item) => normalizeModelKey(item.id) === normalizeModelKey(model.id)
   )
-  if (!canonical?.thinkingConfig?.reasoningEffortLevels?.length) return own
+  if (!canonical?.thinkingConfig) return own
   return reconcileReasoningEffortLevels(
     {
       ...canonical,

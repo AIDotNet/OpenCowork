@@ -2,13 +2,20 @@ import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import { rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { safePostMessageToWindow, safeSendMessagePackToAllWindows } from '../window-ipc'
 import {
-  AGENT_STREAM_MSGPACK_CHANNEL,
-  decodeAgentStreamEnvelope,
-  encodeAgentStreamEnvelope
+  safePostMessageToWindow,
+  safeSendMessagePackToAllWindows,
+  safeSendToWindow
+} from '../window-ipc'
+import {
+  AGENT_STREAM_INJECTED_CHANNEL,
+  readAgentStreamEnvelope
 } from '../../shared/messagepack/agent-stream-codec'
-import type { AgentStreamEvent, ToolCallStateWire } from '../../shared/agent-stream-protocol'
+import type {
+  AgentStreamEnvelope,
+  AgentStreamEvent,
+  ToolCallStateWire
+} from '../../shared/agent-stream-protocol'
 import { AGENT_STREAM_PROTOCOL_VERSION } from '../../shared/agent-stream-protocol'
 import type { InteractiveAgentEvent, ToolCallState } from '../../shared/agent-loop-types'
 import {
@@ -66,6 +73,8 @@ type SidecarBridgeManager = {
   notify: (method: string, params?: unknown) => void
   hasActiveRuns: () => boolean
   readonly isRunning: boolean
+  /** Loopback endpoint + token the renderer uses to call the worker directly. */
+  readonly connection: { baseUrl: string; token: string } | null
 }
 
 function registerMessagePackInvokeHandler<TArgs>(
@@ -195,15 +204,10 @@ function mapNativeGoalRuntimeEvent(event: AgentStreamEvent): InteractiveAgentEve
   }
 }
 
-async function observeGoalRuntimeFrame(bytes: Uint8Array | Buffer): Promise<void> {
-  let envelope: ReturnType<typeof decodeAgentStreamEnvelope>
-  try {
-    envelope = decodeAgentStreamEnvelope(bytes)
-  } catch (error) {
-    console.warn(
-      '[Sidecar] Failed to decode native stream for goal runtime:',
-      error instanceof Error ? error.message : String(error)
-    )
+async function observeGoalRuntimeFrame(frame: unknown): Promise<void> {
+  const envelope = readAgentStreamEnvelope(frame)
+  if (!envelope) {
+    console.warn('[Sidecar] Unreadable native stream frame for goal runtime')
     return
   }
 
@@ -272,7 +276,11 @@ export function registerSidecarHandlers(): void {
   ): Record<string, unknown> => {
     const worker = getNativeWorker().getDiagnosticsSnapshot()
     const trackedRun = trackedRunOverride ?? (runId ? activeRunSessions.get(runId) : undefined)
-    const journalFrames = runId ? getRuntimeRegistry().getFramesSince(runId, -1).length : 0
+    const trackedSnapshot = runId
+      ? getRuntimeRegistry()
+          .getRunSnapshots()
+          .find((snapshot) => snapshot.runId === runId)
+      : undefined
     return {
       capturedAt: Date.now(),
       worker,
@@ -287,7 +295,7 @@ export function registerSidecarHandlers(): void {
         lastEventAt: trackedRun?.lastEventAt ?? null,
         jobState: trackedRun?.jobState ?? null,
         lastSeq: trackedRun?.lastSeq ?? null,
-        journalFrames,
+        observedSeq: trackedSnapshot?.lastSeq ?? null,
         mappedRunWindowId: runId ? windows.getRunWindowId(runId) : null,
         mappedSessionWindowId: sessionId ? windows.getSessionWindowId(sessionId) : null
       },
@@ -297,26 +305,23 @@ export function registerSidecarHandlers(): void {
 
   getRuntimeRegistry().setApprovalSnapshotSupplier(() => uiCapabilities.getApprovalSnapshots())
 
-  const sendAgentStreamBytes = (
+  /**
+   * Pushes an envelope the worker could not send itself onto a window's stream.
+   * Normal agent output never travels this way: windows subscribe to the worker
+   * directly.
+   */
+  const injectAgentStreamEnvelope = (
     targetWindow: BrowserWindow,
-    bytes: Uint8Array | Buffer,
-    details: Record<string, unknown>
+    envelope: AgentStreamEnvelope
   ): boolean => {
-    const sent = safePostMessageToWindow(targetWindow, AGENT_STREAM_MSGPACK_CHANNEL, bytes)
-    logMessagePackTrace('agent stream sent', {
-      channel: AGENT_STREAM_MSGPACK_CHANNEL,
-      sent,
-      bytes: bytes.byteLength,
-      ...details
-    })
-    return sent
+    return safeSendToWindow(targetWindow, AGENT_STREAM_INJECTED_CHANNEL, envelope)
   }
 
   const queueGoalRuntimeObservation = (
     frame: import('../lib/native-worker').NativeWorkerRawEventFrame
   ): void => {
     if (!frame.runId) {
-      void observeGoalRuntimeFrame(frame.bytes).catch((error) => {
+      void observeGoalRuntimeFrame(frame.envelope).catch((error) => {
         console.warn(
           '[Sidecar] Goal runtime stream observation failed:',
           error instanceof Error ? error.message : String(error)
@@ -333,7 +338,7 @@ export function registerSidecarHandlers(): void {
     const previous = goalRuntimeObservationChains.get(runId) ?? Promise.resolve()
     const next = previous
       .catch(() => {})
-      .then(() => observeGoalRuntimeFrame(frame.bytes))
+      .then(() => observeGoalRuntimeFrame(frame.envelope))
       .catch((error) => {
         console.warn(
           '[Sidecar] Goal runtime stream observation failed:',
@@ -352,7 +357,7 @@ export function registerSidecarHandlers(): void {
   const STREAM_BATCH_FLUSH_MS = 33
   const STREAM_BATCH_MAX_BYTES = 256 * 1024
   interface PendingStreamBatch {
-    frames: Buffer[]
+    frames: number
     byteLength: number
     timer: NodeJS.Timeout | null
     runId: string
@@ -406,53 +411,19 @@ export function registerSidecarHandlers(): void {
   }, 2_000)
   stalledStreamWatchdog.unref?.()
 
+  /**
+   * Advances this host's durable cursor for a run.
+   *
+   * Windows subscribe to the worker's event stream themselves, so nothing is
+   * forwarded from here any more. Batching survives only to coalesce the
+   * acknowledgement, which would otherwise be one RPC per frame.
+   */
   const flushStreamBatch = (runId: string): void => {
     const batch = pendingStreamBatches.get(runId)
     if (!batch) return
     pendingStreamBatches.delete(runId)
     if (batch.timer !== null) clearTimeout(batch.timer)
-
-    let targetWindow = windows.resolve(
-      { runId: batch.runId, sessionId: batch.sessionId },
-      { allowFallback: false }
-    )
-    if (!targetWindow) {
-      targetWindow = windows.resolve({ runId: batch.runId, sessionId: batch.sessionId })
-      if (targetWindow) {
-        console.warn('[Sidecar] agent stream using fallback renderer window', {
-          runId: batch.runId,
-          sessionId: batch.sessionId,
-          windowId: targetWindow.id,
-          frames: batch.frames.length
-        })
-      }
-    }
-
-    const bytes = batch.frames.length === 1 ? batch.frames[0] : Buffer.concat(batch.frames)
-    if (targetWindow) {
-      sendAgentStreamBytes(targetWindow, bytes, {
-        source: 'native-raw',
-        runId: batch.runId,
-        sessionId: batch.sessionId,
-        frames: batch.frames.length
-      })
-
-      windows.forEachObserver(batch.runId, (extraWindow) => {
-        if (extraWindow.id === targetWindow.id) return
-        sendAgentStreamBytes(extraWindow, bytes, {
-          source: 'attach-fanout',
-          runId: batch.runId,
-          sessionId: batch.sessionId
-        })
-      })
-    } else {
-      console.warn('[Sidecar] agent stream has no renderer window; durable cursor already acked', {
-        runId: batch.runId,
-        sessionId: batch.sessionId,
-        frames: batch.frames.length,
-        lastSeq: batch.lastSeq
-      })
-    }
+    getWorkerEventConsumer().acknowledgeDelivered(batch.runId, batch.lastSeq)
   }
 
   const flushAllStreamBatches = (): void => {
@@ -484,26 +455,16 @@ export function registerSidecarHandlers(): void {
       }
     }
 
-    if (!frame.runId || !frame.sessionId) {
-      const targetWindow =
-        windows.resolve(frame, { allowFallback: false }) ?? windows.resolve(frame)
-      if (targetWindow) {
-        sendAgentStreamBytes(targetWindow, frame.bytes, {
-          source: 'native-raw',
-          runId: frame.runId,
-          sessionId: frame.sessionId,
-          seq: frame.seq
-        })
-      }
-      return
-    }
+    // Frames without a run cannot be acknowledged and are not routed to a window;
+    // the goal observer above is their only consumer.
+    if (!frame.runId || !frame.sessionId) return
 
     const runId = frame.runId
     let batch = pendingStreamBatches.get(runId)
     if (!batch) {
       batch = {
-        frames: [],
         byteLength: 0,
+        frames: 0,
         timer: null,
         runId,
         sessionId: frame.sessionId,
@@ -511,7 +472,9 @@ export function registerSidecarHandlers(): void {
       }
       pendingStreamBatches.set(runId, batch)
     }
-    batch.frames.push(Buffer.isBuffer(frame.bytes) ? frame.bytes : Buffer.from(frame.bytes))
+    // Batched for the acknowledgement, not for delivery: coalescing one ack per
+    // burst is what keeps this host from issuing an RPC per frame.
+    batch.frames += 1
     batch.byteLength += frame.byteLength
     if (typeof frame.seq === 'number' && frame.seq > batch.lastSeq) {
       batch.lastSeq = frame.seq
@@ -524,7 +487,10 @@ export function registerSidecarHandlers(): void {
       batch.timer = setTimeout(() => flushStreamBatch(runId), STREAM_BATCH_FLUSH_MS)
     }
 
-    if (terminal) windows.forgetRun(runId)
+    if (terminal) {
+      windows.forgetRun(runId)
+      getWorkerEventConsumer().forgetRun(runId)
+    }
   })
 
   manager.setReverseCancelHandler((id, method) => {
@@ -561,7 +527,9 @@ export function registerSidecarHandlers(): void {
     windows.forgetRun(runId)
     if (!targetWindow) return
 
-    const bytes = encodeAgentStreamEnvelope({
+    // The worker is gone, so it cannot terminate this run on the window's own
+    // stream. Inject the terminal here instead, or the UI would wait forever.
+    injectAgentStreamEnvelope(targetWindow, {
       v: AGENT_STREAM_PROTOCOL_VERSION,
       runId,
       sessionId: info.sessionId,
@@ -575,11 +543,6 @@ export function registerSidecarHandlers(): void {
         },
         { type: 'loop_end', reason: 'error' }
       ]
-    })
-    sendAgentStreamBytes(targetWindow, bytes, {
-      source: 'worker-disconnect',
-      runId,
-      sessionId: info.sessionId
     })
   }
 
@@ -632,6 +595,13 @@ export function registerSidecarHandlers(): void {
     return { running: manager.isRunning }
   })
 
+  // Lets the renderer call the worker's loopback API directly instead of
+  // relaying every command through this process. Returns null while the worker
+  // is down; the caller is expected to start it and ask again.
+  registerSidecarMessagePackHandler<undefined>('sidecar:connection', () => {
+    return manager.connection
+  })
+
   registerSidecarMessagePackHandler<{ runId?: string; sessionId?: string }>(
     'sidecar:diagnostics',
     (_event, params) => {
@@ -639,15 +609,12 @@ export function registerSidecarHandlers(): void {
       const stream = diagnostics.stream as {
         accepted?: boolean
         lastEventAt?: number | null
-        journalFrames?: number
         runId?: string | null
       }
-      if (
-        stream.accepted === true &&
-        stream.lastEventAt == null &&
-        stream.journalFrames === 0 &&
-        manager.isRunning
-      ) {
+      // A run that was accepted but has produced no event at all is the stalled
+      // case. This used to also require an empty journal; with frames no longer
+      // buffered here, lastEventAt is the signal that a frame ever arrived.
+      if (stream.accepted === true && stream.lastEventAt == null && manager.isRunning) {
         const runId = stream.runId ?? params?.runId
         console.warn('[Sidecar] stalled stream diagnostics; recovering durable event pump', {
           runId: runId ?? null
@@ -726,8 +693,7 @@ export function registerSidecarHandlers(): void {
     uiCapabilities,
     activeRuns: activeRunSessions,
     recoverPump: recoverDurableEventPump,
-    flushStreamBatches: flushAllStreamBatches,
-    sendAgentStreamBytes
+    flushStreamBatches: flushAllStreamBatches
   })
 
   ipcMain.on(toMessagePackChannel('sidecar:notify'), (_event, bytes: Uint8Array) => {

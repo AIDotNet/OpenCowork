@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { ChannelPanel } from '@renderer/components/settings/PluginPanel'
-import { AutoMemoryPanel } from '@renderer/components/memory/AutoMemoryPanel'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
@@ -594,12 +593,6 @@ export function ProjectArchivePage(): React.JSX.Element {
                       })}
                     </p>
                   </section>
-
-                  <AutoMemoryPanel
-                    variant="project"
-                    projectRootPath={activeProject.workingFolder}
-                    sshConnectionId={activeProject.sshConnectionId}
-                  />
 
                   <section className="space-y-4">
                     <div className="flex flex-wrap gap-2 border-b border-border/60 pb-3">

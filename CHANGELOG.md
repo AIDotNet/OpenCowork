@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.17] - 2026-08-24
+
+### Changed
+
+- Removed automatic memory extraction and daily rollup. SOUL.md, USER.md, MEMORY.md, and daily memory files can still be edited and injected into prompts.
+- Muse Spark 1.2 on Routin AI now uses the Anthropic Messages protocol. Thinking is always on (`thinking.type=adaptive`) with `output_config.effort` levels of low/medium/high/xhigh (default medium); saved Responses-era think settings (empty body, minimal/ultra) are replaced. Context is 1M tokens and vision is enabled.
+
 ## [1.3.16] - 2026-08-23
 
 ### Added
@@ -10,6 +17,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Packaged macOS builds now require macOS 13 or newer instead of 14, by lowering `LSMinimumSystemVersion` and the Native AOT `AppleMinOSVersion` deployment target.
 - Ox Alpha on Routin AI no longer allows turning thinking off; `reasoning_effort` is now low/high/max (default max), matching GLM-5.3.
 
 ### Fixed

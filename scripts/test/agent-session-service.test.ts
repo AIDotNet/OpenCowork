@@ -218,6 +218,38 @@ test('start-run opens a hosted session then sends only the trigger turn', async 
   )
 })
 
+test('start-run treats session-open opened:true as success so it does not fall back to agent/run', async () => {
+  const calls: string[] = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    nextRunId: () => 'run-1',
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method) => {
+      calls.push(method)
+      if (method === 'agent/session-open') {
+        return { opened: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return { started: true, runId: 'run-1', assistantMessageId: 'asst:run-1', accepted: true }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const result = await service.startRun({
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  })
+
+  assert.equal(result.accepted, true)
+  assert.deepEqual(calls, ['agent/session-open', 'agent/session-send'])
+})
+
 test('start-run forwards systemCommand on session-send without pinning it on session-open', async () => {
   const calls: Array<{ method: string; params: Record<string, unknown> }> = []
   const service = new AgentSessionService({
@@ -1445,6 +1477,31 @@ test('assembler omits compression when the setting is disabled', async () => {
   assert.equal(assembled.openTemplate.compression, undefined)
   assert.equal(assembled.openTemplate.compressionProvider, undefined)
   assert.match(assembled.prefixIdentity, /\0off\0/)
+})
+
+test('assembler prefix identity changes when the request protocol changes', async () => {
+  const intent = {
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  }
+  const before = await assembleSessionContext(intent, assemblerDeps())
+  const after = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    resolveProvider: (providerId: string, modelId: string) => ({
+      type: 'openai-responses',
+      apiKey: 'k',
+      model: modelId,
+      providerId
+    })
+  })
+  assert.notEqual(before.prefixIdentity, after.prefixIdentity)
+  assert.match(before.prefixIdentity, /\0openai-chat\0/)
+  assert.match(after.prefixIdentity, /\0openai-responses\0/)
 })
 
 test('assembler prefix identity changes when compression settings change', async () => {

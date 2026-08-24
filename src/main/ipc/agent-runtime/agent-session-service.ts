@@ -169,14 +169,14 @@ export class AgentSessionService {
         )
       )
       const sessionId = typeof result.sessionId === 'string' ? result.sessionId : params.sessionId
-      if (result.ok === true) {
+      if (isOpenSessionOk(result)) {
         this.openPrefix.set(sessionId, {
           identity: assembled.prefixIdentity,
           toolNames: readTemplateToolNames(assembled.openTemplate)
         })
       }
       return {
-        ok: result.ok === true,
+        ok: isOpenSessionOk(result),
         sessionId,
         messageCount: typeof result.messageCount === 'number' ? result.messageCount : 0
       }
@@ -388,7 +388,7 @@ export class AgentSessionService {
       typeof result.sessionId === 'string'
         ? result.sessionId
         : String(assembled.openTemplate.sessionId ?? '')
-    if (result.ok === true && sessionId) {
+    if (isOpenSessionOk(result) && sessionId) {
       this.rememberOpenPrefix(sessionId, assembled)
       return true
     }
@@ -514,6 +514,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/** Contract field is `ok`; older Node payloads used `opened`. Either means the session is live. */
+function isOpenSessionOk(result: Record<string, unknown>): boolean {
+  return result.ok === true || result.opened === true
+}
+
 export function splitAssembledTurnMessages(messages: unknown[]): {
   history: Record<string, unknown>[]
   turn: Record<string, unknown>[]
@@ -563,6 +568,7 @@ function prefixIdentityFromAssembledParams(
     mode,
     providerId: readTrimmed(provider.providerId),
     modelId: readTrimmed(provider.model),
+    providerType: readTrimmed(provider.type),
     workingFolder: typeof params.workingFolder === 'string' ? params.workingFolder : null,
     sshConnectionId: typeof params.sshConnectionId === 'string' ? params.sshConnectionId : null,
     compactFence: compactWatermarkFence(compaction)

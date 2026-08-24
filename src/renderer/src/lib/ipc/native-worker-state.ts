@@ -14,8 +14,12 @@ export type NativeWorkerStartupPhase =
   | 'stopping'
   | 'fatal'
 
+/** Which implementation is serving the runtime slot. Mirrors WorkerRuntimeBackend. */
+export type NativeWorkerBackend = 'csharp'
+
 export type NativeWorkerStateSnapshot = {
   id: 'native' | 'codegraph'
+  backend: NativeWorkerBackend
   state: NativeWorkerState
   phase: NativeWorkerStartupPhase
   pid: number | null
@@ -33,6 +37,7 @@ type Listener = (snapshot: NativeWorkerStateSnapshot) => void
 // unresolved boot for a healthy runtime.
 let current: NativeWorkerStateSnapshot = {
   id: 'native',
+  backend: 'csharp',
   state: 'starting',
   phase: 'resolving-binary',
   pid: null,
@@ -52,6 +57,7 @@ function applySnapshot(snapshot: unknown): void {
   if (typeof record.state !== 'string') return
   current = {
     id: 'native',
+    backend: 'csharp',
     state: record.state as NativeWorkerState,
     phase:
       typeof record.phase === 'string'

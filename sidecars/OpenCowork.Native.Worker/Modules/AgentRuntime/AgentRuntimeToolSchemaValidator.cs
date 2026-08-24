@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -10,6 +12,10 @@ internal static class AgentRuntimeToolSchemaValidator
 {
     private const int MaxSchemaDepth = 64;
     private static readonly TimeSpan PatternTimeout = TimeSpan.FromMilliseconds(100);
+    private static readonly JsonWriterOptions WriterOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
     private static readonly HashSet<string> AllowedKeywords = new(StringComparer.Ordinal)
     {
         "$defs", "$ref", "$schema", "additionalProperties", "allOf", "anyOf", "const",
@@ -50,6 +56,23 @@ internal static class AgentRuntimeToolSchemaValidator
         return failure is null
             ? new AgentRuntimeSchemaValidationResult(true)
             : new AgentRuntimeSchemaValidationResult(false, failure.Value.Path, failure.Value.Message);
+    }
+
+    // Models often add extra keys (LS + Bash `command`). Drop them when the schema forbids extras.
+    public static JsonElement PruneAdditionalProperties(JsonElement schema, JsonElement value)
+    {
+        if (!HasForbiddenAdditionalProperty(schema, schema, value, 0, new HashSet<string>(StringComparer.Ordinal)))
+        {
+            return value;
+        }
+
+        var buffer = new ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer, WriterOptions))
+        {
+            WritePrunedValue(writer, schema, schema, value, 0, new HashSet<string>(StringComparer.Ordinal));
+        }
+        using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
     }
 
     private static void ValidateSchemaNode(
@@ -492,6 +515,169 @@ internal static class AgentRuntimeToolSchemaValidator
             "null" => value.ValueKind == JsonValueKind.Null,
             _ => false
         };
+    }
+
+    private static bool HasForbiddenAdditionalProperty(
+        JsonElement root,
+        JsonElement schema,
+        JsonElement value,
+        int depth,
+        HashSet<string> refs)
+    {
+        EnsureDepth(depth, "$");
+        schema = ResolveSchemaTarget(root, schema, depth, refs);
+        if (schema.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            var properties = schema.TryGetProperty("properties", out var propertySchemas) &&
+                propertySchemas.ValueKind == JsonValueKind.Object
+                ? propertySchemas
+                : default;
+            var additional = schema.TryGetProperty("additionalProperties", out var additionalSchema)
+                ? additionalSchema
+                : default;
+            foreach (var property in value.EnumerateObject())
+            {
+                if (properties.ValueKind == JsonValueKind.Object &&
+                    properties.TryGetProperty(property.Name, out var propertySchema))
+                {
+                    if (HasForbiddenAdditionalProperty(
+                            root,
+                            propertySchema,
+                            property.Value,
+                            depth + 1,
+                            refs))
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if (additional.ValueKind == JsonValueKind.False)
+                {
+                    return true;
+                }
+
+                if (additional.ValueKind == JsonValueKind.Object &&
+                    HasForbiddenAdditionalProperty(root, additional, property.Value, depth + 1, refs))
+                {
+                    return true;
+                }
+            }
+        }
+
+        if (value.ValueKind == JsonValueKind.Array &&
+            schema.TryGetProperty("items", out var items))
+        {
+            foreach (var item in value.EnumerateArray())
+            {
+                if (HasForbiddenAdditionalProperty(root, items, item, depth + 1, refs))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static void WritePrunedValue(
+        Utf8JsonWriter writer,
+        JsonElement root,
+        JsonElement schema,
+        JsonElement value,
+        int depth,
+        HashSet<string> refs)
+    {
+        EnsureDepth(depth, "$");
+        schema = ResolveSchemaTarget(root, schema, depth, refs);
+        if (schema.ValueKind != JsonValueKind.Object)
+        {
+            value.WriteTo(writer);
+            return;
+        }
+
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            var properties = schema.TryGetProperty("properties", out var propertySchemas) &&
+                propertySchemas.ValueKind == JsonValueKind.Object
+                ? propertySchemas
+                : default;
+            var additional = schema.TryGetProperty("additionalProperties", out var additionalSchema)
+                ? additionalSchema
+                : default;
+
+            writer.WriteStartObject();
+            foreach (var property in value.EnumerateObject())
+            {
+                if (properties.ValueKind == JsonValueKind.Object &&
+                    properties.TryGetProperty(property.Name, out var propertySchema))
+                {
+                    writer.WritePropertyName(property.Name);
+                    WritePrunedValue(writer, root, propertySchema, property.Value, depth + 1, refs);
+                    continue;
+                }
+
+                if (additional.ValueKind == JsonValueKind.False)
+                {
+                    continue;
+                }
+
+                writer.WritePropertyName(property.Name);
+                if (additional.ValueKind == JsonValueKind.Object)
+                {
+                    WritePrunedValue(writer, root, additional, property.Value, depth + 1, refs);
+                }
+                else
+                {
+                    property.Value.WriteTo(writer);
+                }
+            }
+            writer.WriteEndObject();
+            return;
+        }
+
+        if (value.ValueKind == JsonValueKind.Array &&
+            schema.TryGetProperty("items", out var items))
+        {
+            writer.WriteStartArray();
+            foreach (var item in value.EnumerateArray())
+            {
+                WritePrunedValue(writer, root, items, item, depth + 1, refs);
+            }
+            writer.WriteEndArray();
+            return;
+        }
+
+        value.WriteTo(writer);
+    }
+
+    private static JsonElement ResolveSchemaTarget(
+        JsonElement root,
+        JsonElement schema,
+        int depth,
+        HashSet<string> refs)
+    {
+        if (schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("$ref", out var reference))
+        {
+            return schema;
+        }
+
+        var text = reference.GetString();
+        if (string.IsNullOrEmpty(text) || !refs.Add(text))
+        {
+            return schema;
+        }
+
+        var resolved = ResolveReference(root, text, "$");
+        var nested = ResolveSchemaTarget(root, resolved, depth + 1, refs);
+        refs.Remove(text);
+        return nested;
     }
 
     private static JsonElement ResolveReference(JsonElement root, string reference, string path)

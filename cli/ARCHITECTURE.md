@@ -1,10 +1,10 @@
-﻿# OpenCowork CLI architecture
+# OpenCowork CLI architecture
 
 Status: implementation baseline and target architecture, 2026-08-07.
 
 The CLI is a terminal renderer for OpenCowork. It is not a second agent implementation.
-`OpenCowork.Native.Worker` remains the only agent loop, provider transport, tool dispatcher,
-permission-policy evaluator, context compressor, sub-agent runtime, and durable data backend.
+Agent-loop authority lives behind one client, `WorkerBackendClient`, backed by the .NET
+Native Worker that the CLI spawns for itself. Do not add a second loop.
 
 This document separates three kinds of information:
 
@@ -66,11 +66,12 @@ and colors. It must never present itself as Anthropic or Claude Code.
 │ keyboard decoder · editor · overlays · transcript · terminal renderer │
 │                 WorkerEventProjector (wire → UI state)                │
 └──────────────────────┬────────────────────────┬────────────────────────┘
-                       │ Control IPC            │ Event IPC
+                       │ POST /rpc · /cancel    │ GET /events (SSE)
                        │ request / response     │ stream / progress
-                       │ heartbeat / reverse RPC│ replayable envelopes
+                       │ heartbeat              │ replayable envelopes
+                       │ GET /reverse (SSE): reverse RPC on its own connection
 ┌──────────────────────▼────────────────────────▼────────────────────────┐
-│                    OpenCowork.Native.Worker                            │
+│  Agent runtime — OpenCowork.Native.Worker (the only runtime)           │
 │ provider calls · agent loop · tools · permissions · MCP · skills      │
 │ SQLite Job inbox/outbox · bounded scheduler · DB · process execution  │
 └────────────────────────────────────────────────────────────────────────┘
@@ -148,20 +149,27 @@ The production npm layout should follow Claude Code's platform-package strategy:
 CLI package plus optional `darwin-arm64`, `darwin-x64`, `linux-*`, and `win-*` worker packages.
 That packaging work is not part of the current source-tree prototype.
 
-### 4.2 Endpoint and framing
+### 4.2 Endpoint and transport
 
-- macOS/Linux: two unique Unix-domain sockets under `/tmp`.
-- Windows: two unique named pipes.
-- Worker launch:
-  `OpenCowork.Native.Worker --control-ipc <control> --event-ipc <event> --host-id <client>`.
-- Every frame begins with a four-byte unsigned big-endian payload length.
-- The payload is MessagePack.
-- The maximum accepted payload is 256 MiB, matching the desktop supervisor.
+- Worker launch: `OpenCowork.Native.Worker --http-token <secret> --host-id <client>`, with a piped
+  stdout.
+- The worker binds `127.0.0.1:0` and publishes the chosen port as one
+  `__OPEN_COWORK_WORKER_HTTP__ {json}` line on stdout. Letting the worker pick the port means a
+  lingering previous process cannot make a fresh one fail to bind.
+- Requests: `POST /rpc` with `{ id, method, params }` → `{ id, result }`. Cancellation:
+  `POST /cancel` with `{ requestId }`.
+- Events: `GET /events`, an SSE stream of `{ event, params }` envelopes carrying one-way progress
+  and `agent/stream`.
+- Handler failures arrive inside `result` as `{ error }`. HTTP status codes are reserved for
+  transport faults: 401 bad token, 400 malformed JSON, 404/405 wrong route, 409 event stream
+  already attached.
 
-Control and Event are independent byte streams and therefore have independent frame buffers and
-failure handling. Control carries request/response, heartbeat, cancellation, and reverse RPC.
-Event carries one-way progress and `agent/stream`; an Event disconnect is reconnected independently
-and does not mark the worker unhealthy.
+An event-stream disconnect is reconnected on its own and does not mark the worker unhealthy; the
+durable outbox is authoritative, so the CLI issues an `events/replay` on re-attach rather than
+trusting the live stream to have been gap-free.
+
+The wire lives in `cli/src/vendor/worker-http-channel.ts`, vendored verbatim from
+`src/shared/worker-http-channel.ts` so the desktop supervisor and the CLI cannot drift.
 
 Request and response shapes:
 
@@ -198,8 +206,9 @@ Startup gates on:
 6. `events/subscribe` replaying any durable Agent envelopes not yet acknowledged by this client.
 
 A 15-second heartbeat checks `worker/ping`. The client cancels timed-out or aborted request IDs,
-captures a bounded stderr tail, cleans up only its exact socket paths, and terminates its child on
-exit. Event IPC has its own reconnect loop; after reconnect it requests durable replay.
+captures a bounded stderr tail, and terminates its child on exit. Each SSE stream has its own
+reconnect loop; after reconnecting `/events` it requests durable replay. Reverse RPC is on a separate
+`/reverse` connection, so a stalled event stream cannot delay an approval or a hook.
 
 Routes described as Jobs are submitted through `jobs/submit`. Acceptance means the inbox row has
 committed to SQLite, not that execution has completed. `agent/run` returns its accepted run/job ID
@@ -775,7 +784,7 @@ Targets for an interactive local terminal:
 | Worker frame memory                 | bounded by 256 MiB hard gate; normal events far smaller |
 
 High-rate `text_delta`, `thinking_delta`, and `tool_use_args_delta` events should be coalesced per
-render frame. UI rendering must never block the socket parser; the projector queue provides that
+render frame. UI rendering must never block the SSE reader; the projector queue provides that
 boundary. Long tool output remains collapsed and is line/byte bounded before terminal layout.
 
 ## 16. Verification strategy
@@ -791,9 +800,9 @@ There is no repository test suite, so validation has four layers.
 ### 16.2 Transport without model traffic
 
 - `opencowork --doctor`
-- Assert executable path, IPC handshake version, Agent Runtime v2 identity/features, required
+- Assert executable path, HTTP handshake version, Agent Runtime v2 identity/features, required
   routes, and shared configured provider/model.
-- Confirm the worker child and socket exit cleanly.
+- Confirm the worker child exits cleanly and its port is released.
 
 ### 16.3 PTY golden states
 

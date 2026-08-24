@@ -15,6 +15,15 @@ export const RUNTIME_MODEL_SCHEMA_VERSION = 1 as const
 export type RuntimeRolloutMode = 'legacy' | 'shadow' | 'v2'
 export const RuntimeRolloutModeValues = ['legacy', 'shadow', 'v2'] as const
 
+export type CompressionPhase = 'idle' | 'summarizing' | 'completed'
+export const CompressionPhaseValues = ['idle', 'summarizing', 'completed'] as const
+
+export type SubAgentPhase = 'queued' | 'running' | 'completed'
+export const SubAgentPhaseValues = ['queued', 'running', 'completed'] as const
+
+export type SubAgentReportStatus = 'pending' | 'queued' | 'submitted' | 'retrying' | 'fallback' | 'missing'
+export const SubAgentReportStatusValues = ['pending', 'queued', 'submitted', 'retrying', 'fallback', 'missing'] as const
+
 export type RunStatus = 'queued' | 'running' | 'completed' | 'error' | 'cancelled' | 'interrupted'
 export const RunStatusValues = ['queued', 'running', 'completed', 'error', 'cancelled', 'interrupted'] as const
 
@@ -289,6 +298,27 @@ export interface AgentRuntimeProjection {
   toolCalls: RuntimeToolCallOverlay[]
   approvals: RuntimeApprovalOverlay[]
   pendingUiCapabilities: RuntimeUiCapabilityOverlay[]
+  subAgents: RuntimeSubAgentOverlay[]
+}
+
+/** A provider request being retried for the current iteration. Carried on the run because the UI shows it against the run, not a message: a retry banner, the composer status, and the session list indicator all read the same state. */
+export interface RuntimeRequestRetryOverlay {
+  attempt: number
+  maxAttempts: number
+  delayMs: number
+  statusCode: number | null
+  reason: string
+}
+
+/** Context summarization progress for a run. The draft text the summarizer streams is deliberately absent: the worker emits those tokens as live-only frames that never enter the durable outbox, so they cannot reach this projection at all. Only the phase transitions can. */
+export interface RuntimeCompressionOverlay {
+  phase: CompressionPhase
+  attempt: number | null
+  maxAttempts: number | null
+  preTokens: number | null
+  keptMessageCount: number | null
+  summarizerFailed: boolean | null
+  summaryMessageId: string | null
 }
 
 export interface RuntimeRunOverlay {
@@ -297,6 +327,33 @@ export interface RuntimeRunOverlay {
   status: RunStatus
   assistantMessageId: string | null
   lastSeq: number
+  iteration: number | null
+  /** Stop reason from the last completed iteration. */
+  lastStopReason: string | null
+  requestRetry: RuntimeRequestRetryOverlay | null
+  compression: RuntimeCompressionOverlay | null
+}
+
+/** A sub-agent spawned by a run, keyed by the parent tool-use id. This is the lifecycle spine only — phase, progress, outcome and a short live text preview. It deliberately does not carry the sub-agent's inner transcript. Patches land in a journal capped at 2000 entries and 8 MiB, and a transcript snapshot on every inner tool or image event would exhaust that budget within one busy sub-agent, forcing every late attach onto the expensive full-snapshot path. Inner transcript detail stays with the legacy render path. */
+export interface RuntimeSubAgentOverlay {
+  toolUseId: string
+  runId: string
+  sessionId: string
+  name: string
+  displayName: string | null
+  description: string | null
+  phase: SubAgentPhase
+  reportStatus: SubAgentReportStatus
+  report: string
+  iteration: number
+  success: boolean | null
+  endReason: string | null
+  errorMessage: string | null
+  /** Bounded live preview of the sub-agent's assistant text. */
+  streamingText: string
+  usage: JsonObject | null
+  startedAt: number
+  completedAt: number | null
 }
 
 export interface RuntimeMessageOverlay {
@@ -306,6 +363,10 @@ export interface RuntimeMessageOverlay {
   role: string
   text: string
   thinking: string | null
+  /** Ordered content the flat text and thinking strings cannot hold: generated images, image failures, and web-search activity. Serialized content blocks, in arrival order. A window that opens part-way through a turn starts its own subscription live, so this overlay is the only place the turn's earlier media can come from — the transcript in the database covers only what a window was around to write. */
+  blocks: JsonObject[]
+  /** Token usage reported at the end of a provider call. */
+  usage: JsonObject | null
 }
 
 export interface RuntimeToolCallOverlay {
@@ -340,12 +401,17 @@ export interface RuntimeReset {
   workerInstanceId: string
 }
 
+/** A patch to a run's overlay. Lifecycle fields are carried here rather than as their own event variants because they arrive interleaved with status changes and always describe the same row. Null clears a field; the reducer leaves anything absent untouched. */
 export interface RunChanged {
   type: 'runtime.run-changed'
   runId: string
   sessionId: string
   status: RunStatus
   assistantMessageId: string | null
+  iteration: number | null
+  lastStopReason: string | null
+  requestRetry: RuntimeRequestRetryOverlay | null
+  compression: RuntimeCompressionOverlay | null
 }
 
 export interface MessageStarted {
@@ -364,12 +430,52 @@ export interface MessageDelta {
   thinking: string | null
 }
 
+/** Adds or replaces one content block on a message overlay. `blockKey` identifies a block that can be revised in place — web-search activity arrives twice, first as `searching` and then `completed`, and the second must not appear as a duplicate chip. */
 export interface MessageBlockChanged {
   type: 'runtime.message-block-changed'
   runId: string
   sessionId: string
   messageId: string
   block: JsonObject
+  blockKey: string | null
+}
+
+/** Usage and provider metadata reported when a provider call finishes. */
+export interface MessageMetadataChanged {
+  type: 'runtime.message-metadata-changed'
+  runId: string
+  sessionId: string
+  messageId: string
+  usage: JsonObject | null
+}
+
+/** A patch to one sub-agent's overlay. Null clears a field; the reducer leaves anything the emitter had no opinion about untouched. */
+export interface SubAgentChanged {
+  type: 'runtime.sub-agent-changed'
+  runId: string
+  sessionId: string
+  toolUseId: string
+  name: string
+  displayName: string | null
+  description: string | null
+  phase: SubAgentPhase
+  reportStatus: SubAgentReportStatus | null
+  report: string | null
+  iteration: number | null
+  success: boolean | null
+  endReason: string | null
+  errorMessage: string | null
+  usage: JsonObject | null
+  completedAt: number | null
+}
+
+/** Streamed assistant text from a sub-agent, appended to its live preview. */
+export interface SubAgentTextDelta {
+  type: 'runtime.sub-agent-delta'
+  runId: string
+  sessionId: string
+  toolUseId: string
+  text: string
 }
 
 export interface ToolCallChanged {
@@ -504,7 +610,7 @@ export interface CanvasActionResponse {
   error: string | null
 }
 
-export type RuntimeEvent = RuntimeReset | RunChanged | MessageStarted | MessageDelta | MessageBlockChanged | ToolCallChanged | ApprovalChanged | UiCapabilityChanged | RunCompleted | SessionTranscriptCommitted
+export type RuntimeEvent = RuntimeReset | RunChanged | MessageStarted | MessageDelta | MessageBlockChanged | ToolCallChanged | ApprovalChanged | UiCapabilityChanged | RunCompleted | SessionTranscriptCommitted | SubAgentChanged | SubAgentTextDelta | MessageMetadataChanged
 
 export interface RuntimeCommandMap {
   'runtime:open-session': { params: OpenAgentSessionParams; result: OpenAgentSessionResult }
@@ -542,6 +648,9 @@ export interface RuntimeEventMap {
   'runtime.ui-capability-changed': { payload: UiCapabilityChanged }
   'runtime.run-completed': { payload: RunCompleted }
   'runtime.session-transcript-committed': { payload: SessionTranscriptCommitted }
+  'runtime.sub-agent-changed': { payload: SubAgentChanged }
+  'runtime.sub-agent-delta': { payload: SubAgentTextDelta }
+  'runtime.message-metadata-changed': { payload: MessageMetadataChanged }
 }
 
 export type RuntimeEventName = keyof RuntimeEventMap
@@ -1230,7 +1339,92 @@ export function decodeAgentRuntimeProjection(value: unknown): AgentRuntimeProjec
     const decoded = decodeRuntimeUiCapabilityOverlay(item)
     pendingUiCapabilities.push(decoded)
   }
-  return { gatewayEpoch, workerInstanceId, schemaVersion, projectionRevision, runs, messages, toolCalls, approvals, pendingUiCapabilities }
+  if (!Array.isArray(value.subAgents)) failDecode('AgentRuntimeProjection.subAgents', 'expected array')
+  const subAgents: RuntimeSubAgentOverlay[] = []
+  for (let index = 0; index < value.subAgents.length; index += 1) {
+    const item = value.subAgents[index]
+    const decoded = decodeRuntimeSubAgentOverlay(item)
+    subAgents.push(decoded)
+  }
+  return { gatewayEpoch, workerInstanceId, schemaVersion, projectionRevision, runs, messages, toolCalls, approvals, pendingUiCapabilities, subAgents }
+}
+
+export function decodeRuntimeRequestRetryOverlay(value: unknown): RuntimeRequestRetryOverlay {
+  if (!isObject(value)) failDecode('RuntimeRequestRetryOverlay', 'expected object')
+  if (typeof value.attempt !== 'number' || !Number.isFinite(value.attempt)) failDecode('RuntimeRequestRetryOverlay.attempt', 'expected number')
+  const attempt = value.attempt
+  if (typeof value.maxAttempts !== 'number' || !Number.isFinite(value.maxAttempts)) failDecode('RuntimeRequestRetryOverlay.maxAttempts', 'expected number')
+  const maxAttempts = value.maxAttempts
+  if (typeof value.delayMs !== 'number' || !Number.isFinite(value.delayMs)) failDecode('RuntimeRequestRetryOverlay.delayMs', 'expected number')
+  const delayMs = value.delayMs
+  let statusCode: number | null
+  if (value.statusCode === null) {
+    statusCode = null
+  } else {
+    if (typeof value.statusCode !== 'number' || !Number.isFinite(value.statusCode)) failDecode('RuntimeRequestRetryOverlay.statusCode', 'expected number')
+    const statusCodeValue = value.statusCode
+    statusCode = statusCodeValue
+  }
+  if (typeof value.reason !== 'string') failDecode('RuntimeRequestRetryOverlay.reason', 'expected string')
+  const reason = value.reason
+  return { attempt, maxAttempts, delayMs, statusCode, reason }
+}
+
+export function decodeRuntimeCompressionOverlay(value: unknown): RuntimeCompressionOverlay {
+  if (!isObject(value)) failDecode('RuntimeCompressionOverlay', 'expected object')
+  if (typeof value.phase !== 'string' || !(['idle', 'summarizing', 'completed'] as readonly string[]).includes(value.phase)) {
+    failDecode('RuntimeCompressionOverlay.phase', 'expected enum value')
+  }
+  const phase = value.phase as CompressionPhase
+  let attempt: number | null
+  if (value.attempt === null) {
+    attempt = null
+  } else {
+    if (typeof value.attempt !== 'number' || !Number.isFinite(value.attempt)) failDecode('RuntimeCompressionOverlay.attempt', 'expected number')
+    const attemptValue = value.attempt
+    attempt = attemptValue
+  }
+  let maxAttempts: number | null
+  if (value.maxAttempts === null) {
+    maxAttempts = null
+  } else {
+    if (typeof value.maxAttempts !== 'number' || !Number.isFinite(value.maxAttempts)) failDecode('RuntimeCompressionOverlay.maxAttempts', 'expected number')
+    const maxAttemptsValue = value.maxAttempts
+    maxAttempts = maxAttemptsValue
+  }
+  let preTokens: number | null
+  if (value.preTokens === null) {
+    preTokens = null
+  } else {
+    if (typeof value.preTokens !== 'number' || !Number.isFinite(value.preTokens)) failDecode('RuntimeCompressionOverlay.preTokens', 'expected number')
+    const preTokensValue = value.preTokens
+    preTokens = preTokensValue
+  }
+  let keptMessageCount: number | null
+  if (value.keptMessageCount === null) {
+    keptMessageCount = null
+  } else {
+    if (typeof value.keptMessageCount !== 'number' || !Number.isFinite(value.keptMessageCount)) failDecode('RuntimeCompressionOverlay.keptMessageCount', 'expected number')
+    const keptMessageCountValue = value.keptMessageCount
+    keptMessageCount = keptMessageCountValue
+  }
+  let summarizerFailed: boolean | null
+  if (value.summarizerFailed === null) {
+    summarizerFailed = null
+  } else {
+    if (typeof value.summarizerFailed !== 'boolean') failDecode('RuntimeCompressionOverlay.summarizerFailed', 'expected boolean')
+    const summarizerFailedValue = value.summarizerFailed
+    summarizerFailed = summarizerFailedValue
+  }
+  let summaryMessageId: string | null
+  if (value.summaryMessageId === null) {
+    summaryMessageId = null
+  } else {
+    if (typeof value.summaryMessageId !== 'string') failDecode('RuntimeCompressionOverlay.summaryMessageId', 'expected string')
+    const summaryMessageIdValue = value.summaryMessageId
+    summaryMessageId = summaryMessageIdValue
+  }
+  return { phase, attempt, maxAttempts, preTokens, keptMessageCount, summarizerFailed, summaryMessageId }
 }
 
 export function decodeRuntimeRunOverlay(value: unknown): RuntimeRunOverlay {
@@ -1253,7 +1447,122 @@ export function decodeRuntimeRunOverlay(value: unknown): RuntimeRunOverlay {
   }
   if (typeof value.lastSeq !== 'number' || !Number.isFinite(value.lastSeq)) failDecode('RuntimeRunOverlay.lastSeq', 'expected number')
   const lastSeq = value.lastSeq
-  return { runId, sessionId, status, assistantMessageId, lastSeq }
+  let iteration: number | null
+  if (value.iteration === null) {
+    iteration = null
+  } else {
+    if (typeof value.iteration !== 'number' || !Number.isFinite(value.iteration)) failDecode('RuntimeRunOverlay.iteration', 'expected number')
+    const iterationValue = value.iteration
+    iteration = iterationValue
+  }
+  let lastStopReason: string | null
+  if (value.lastStopReason === null) {
+    lastStopReason = null
+  } else {
+    if (typeof value.lastStopReason !== 'string') failDecode('RuntimeRunOverlay.lastStopReason', 'expected string')
+    const lastStopReasonValue = value.lastStopReason
+    lastStopReason = lastStopReasonValue
+  }
+  let requestRetry: RuntimeRequestRetryOverlay | null
+  if (value.requestRetry === null) {
+    requestRetry = null
+  } else {
+    const requestRetryValue = decodeRuntimeRequestRetryOverlay(value.requestRetry)
+    requestRetry = requestRetryValue
+  }
+  let compression: RuntimeCompressionOverlay | null
+  if (value.compression === null) {
+    compression = null
+  } else {
+    const compressionValue = decodeRuntimeCompressionOverlay(value.compression)
+    compression = compressionValue
+  }
+  return { runId, sessionId, status, assistantMessageId, lastSeq, iteration, lastStopReason, requestRetry, compression }
+}
+
+export function decodeRuntimeSubAgentOverlay(value: unknown): RuntimeSubAgentOverlay {
+  if (!isObject(value)) failDecode('RuntimeSubAgentOverlay', 'expected object')
+  if (typeof value.toolUseId !== 'string') failDecode('RuntimeSubAgentOverlay.toolUseId', 'expected string')
+  const toolUseId = value.toolUseId
+  if (typeof value.runId !== 'string') failDecode('RuntimeSubAgentOverlay.runId', 'expected string')
+  const runId = value.runId
+  if (typeof value.sessionId !== 'string') failDecode('RuntimeSubAgentOverlay.sessionId', 'expected string')
+  const sessionId = value.sessionId
+  if (typeof value.name !== 'string') failDecode('RuntimeSubAgentOverlay.name', 'expected string')
+  const name = value.name
+  let displayName: string | null
+  if (value.displayName === null) {
+    displayName = null
+  } else {
+    if (typeof value.displayName !== 'string') failDecode('RuntimeSubAgentOverlay.displayName', 'expected string')
+    const displayNameValue = value.displayName
+    displayName = displayNameValue
+  }
+  let description: string | null
+  if (value.description === null) {
+    description = null
+  } else {
+    if (typeof value.description !== 'string') failDecode('RuntimeSubAgentOverlay.description', 'expected string')
+    const descriptionValue = value.description
+    description = descriptionValue
+  }
+  if (typeof value.phase !== 'string' || !(['queued', 'running', 'completed'] as readonly string[]).includes(value.phase)) {
+    failDecode('RuntimeSubAgentOverlay.phase', 'expected enum value')
+  }
+  const phase = value.phase as SubAgentPhase
+  if (typeof value.reportStatus !== 'string' || !(['pending', 'queued', 'submitted', 'retrying', 'fallback', 'missing'] as readonly string[]).includes(value.reportStatus)) {
+    failDecode('RuntimeSubAgentOverlay.reportStatus', 'expected enum value')
+  }
+  const reportStatus = value.reportStatus as SubAgentReportStatus
+  if (typeof value.report !== 'string') failDecode('RuntimeSubAgentOverlay.report', 'expected string')
+  const report = value.report
+  if (typeof value.iteration !== 'number' || !Number.isFinite(value.iteration)) failDecode('RuntimeSubAgentOverlay.iteration', 'expected number')
+  const iteration = value.iteration
+  let success: boolean | null
+  if (value.success === null) {
+    success = null
+  } else {
+    if (typeof value.success !== 'boolean') failDecode('RuntimeSubAgentOverlay.success', 'expected boolean')
+    const successValue = value.success
+    success = successValue
+  }
+  let endReason: string | null
+  if (value.endReason === null) {
+    endReason = null
+  } else {
+    if (typeof value.endReason !== 'string') failDecode('RuntimeSubAgentOverlay.endReason', 'expected string')
+    const endReasonValue = value.endReason
+    endReason = endReasonValue
+  }
+  let errorMessage: string | null
+  if (value.errorMessage === null) {
+    errorMessage = null
+  } else {
+    if (typeof value.errorMessage !== 'string') failDecode('RuntimeSubAgentOverlay.errorMessage', 'expected string')
+    const errorMessageValue = value.errorMessage
+    errorMessage = errorMessageValue
+  }
+  if (typeof value.streamingText !== 'string') failDecode('RuntimeSubAgentOverlay.streamingText', 'expected string')
+  const streamingText = value.streamingText
+  let usage: JsonObject | null
+  if (value.usage === null) {
+    usage = null
+  } else {
+    if (!isJsonObject(value.usage)) failDecode('RuntimeSubAgentOverlay.usage', 'expected JSON object')
+    const usageValue = value.usage
+    usage = usageValue
+  }
+  if (typeof value.startedAt !== 'number' || !Number.isFinite(value.startedAt)) failDecode('RuntimeSubAgentOverlay.startedAt', 'expected number')
+  const startedAt = value.startedAt
+  let completedAt: number | null
+  if (value.completedAt === null) {
+    completedAt = null
+  } else {
+    if (typeof value.completedAt !== 'number' || !Number.isFinite(value.completedAt)) failDecode('RuntimeSubAgentOverlay.completedAt', 'expected number')
+    const completedAtValue = value.completedAt
+    completedAt = completedAtValue
+  }
+  return { toolUseId, runId, sessionId, name, displayName, description, phase, reportStatus, report, iteration, success, endReason, errorMessage, streamingText, usage, startedAt, completedAt }
 }
 
 export function decodeRuntimeMessageOverlay(value: unknown): RuntimeMessageOverlay {
@@ -1276,7 +1585,23 @@ export function decodeRuntimeMessageOverlay(value: unknown): RuntimeMessageOverl
     const thinkingValue = value.thinking
     thinking = thinkingValue
   }
-  return { messageId, runId, sessionId, role, text, thinking }
+  if (!Array.isArray(value.blocks)) failDecode('RuntimeMessageOverlay.blocks', 'expected array')
+  const blocks: JsonObject[] = []
+  for (let index = 0; index < value.blocks.length; index += 1) {
+    const item = value.blocks[index]
+    if (!isJsonObject(item)) failDecode('RuntimeMessageOverlay.blocks' + '[' + String(index) + ']', 'expected JSON object')
+    const decoded = item
+    blocks.push(decoded)
+  }
+  let usage: JsonObject | null
+  if (value.usage === null) {
+    usage = null
+  } else {
+    if (!isJsonObject(value.usage)) failDecode('RuntimeMessageOverlay.usage', 'expected JSON object')
+    const usageValue = value.usage
+    usage = usageValue
+  }
+  return { messageId, runId, sessionId, role, text, thinking, blocks, usage }
 }
 
 export function decodeRuntimeToolCallOverlay(value: unknown): RuntimeToolCallOverlay {
@@ -1391,7 +1716,37 @@ export function decodeRunChanged(value: unknown): RunChanged {
     const assistantMessageIdValue = value.assistantMessageId
     assistantMessageId = assistantMessageIdValue
   }
-  return { type, runId, sessionId, status, assistantMessageId }
+  let iteration: number | null
+  if (value.iteration === null) {
+    iteration = null
+  } else {
+    if (typeof value.iteration !== 'number' || !Number.isFinite(value.iteration)) failDecode('RunChanged.iteration', 'expected number')
+    const iterationValue = value.iteration
+    iteration = iterationValue
+  }
+  let lastStopReason: string | null
+  if (value.lastStopReason === null) {
+    lastStopReason = null
+  } else {
+    if (typeof value.lastStopReason !== 'string') failDecode('RunChanged.lastStopReason', 'expected string')
+    const lastStopReasonValue = value.lastStopReason
+    lastStopReason = lastStopReasonValue
+  }
+  let requestRetry: RuntimeRequestRetryOverlay | null
+  if (value.requestRetry === null) {
+    requestRetry = null
+  } else {
+    const requestRetryValue = decodeRuntimeRequestRetryOverlay(value.requestRetry)
+    requestRetry = requestRetryValue
+  }
+  let compression: RuntimeCompressionOverlay | null
+  if (value.compression === null) {
+    compression = null
+  } else {
+    const compressionValue = decodeRuntimeCompressionOverlay(value.compression)
+    compression = compressionValue
+  }
+  return { type, runId, sessionId, status, assistantMessageId, iteration, lastStopReason, requestRetry, compression }
 }
 
 export function decodeMessageStarted(value: unknown): MessageStarted {
@@ -1442,7 +1797,152 @@ export function decodeMessageBlockChanged(value: unknown): MessageBlockChanged {
   const messageId = value.messageId
   if (!isJsonObject(value.block)) failDecode('MessageBlockChanged.block', 'expected JSON object')
   const block = value.block
-  return { type, runId, sessionId, messageId, block }
+  let blockKey: string | null
+  if (value.blockKey === null) {
+    blockKey = null
+  } else {
+    if (typeof value.blockKey !== 'string') failDecode('MessageBlockChanged.blockKey', 'expected string')
+    const blockKeyValue = value.blockKey
+    blockKey = blockKeyValue
+  }
+  return { type, runId, sessionId, messageId, block, blockKey }
+}
+
+export function decodeMessageMetadataChanged(value: unknown): MessageMetadataChanged {
+  if (!isObject(value)) failDecode('MessageMetadataChanged', 'expected object')
+  if (value.type !== 'runtime.message-metadata-changed') failDecode('MessageMetadataChanged.type', 'expected runtime.message-metadata-changed')
+  const type = value.type as 'runtime.message-metadata-changed'
+  if (typeof value.runId !== 'string') failDecode('MessageMetadataChanged.runId', 'expected string')
+  const runId = value.runId
+  if (typeof value.sessionId !== 'string') failDecode('MessageMetadataChanged.sessionId', 'expected string')
+  const sessionId = value.sessionId
+  if (typeof value.messageId !== 'string') failDecode('MessageMetadataChanged.messageId', 'expected string')
+  const messageId = value.messageId
+  let usage: JsonObject | null
+  if (value.usage === null) {
+    usage = null
+  } else {
+    if (!isJsonObject(value.usage)) failDecode('MessageMetadataChanged.usage', 'expected JSON object')
+    const usageValue = value.usage
+    usage = usageValue
+  }
+  return { type, runId, sessionId, messageId, usage }
+}
+
+export function decodeSubAgentChanged(value: unknown): SubAgentChanged {
+  if (!isObject(value)) failDecode('SubAgentChanged', 'expected object')
+  if (value.type !== 'runtime.sub-agent-changed') failDecode('SubAgentChanged.type', 'expected runtime.sub-agent-changed')
+  const type = value.type as 'runtime.sub-agent-changed'
+  if (typeof value.runId !== 'string') failDecode('SubAgentChanged.runId', 'expected string')
+  const runId = value.runId
+  if (typeof value.sessionId !== 'string') failDecode('SubAgentChanged.sessionId', 'expected string')
+  const sessionId = value.sessionId
+  if (typeof value.toolUseId !== 'string') failDecode('SubAgentChanged.toolUseId', 'expected string')
+  const toolUseId = value.toolUseId
+  if (typeof value.name !== 'string') failDecode('SubAgentChanged.name', 'expected string')
+  const name = value.name
+  let displayName: string | null
+  if (value.displayName === null) {
+    displayName = null
+  } else {
+    if (typeof value.displayName !== 'string') failDecode('SubAgentChanged.displayName', 'expected string')
+    const displayNameValue = value.displayName
+    displayName = displayNameValue
+  }
+  let description: string | null
+  if (value.description === null) {
+    description = null
+  } else {
+    if (typeof value.description !== 'string') failDecode('SubAgentChanged.description', 'expected string')
+    const descriptionValue = value.description
+    description = descriptionValue
+  }
+  if (typeof value.phase !== 'string' || !(['queued', 'running', 'completed'] as readonly string[]).includes(value.phase)) {
+    failDecode('SubAgentChanged.phase', 'expected enum value')
+  }
+  const phase = value.phase as SubAgentPhase
+  let reportStatus: SubAgentReportStatus | null
+  if (value.reportStatus === null) {
+    reportStatus = null
+  } else {
+    if (typeof value.reportStatus !== 'string' || !(['pending', 'queued', 'submitted', 'retrying', 'fallback', 'missing'] as readonly string[]).includes(value.reportStatus)) {
+      failDecode('SubAgentChanged.reportStatus', 'expected enum value')
+    }
+    const reportStatusValue = value.reportStatus as SubAgentReportStatus
+    reportStatus = reportStatusValue
+  }
+  let report: string | null
+  if (value.report === null) {
+    report = null
+  } else {
+    if (typeof value.report !== 'string') failDecode('SubAgentChanged.report', 'expected string')
+    const reportValue = value.report
+    report = reportValue
+  }
+  let iteration: number | null
+  if (value.iteration === null) {
+    iteration = null
+  } else {
+    if (typeof value.iteration !== 'number' || !Number.isFinite(value.iteration)) failDecode('SubAgentChanged.iteration', 'expected number')
+    const iterationValue = value.iteration
+    iteration = iterationValue
+  }
+  let success: boolean | null
+  if (value.success === null) {
+    success = null
+  } else {
+    if (typeof value.success !== 'boolean') failDecode('SubAgentChanged.success', 'expected boolean')
+    const successValue = value.success
+    success = successValue
+  }
+  let endReason: string | null
+  if (value.endReason === null) {
+    endReason = null
+  } else {
+    if (typeof value.endReason !== 'string') failDecode('SubAgentChanged.endReason', 'expected string')
+    const endReasonValue = value.endReason
+    endReason = endReasonValue
+  }
+  let errorMessage: string | null
+  if (value.errorMessage === null) {
+    errorMessage = null
+  } else {
+    if (typeof value.errorMessage !== 'string') failDecode('SubAgentChanged.errorMessage', 'expected string')
+    const errorMessageValue = value.errorMessage
+    errorMessage = errorMessageValue
+  }
+  let usage: JsonObject | null
+  if (value.usage === null) {
+    usage = null
+  } else {
+    if (!isJsonObject(value.usage)) failDecode('SubAgentChanged.usage', 'expected JSON object')
+    const usageValue = value.usage
+    usage = usageValue
+  }
+  let completedAt: number | null
+  if (value.completedAt === null) {
+    completedAt = null
+  } else {
+    if (typeof value.completedAt !== 'number' || !Number.isFinite(value.completedAt)) failDecode('SubAgentChanged.completedAt', 'expected number')
+    const completedAtValue = value.completedAt
+    completedAt = completedAtValue
+  }
+  return { type, runId, sessionId, toolUseId, name, displayName, description, phase, reportStatus, report, iteration, success, endReason, errorMessage, usage, completedAt }
+}
+
+export function decodeSubAgentTextDelta(value: unknown): SubAgentTextDelta {
+  if (!isObject(value)) failDecode('SubAgentTextDelta', 'expected object')
+  if (value.type !== 'runtime.sub-agent-delta') failDecode('SubAgentTextDelta.type', 'expected runtime.sub-agent-delta')
+  const type = value.type as 'runtime.sub-agent-delta'
+  if (typeof value.runId !== 'string') failDecode('SubAgentTextDelta.runId', 'expected string')
+  const runId = value.runId
+  if (typeof value.sessionId !== 'string') failDecode('SubAgentTextDelta.sessionId', 'expected string')
+  const sessionId = value.sessionId
+  if (typeof value.toolUseId !== 'string') failDecode('SubAgentTextDelta.toolUseId', 'expected string')
+  const toolUseId = value.toolUseId
+  if (typeof value.text !== 'string') failDecode('SubAgentTextDelta.text', 'expected string')
+  const text = value.text
+  return { type, runId, sessionId, toolUseId, text }
 }
 
 export function decodeToolCallChanged(value: unknown): ToolCallChanged {
@@ -1804,6 +2304,12 @@ export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
       return decodeRunCompleted(value)
     case 'runtime.session-transcript-committed':
       return decodeSessionTranscriptCommitted(value)
+    case 'runtime.sub-agent-changed':
+      return decodeSubAgentChanged(value)
+    case 'runtime.sub-agent-delta':
+      return decodeSubAgentTextDelta(value)
+    case 'runtime.message-metadata-changed':
+      return decodeMessageMetadataChanged(value)
     default:
       failDecode('RuntimeEvent', `unknown type ${String(value.type)}`)
   }

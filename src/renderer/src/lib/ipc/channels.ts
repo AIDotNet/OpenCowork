@@ -71,18 +71,6 @@ export const IPC = {
   AGENT_CHANGES_UNDO_RUN: 'agent:changes:undo-run',
   AGENT_CHANGES_UNDO_FILE: 'agent:changes:undo-file',
 
-  // Memory Automation
-  MEMORY_AUTOMATION_LIST: 'memory-automation:list',
-  MEMORY_AUTOMATION_RECORD: 'memory-automation:record',
-  MEMORY_AUTOMATION_UNDO: 'memory-automation:undo',
-  MEMORY_AUTOMATION_RUN_SESSION: 'memory-automation:run-session',
-  MEMORY_AUTOMATION_RUN_ROLLUP: 'memory-automation:run-rollup',
-  MEMORY_PIPELINE_RUN: 'memory-pipeline:run',
-  MEMORY_PIPELINE_LIST_ROOTS: 'memory-pipeline:list-roots',
-  MEMORY_PIPELINE_LIST_JOBS: 'memory-pipeline:list-jobs',
-  MEMORY_PIPELINE_CLEAR_ROOT: 'memory-pipeline:clear-root',
-  MEMORY_RECORD_CITATION_USAGE: 'memory:record-citation-usage',
-
   // Process Management
   PROCESS_SPAWN: 'process:spawn',
   PROCESS_KILL: 'process:kill',

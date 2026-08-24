@@ -11,7 +11,7 @@ import type {
 } from '../../shared/agent-loop-types'
 export type { ToolCallState, InteractiveAgentEvent }
 import type { RequestDebugInfoWire } from '../../shared/agent-stream-protocol'
-import { decodeAgentStreamEnvelope } from '../../shared/messagepack/agent-stream-codec'
+import { readAgentStreamEnvelope } from '../../shared/messagepack/agent-stream-codec'
 import { getNativeSshConnectionPayload } from '../ipc/ssh-connection-payload'
 import {
   getBundledResourceDirCandidates,
@@ -645,14 +645,9 @@ async function* runNativeAgentLoop(args: {
   const unsubscribe = manager.addRawEventListener((frame) => {
     if (frame.runId !== nativeRunId) return
 
-    let envelope: NativeAgentStreamEnvelope | null = null
-    try {
-      envelope = decodeAgentStreamEnvelope(frame.bytes) as NativeAgentStreamEnvelope
-    } catch (error) {
-      console.warn(
-        '[CronAgent] Failed to decode native stream frame:',
-        error instanceof Error ? error.message : String(error)
-      )
+    const envelope = readAgentStreamEnvelope(frame.envelope) as NativeAgentStreamEnvelope | null
+    if (!envelope) {
+      console.warn('[CronAgent] Unreadable native stream frame')
       return
     }
 
@@ -899,7 +894,8 @@ const BACKGROUND_TOOL_DEFINITIONS: Record<string, ToolDefinition> = {
   },
   LS: {
     name: 'LS',
-    description: 'List files and directories in a given path',
+    description:
+      'List files and directories at `path`. Pass a directory path, not a shell `command`.',
     inputSchema: {
       type: 'object',
       properties: {

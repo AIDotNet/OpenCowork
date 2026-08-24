@@ -120,7 +120,6 @@ internal static class AgentRuntimeMemoryExecutor
             }
         }
 
-        RecordUsage(parameters, root, path, null);
         var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         WorkerLog.Debug(
             $"memory tool read ok rootId={root.Id} scope={root.Scope} lines={lines.Length} elapsedMs={ElapsedMs(startedAt)}");
@@ -215,7 +214,6 @@ internal static class AgentRuntimeMemoryExecutor
 
                     var line = index + 1;
                     matches.Add(new MemorySearchMatch(root, path, line, lines[index]));
-                    RecordUsage(parameters, root, path, line);
                     if (matches.Count >= limit)
                     {
                         WorkerLog.Debug(
@@ -379,55 +377,6 @@ internal static class AgentRuntimeMemoryExecutor
             });
         }
         return rows;
-    }
-
-    private static void RecordUsage(
-        JsonElement parameters,
-        MemoryRootDescriptor root,
-        string path,
-        int? line)
-    {
-        try
-        {
-            var now = Now();
-            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-            using var transaction = connection.BeginTransaction();
-            DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                """
-                INSERT INTO memory_citation_usage (
-                  id, memory_root_id, scope, source_session_id, path, line, citation_json, created_at
-                )
-                VALUES ($id, $memoryRootId, $scope, $sourceSessionId, $path, $line, $citationJson, $createdAt)
-                """,
-                new DbSql.SqlParam("$id", $"oc_{Guid.NewGuid():N}"),
-                new DbSql.SqlParam("$memoryRootId", root.Id),
-                new DbSql.SqlParam("$scope", root.Scope),
-                new DbSql.SqlParam("$sourceSessionId", JsonHelpers.GetString(parameters, "sessionId")),
-                new DbSql.SqlParam("$path", path),
-                new DbSql.SqlParam("$line", line),
-                new DbSql.SqlParam("$citationJson", BuildCitationJson(path, line)),
-                new DbSql.SqlParam("$createdAt", now));
-            DbSql.ExecuteNonQuery(
-                connection,
-                transaction,
-                """
-                UPDATE memory_stage1_outputs
-                   SET usage_count = usage_count + 1,
-                       last_usage_at = $lastUsageAt,
-                       updated_at = $updatedAt
-                 WHERE memory_root_id = $memoryRootId
-                """,
-                new DbSql.SqlParam("$lastUsageAt", now),
-                new DbSql.SqlParam("$updatedAt", now),
-                new DbSql.SqlParam("$memoryRootId", root.Id));
-            transaction.Commit();
-        }
-        catch (Exception ex)
-        {
-            WorkerLog.Debug($"memory citation usage skipped rootId={root.Id} error={ex.GetType().Name}: {ex.Message}");
-        }
     }
 
     private static string EncodeSearchResult(
@@ -679,23 +628,6 @@ internal static class AgentRuntimeMemoryExecutor
             """;
     }
 
-    private static string BuildCitationJson(string path, int? line)
-    {
-        return EncodeJsonObject(writer =>
-        {
-            writer.WriteString("tool", "memory");
-            writer.WriteString("path", path);
-            if (line.HasValue)
-            {
-                writer.WriteNumber("line", line.Value);
-            }
-            else
-            {
-                writer.WriteNull("line");
-            }
-        });
-    }
-
     private static string EncodeJsonObject(Action<Utf8JsonWriter> writeProperties)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -723,6 +655,29 @@ internal static class AgentRuntimeMemoryExecutor
         {
             writer.WriteString(name, value);
         }
+    }
+
+    private sealed class MemoryRootDescriptor
+    {
+        public string Id { get; set; } = string.Empty;
+
+        public string Scope { get; set; } = "global";
+
+        public string? ProjectId { get; set; }
+
+        public string? WorkingFolder { get; set; }
+
+        public string? SshConnectionId { get; set; }
+
+        public string RootPath { get; set; } = string.Empty;
+
+        public string Transport { get; set; } = "local";
+
+        public string OwnerKey { get; set; } = string.Empty;
+
+        public long CreatedAt { get; set; }
+
+        public long UpdatedAt { get; set; }
     }
 
     private sealed record MemoryRootCandidate(

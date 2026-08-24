@@ -121,6 +121,11 @@ jobs:
       - name: Verify runtime protocol
         run: npm run verify:runtime-protocol
 
+      # Exercises the worker's HTTP transport against the published binary:
+      # port discovery, request correlation, auth, and the event stream.
+      - name: Verify worker HTTP transport
+        run: npm run verify:worker-http
+
       - name: Verify architecture boundaries
         run: npm run verify:architecture
 

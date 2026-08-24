@@ -38,6 +38,10 @@ const SHARED_FILES = [
     rewrites: [["'./worker-contracts/generated/contracts'", "'./worker-contracts.js'"]]
   },
   {
+    source: 'src/shared/worker-http-channel.ts',
+    target: 'worker-http-channel.ts'
+  },
+  {
     source: 'src/shared/routin-credential.ts',
     target: 'routin-credential.ts'
   }

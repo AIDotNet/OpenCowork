@@ -422,7 +422,7 @@ const ResourceRow = forwardRef<HTMLDivElement, ResourceRowProps>(function Resour
         onDragOver={(event) => onDragOver(event, row)}
         onDrop={onDrop}
         className={cn(
-          'group/resource relative flex min-h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-xl pr-3 text-sm outline-none',
+          'group/resource relative flex min-h-7 min-w-0 cursor-pointer items-center gap-1.5 rounded-lg pr-1.5 text-sm outline-none',
           'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
           'focus-visible:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
           'data-[menu-open=true]:bg-muted data-[menu-open=true]:text-foreground',
@@ -435,7 +435,7 @@ const ResourceRow = forwardRef<HTMLDivElement, ResourceRowProps>(function Resour
         )}
         style={{ paddingLeft: `${12 + row.depth * 16}px` }}
       >
-        <span aria-hidden="true" className="relative grid size-5 shrink-0 place-items-center">
+        <span aria-hidden="true" className="relative grid size-4 shrink-0 place-items-center">
           <span
             className={cn(
               'col-start-1 row-start-1 grid place-items-center transition-opacity duration-150 ease-out motion-reduce:transition-none',
@@ -453,7 +453,7 @@ const ResourceRow = forwardRef<HTMLDivElement, ResourceRowProps>(function Resour
                 expanded && 'rotate-90'
               )}
             >
-              <ChevronRight className="size-4" />
+              <ChevronRight className="size-3.5" />
             </span>
           ) : null}
         </span>
@@ -481,7 +481,7 @@ const ResourceRow = forwardRef<HTMLDivElement, ResourceRowProps>(function Resour
                 onRenameCancel()
               }
             }}
-            className="mx-1 h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mx-0.5 h-6 min-w-0 flex-1 rounded-md border border-border bg-background px-1.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         ) : (
           <MarqueeLabel active={hovered || menuOpen}>{row.item.label}</MarqueeLabel>
@@ -498,9 +498,9 @@ const ResourceRow = forwardRef<HTMLDivElement, ResourceRowProps>(function Resour
                 tabIndex={-1}
                 aria-label={`Actions for ${row.item.label}`}
                 onClick={(event) => event.stopPropagation()}
-                className="grid size-7 shrink-0 place-items-center rounded-lg opacity-0 outline-none transition-opacity hover:bg-foreground/5 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/resource:opacity-100 group-data-[menu-open=true]/resource:opacity-100"
+                className="grid size-6 shrink-0 place-items-center rounded-md opacity-0 outline-none transition-opacity hover:bg-foreground/5 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/resource:opacity-100 group-data-[menu-open=true]/resource:opacity-100"
               >
-                <MoreHorizontal aria-hidden="true" className="size-4" />
+                <MoreHorizontal aria-hidden="true" className="size-3.5" />
               </button>
             </MorphPopoverTrigger>
             <MorphPopoverContent

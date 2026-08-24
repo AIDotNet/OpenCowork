@@ -200,17 +200,20 @@ assertSourceInvariant(
   'runtime snapshot reads pending approvals from the Main registry'
 )
 
-const attachHandler = handlerSlice(commandGateway, 'agent:attach-run', 'agent:request-stop')
+const attachHandler = handlerSlice(commandGateway, 'agent:attach-run', 'agent:compress-context')
 assertSourceInvariant(
   attachHandler,
   /attachObserver\(runId,\s*sourceWindow\.id\)/u,
   'attach adds an observer window'
 )
 assert.doesNotMatch(attachHandler, /bindPrimary\(/u, 'attach does not steal the primary run route')
-assertSourceInvariant(
+// Attach must not replay frames from this process. Windows subscribe to the
+// worker's durable outbox themselves, and the in-memory journal that used to back
+// this replay dropped the middle of long runs once it hit its size cap.
+assert.doesNotMatch(
   attachHandler,
-  /getFramesSince\(runId,\s*sinceSeq\)/u,
-  'attach replays frames strictly through the registry cursor API'
+  /getFramesSince|sendAgentStreamBytes/u,
+  'attach does not replay stream frames from Main'
 )
 assertSourceInvariant(
   attachHandler,
@@ -233,14 +236,14 @@ const agentStreamReceiver = readRepoFile('src/renderer/src/lib/ipc/agent-stream-
 assert.doesNotMatch(
   agentStreamReceiver,
   /agent:event-ack/u,
-  'Renderer must not ACK the Worker durable outbox'
+  'the renderer must not route its cursor through this host'
 )
 
 const eventAckHandler = handlerSlice(commandGateway, 'agent:event-ack', 'agent:recover-stream')
 assert.doesNotMatch(
   eventAckHandler,
-  /events\/ack/u,
-  'agent:event-ack must not write the desktop durable cursor'
+  /events\/checkpoint/u,
+  'agent:event-ack must not write this host durable cursor'
 )
 assertSourceInvariant(
   eventAckHandler,
@@ -250,8 +253,8 @@ assertSourceInvariant(
 
 assert.doesNotMatch(
   sidecarManager,
-  /events\/ack/u,
-  'sidecar-manager must not ACK the Worker durable outbox'
+  /events\/checkpoint/u,
+  'sidecar-manager must not write the durable cursor directly'
 )
 assertSourceInvariant(
   sidecarManager,
@@ -259,16 +262,24 @@ assertSourceInvariant(
   'sidecar raw handler delegates frames to the durable consumer'
 )
 assert.equal(
-  [...consumerHost.matchAll(/events\/ack/gu)].length,
+  [...consumerHost.matchAll(/events\/checkpoint/gu)].length,
   1,
-  'the single desktop ACK writer lives in the worker event consumer host'
+  'this host writes its durable cursor from exactly one place'
 )
 assertSourceInvariant(
   consumerHost,
   /consumerId:\s*DESKTOP_EVENT_CONSUMER_ID/u,
-  'the single ACK writer uses consumerId desktop'
+  'this host writes its cursor under consumerId desktop'
 )
-assertSourceInvariant(consumer, /ingestFrame/u, 'durable ACK is gated on projection ingest')
+// The cursor may only move after the frame has been journaled and projected, and
+// never from consumeFrame itself — advancing it on receipt is what let events the
+// UI had not seen be forgotten.
+assertSourceInvariant(consumer, /ingestFrame/u, 'the cursor is gated on projection ingest')
+assertSourceInvariant(
+  consumer,
+  /acknowledgeDelivered/u,
+  'the cursor advances through an explicit delivery call, not inside consumeFrame'
+)
 
 const cronAgent = readRepoFile('src/main/cron/cron-agent-background.ts')
 assert.doesNotMatch(cronAgent, /events\/ack/u, 'cron must not ACK the Worker durable outbox')

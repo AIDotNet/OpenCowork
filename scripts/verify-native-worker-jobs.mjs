@@ -1,19 +1,13 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { decode, encode } from '@msgpack/msgpack'
+import { startWorkerOverHttp } from './lib/worker-http-harness.mjs'
 
-const FRAME_HEADER_BYTES = 4
-const MAX_FRAME_BYTES = 256 * 1024 * 1024
 const tempDirectory = mkdtempSync(join(tmpdir(), 'open-cowork-worker-jobs-'))
-const controlEndpoint = join(tempDirectory, 'control.sock')
-const eventEndpoint = join(tempDirectory, 'events.sock')
 const workerDll = resolve(
   'sidecars/OpenCowork.Native.Worker/bin/Debug/net11.0/OpenCowork.Native.Worker.dll'
 )
@@ -139,89 +133,38 @@ const retryStatusBaseUrls = new Map(
 )
 const noRetry400BaseUrl = `http://127.0.0.1:${providerAddress.port}/no-retry-400/v1`
 
-class RpcClient {
-  constructor(socket) {
-    this.socket = socket
-    this.nextId = 1
-    this.pending = new Map()
-    this.buffer = Buffer.alloc(0)
-    this.fatalError = null
-    socket.on('data', (chunk) => this.handleData(chunk))
-    socket.on('error', (error) => this.fail(error))
-  }
-
-  request(method, params = {}, timeoutMs = 10_000) {
-    if (this.fatalError) return Promise.reject(this.fatalError)
-    const id = this.nextId++
-    const payload = encode({ id, method, params })
-    const frame = Buffer.allocUnsafe(FRAME_HEADER_BYTES + payload.byteLength)
-    frame.writeUInt32BE(payload.byteLength, 0)
-    Buffer.from(payload).copy(frame, FRAME_HEADER_BYTES)
-    return new Promise((resolveRequest, rejectRequest) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        rejectRequest(new Error(`RPC timed out: ${method}`))
-      }, timeoutMs)
-      this.pending.set(id, { method, resolve: resolveRequest, reject: rejectRequest, timer })
-      this.socket.write(frame)
-    })
-  }
-
-  handleData(chunk) {
-    this.buffer = Buffer.concat([this.buffer, chunk])
-    while (this.buffer.length >= FRAME_HEADER_BYTES) {
-      const length = this.buffer.readUInt32BE(0)
-      if (this.buffer.length < FRAME_HEADER_BYTES + length) return
-      const payload = this.buffer.subarray(FRAME_HEADER_BYTES, FRAME_HEADER_BYTES + length)
-      this.buffer = this.buffer.subarray(FRAME_HEADER_BYTES + length)
-      const frame = decode(payload)
-      if (frame?.event === 'agent/reverse-request') {
-        this.handleReverseRequest(frame.params)
-        continue
-      }
-      if (typeof frame?.id !== 'number') continue
-      const pending = this.pending.get(frame.id)
-      if (!pending) continue
-      this.pending.delete(frame.id)
-      clearTimeout(pending.timer)
-      if (typeof frame.error === 'string') pending.reject(new Error(frame.error))
-      else pending.resolve(frame.result)
-    }
-  }
-
-  handleReverseRequest(request) {
+/**
+ * Answers reverse RPC over the worker's dedicated reverse stream.
+ *
+ * The stream is separate from the event stream on purpose: this harness stalls
+ * event delivery for long stretches, and a run blocked on a hook must still get
+ * its answer. Sharing one stream would deadlock the run instead of exercising
+ * the backpressure this file is here to verify.
+ */
+function answerReverseRequests(worker) {
+  return worker.on('agent/reverse-request', (frame) => {
+    const request = frame?.params
     const id = request?.id
     const method = request?.method
     if ((typeof id !== 'number' && typeof id !== 'string') || typeof method !== 'string') {
-      this.fail(new Error('Invalid agent/reverse-request fixture payload'))
-      return
+      throw new Error('Invalid agent/reverse-request fixture payload')
     }
 
     const response =
       method === 'hooks/run'
         ? { id, result: {} }
         : { id, error: `Unsupported reverse request in Job verification: ${method}` }
-    void this.request('agent/reverse-response', response).catch((error) => this.fail(error))
-  }
-
-  fail(error) {
-    if (this.fatalError) return
-    this.fatalError = error instanceof Error ? error : new Error(String(error))
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer)
-      pending.reject(this.fatalError)
-    }
-    this.pending.clear()
-    this.socket.destroy()
-  }
+    void worker.request('agent/reverse-response', response).catch(() => {
+      // The worker is going away; the assertions below report the real failure.
+    })
+  })
 }
 
-function collectAgentTerminals(socket, expectedRunIds, acknowledge) {
+function collectAgentTerminals(worker, expectedRunIds, acknowledge) {
   const expected = new Set(expectedRunIds)
   const terminal = new Set()
   const seen = new Set()
   const lastSeqByRun = new Map()
-  let buffer = Buffer.alloc(0)
   let timer
   let resolveCollection
   let rejectCollection
@@ -232,63 +175,47 @@ function collectAgentTerminals(socket, expectedRunIds, acknowledge) {
 
   const cleanup = () => {
     clearTimeout(timer)
-    socket.off('data', handleData)
-    socket.off('error', handleError)
+    unsubscribeStream()
+    unsubscribeError()
   }
-  const handleError = (error) => {
+  const unsubscribeError = worker.on('error', (error) => {
     cleanup()
     rejectCollection(error)
-  }
-  const handleData = (chunk) => {
-    buffer = Buffer.concat([buffer, chunk])
-    while (buffer.length >= FRAME_HEADER_BYTES) {
-      const length = buffer.readUInt32BE(0)
-      if (length <= 0 || length > MAX_FRAME_BYTES) {
-        handleError(new Error(`Invalid Event IPC frame length: ${length}`))
-        return
-      }
-      if (buffer.length < FRAME_HEADER_BYTES + length) return
-      const payload = buffer.subarray(FRAME_HEADER_BYTES, FRAME_HEADER_BYTES + length)
-      buffer = buffer.subarray(FRAME_HEADER_BYTES + length)
-      const frame = decode(payload)
-      if (
-        frame?.event !== 'agent/stream' ||
-        typeof frame.runId !== 'string' ||
-        typeof frame.seq !== 'number' ||
-        !expected.has(frame.runId)
-      ) {
-        continue
-      }
-      const key = `${frame.runId}:${frame.seq}`
-      if (seen.has(key)) {
-        acknowledge(frame.runId, frame.seq)
-        continue
-      }
-      const lastSeq = lastSeqByRun.get(frame.runId) ?? 0
-      if (frame.seq !== lastSeq + 1) {
-        // Never ACK through a gap; a reconnect/replay may have stale later
-        // frames ahead of the missing durable batch.
-        continue
-      }
-      seen.add(key)
-      lastSeqByRun.set(frame.runId, frame.seq)
-      acknowledge(frame.runId, frame.seq)
-      if (
-        Array.isArray(frame.events) &&
-        frame.events.some((event) => event?.type === 'error' || event?.type === 'loop_end')
-      ) {
-        terminal.add(frame.runId)
-      }
-      if (terminal.size === expected.size) {
-        cleanup()
-        resolveCollection({ seen: seen.size, terminal: terminal.size })
-        return
-      }
+  })
+  const unsubscribeStream = worker.on('agent/stream', (frame) => {
+    if (
+      typeof frame?.runId !== 'string' ||
+      typeof frame.seq !== 'number' ||
+      !expected.has(frame.runId)
+    ) {
+      return
     }
-  }
+    const key = `${frame.runId}:${frame.seq}`
+    if (seen.has(key)) {
+      acknowledge(frame.runId, frame.seq)
+      return
+    }
+    const lastSeq = lastSeqByRun.get(frame.runId) ?? 0
+    if (frame.seq !== lastSeq + 1) {
+      // Never ACK through a gap; a reconnect/replay may have stale later
+      // frames ahead of the missing durable batch.
+      return
+    }
+    seen.add(key)
+    lastSeqByRun.set(frame.runId, frame.seq)
+    acknowledge(frame.runId, frame.seq)
+    if (
+      Array.isArray(frame.events) &&
+      frame.events.some((event) => event?.type === 'error' || event?.type === 'loop_end')
+    ) {
+      terminal.add(frame.runId)
+    }
+    if (terminal.size === expected.size) {
+      cleanup()
+      resolveCollection({ seen: seen.size, terminal: terminal.size })
+    }
+  })
 
-  socket.on('data', handleData)
-  socket.on('error', handleError)
   timer = setTimeout(() => {
     cleanup()
     rejectCollection(
@@ -296,23 +223,6 @@ function collectAgentTerminals(socket, expectedRunIds, acknowledge) {
     )
   }, 20_000)
   return completed
-}
-
-async function connect(endpoint, child) {
-  const deadline = Date.now() + 10_000
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Worker exited early: ${child.exitCode}`)
-    try {
-      return await new Promise((resolveConnection, rejectConnection) => {
-        const socket = createConnection(endpoint)
-        socket.once('connect', () => resolveConnection(socket))
-        socket.once('error', rejectConnection)
-      })
-    } catch {
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 30))
-    }
-  }
-  throw new Error(`Could not connect to ${endpoint}`)
 }
 
 async function waitForTerminal(client, jobId, timeoutMs = 20_000, onPoll) {
@@ -429,38 +339,29 @@ async function verifyProviderStatusPolicy(
 }
 
 const hostId = `verify-${process.pid}-${randomUUID().replaceAll('-', '')}`
-const child = spawn(
-  'dotnet',
-  [workerDll, '--control-ipc', controlEndpoint, '--event-ipc', eventEndpoint, '--host-id', hostId],
-  {
+
+let worker
+let recoveryWorker
+try {
+  worker = await startWorkerOverHttp({
+    command: 'dotnet',
+    commandArgs: [workerDll],
+    hostId,
+    cwd: process.cwd(),
     env: {
-      ...process.env,
       OPEN_COWORK_RUNTIME_DB_PATH: join(tempDirectory, 'runtime.db'),
       OPEN_COWORK_NATIVE_RETRY_TRANSPORT: '0'
-    },
-    stdio: ['ignore', 'ignore', 'pipe']
-  }
-)
-
-let stderr = ''
-child.stderr.on('data', (chunk) => {
-  stderr += chunk.toString('utf8')
-})
-
-let controlSocket
-let eventSocket
-let recoveryChild
-let recoveryControlSocket
-let recoveryEventSocket
-try {
-  ;[controlSocket, eventSocket] = await Promise.all([
-    connect(controlEndpoint, child),
-    connect(eventEndpoint, child)
-  ])
-  // Simulate a Renderer that stops draining progress events. This socket must not
-  // share a write lock or health fate with Control IPC.
-  eventSocket.pause()
-  const client = new RpcClient(controlSocket)
+    }
+  })
+  answerReverseRequests(worker)
+  await worker.attachReverse()
+  // Simulate a UI that stops draining progress events. Attaching first and then
+  // stalling is what makes the worker buffer for a consumer that is present but
+  // not reading; requests and reverse RPC ride their own connections and must be
+  // unaffected.
+  await worker.attachEvents()
+  worker.pauseEvents()
+  const client = worker
 
   const hello = await client.request('worker/hello')
   assert.equal(hello.protocolVersion, 2)
@@ -656,42 +557,28 @@ try {
   const queuedBeforeCrash = await client.request('jobs/status', { jobId: queuedJobId })
   assert.equal(queuedBeforeCrash.state, 'queued')
 
-  child.kill('SIGKILL')
-  await new Promise((resolveExit) => child.once('exit', resolveExit))
-  controlSocket.destroy()
-  eventSocket.destroy()
-  controlSocket = undefined
-  eventSocket = undefined
+  // SIGKILL the worker with jobs still in flight; the replacement must recover
+  // them from the durable store.
+  worker.child.kill('SIGKILL')
+  await new Promise((resolveExit) => worker.child.once('exit', resolveExit))
+  await worker.close()
+  worker = undefined
 
-  const recoveryControlEndpoint = join(tempDirectory, 'recovery-control.sock')
-  const recoveryEventEndpoint = join(tempDirectory, 'recovery-events.sock')
-  recoveryChild = spawn(
-    'dotnet',
-    [
-      workerDll,
-      '--control-ipc',
-      recoveryControlEndpoint,
-      '--event-ipc',
-      recoveryEventEndpoint,
-      '--host-id',
-      hostId
-    ],
-    {
-      env: {
-        ...process.env,
-        OPEN_COWORK_RUNTIME_DB_PATH: join(tempDirectory, 'runtime.db'),
-        OPEN_COWORK_NATIVE_RETRY_TRANSPORT: '0',
-        OPEN_COWORK_NATIVE_RETRY_TIMEOUT_ATTEMPTS: '2'
-      },
-      stdio: ['ignore', 'ignore', 'pipe']
+  recoveryWorker = await startWorkerOverHttp({
+    command: 'dotnet',
+    commandArgs: [workerDll],
+    hostId,
+    cwd: process.cwd(),
+    env: {
+      OPEN_COWORK_RUNTIME_DB_PATH: join(tempDirectory, 'runtime.db'),
+      OPEN_COWORK_NATIVE_RETRY_TRANSPORT: '0',
+      OPEN_COWORK_NATIVE_RETRY_TIMEOUT_ATTEMPTS: '2'
     }
-  )
-  ;[recoveryControlSocket, recoveryEventSocket] = await Promise.all([
-    connect(recoveryControlEndpoint, recoveryChild),
-    connect(recoveryEventEndpoint, recoveryChild)
-  ])
-  recoveryEventSocket.resume()
-  const recoveryClient = new RpcClient(recoveryControlSocket)
+  })
+  answerReverseRequests(recoveryWorker)
+  await recoveryWorker.attachReverse()
+  await recoveryWorker.attachEvents()
+  const recoveryClient = recoveryWorker
   await recoveryClient.request('worker/hello')
   const interruptedResult = await waitForTerminal(recoveryClient, interruptedJobId)
   assert.equal(interruptedResult.state, 'failed')
@@ -699,15 +586,19 @@ try {
   const recoveredQueuedResult = await waitForTerminal(recoveryClient, queuedJobId)
   assert.equal(recoveredQueuedResult.state, 'succeeded')
 
-  // Persist more Agent envelopes than the 32-batch unacked send window while
-  // Event IPC is not being drained. Jobs must still finish, and reconnect +
-  // replay + ACK must deliver every terminal envelope without touching Control.
+  // Persist more Agent envelopes than the 32-batch unacked send window while the
+  // event stream is not being drained. Jobs must still finish, and reattach +
+  // replay + ACK must deliver every terminal envelope without disturbing requests.
   const replayConsumerId = `verify-replay-${randomUUID()}`
   await recoveryClient.request('events/subscribe', {
     consumerId: replayConsumerId,
     limit: 4096
   })
-  recoveryEventSocket.pause()
+  // The subscription names a new consumer, so the stream has to move to that
+  // consumer's lane; the pump delivers to the lane the subscription named.
+  recoveryWorker.detachEvents()
+  await recoveryWorker.attachEvents(replayConsumerId)
+  recoveryWorker.pauseEvents()
   const replayRunIds = Array.from({ length: 12 }, () => randomUUID())
   for (const runId of replayRunIds) {
     const submission = await recoveryClient.request('jobs/submit', {
@@ -744,21 +635,26 @@ try {
   assert.equal(replayJobs.length, replayRunIds.length)
   assert.ok(replayJobs.every((job) => job.state === 'failed'))
 
-  recoveryEventSocket.destroy()
-  recoveryEventSocket = await connect(recoveryEventEndpoint, recoveryChild)
-  const replayed = collectAgentTerminals(recoveryEventSocket, replayRunIds, (jobId, throughSeq) => {
+  // Everything above was persisted while this consumer was not reading. Resuming
+  // must deliver all of it: there is no acknowledgement window to exhaust any
+  // more, so the property under test is completeness rather than a cap.
+  const replayed = collectAgentTerminals(recoveryWorker, replayRunIds, (jobId, throughSeq) => {
     void recoveryClient
-      .request('events/ack', { consumerId: replayConsumerId, jobId, throughSeq })
+      .request('events/checkpoint', { consumerId: replayConsumerId, jobId, throughSeq })
       .catch(() => {})
   })
-  const replay = await recoveryClient.request('events/replay', {
+  recoveryWorker.resumeEvents()
+  // events/replay is the explicit nudge a reconnecting consumer sends; it is a
+  // safety net here because the pump also wakes on its own once the lane drains.
+  await recoveryClient.request('events/replay', {
     consumerId: replayConsumerId,
     limit: 4096
   })
-  assert.equal(replay.published, 32)
+  // collectAgentTerminals refuses to advance across a sequence gap, so reaching
+  // every run's terminal envelope proves the backlog arrived complete and ordered.
   const replayResult = await replayed
   assert.equal(replayResult.terminal, replayRunIds.length)
-  assert.ok(replayResult.seen > 32)
+  assert.ok(replayResult.seen >= replayRunIds.length)
   const replayPing = await recoveryClient.request('worker/ping', {}, 2_000)
   assert.equal(replayPing.ok, true)
 
@@ -788,11 +684,11 @@ try {
 
   const rejectedRunId = randomUUID()
   const rejectedEvents = collectAgentTerminals(
-    recoveryEventSocket,
+    recoveryWorker,
     [rejectedRunId],
     (jobId, throughSeq) => {
       void recoveryClient
-        .request('events/ack', { consumerId: replayConsumerId, jobId, throughSeq })
+        .request('events/checkpoint', { consumerId: replayConsumerId, jobId, throughSeq })
         .catch(() => {})
     }
   )
@@ -841,17 +737,17 @@ try {
     providerType: 'openai-responses'
   })
 
-  console.log('Native Worker durable Job + split IPC verification passed.')
+  console.log('Native Worker durable Job + split HTTP stream verification passed.')
 } finally {
-  controlSocket?.destroy()
-  eventSocket?.destroy()
-  if (child.exitCode === null) child.kill()
-  recoveryControlSocket?.destroy()
-  recoveryEventSocket?.destroy()
-  if (recoveryChild?.exitCode === null) recoveryChild.kill()
+  const failedWorker = [worker, recoveryWorker].find(
+    (candidate) => candidate?.child.exitCode && candidate.child.exitCode !== 0
+  )
+  const stderrTail = failedWorker?.stderrTail?.join('\n')
+  await worker?.close()
+  await recoveryWorker?.close()
   providerServer.close()
   rmSync(tempDirectory, { recursive: true, force: true })
-  if (child.exitCode && child.exitCode !== 0) {
-    console.error(stderr)
+  if (stderrTail) {
+    console.error(stderrTail)
   }
 }

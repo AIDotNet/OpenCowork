@@ -11,8 +11,8 @@ of the agent runtime.
   fatal startup failures to stderr. It must not contain business logic or module registration.
 - `Hosting/` is the composition root. It builds the worker host, selects the default module
   catalog, and wires modules into the dispatcher.
-- `Runtime/` owns the local IPC RPC loop, MessagePack framing, dispatch, response serialization,
-  module contracts, and request helpers.
+- `Runtime/` owns the HTTP transport, dispatch, response serialization, module contracts, and
+  request helpers.
 - `Contracts/` contains shared response contracts used by multiple modules.
 - `Serialization/` contains source-generated JSON metadata for Native AOT.
 - `Modules/` contains feature modules. Each module registers endpoint names and delegates to its
@@ -22,32 +22,60 @@ of the agent runtime.
 
 ```
 Program.Main
-  -> WorkerEndpoint.Parse(--control-ipc, --event-ipc, --host-id)
-  -> RuntimeJobCoordinator.Configure()
-  -> WorkerHost.CreateDefault()
-  -> WorkerHostBuilder.UseDefaultModules()
-  -> WorkerModuleCatalog.Default
-  -> IWorkerModule.Register(WorkerModuleContext)
-  -> LocalIpcWorkerServer.RunAsync()
-     -> Control IPC: WorkerDispatcher.DispatchAsync()
-     -> Event IPC: LocalIpcWorkerEventServer.RunAsync()
+  -> HttpWorkerEndpoint.Parse(--http-token, --host-id, [--http-port])
+  -> RuntimeJobCoordinator.Configure(hostId)
+  -> HttpWorkerHost.CreateDefault()
+     -> WorkerModuleCatalog.Default
+     -> IWorkerModule.Register(WorkerModuleContext)
+  -> HttpWorkerServer.RunAsync()
+     -> Kestrel on 127.0.0.1, port published on stdout
+     -> POST /rpc     : WorkerDispatcher.DispatchAsync()
+     -> POST /cancel  : cancel an in-flight request by id
+     -> GET  /events  : SSE, one-way progress + agent/stream
+     -> GET  /health  : liveness and transport diagnostics
      -> RuntimeJobCoordinator: SQLite inbox -> bounded scheduler -> result/outbox
 ```
 
-Node starts this process with:
+Hosts start this process with:
 
 ```text
 OpenCowork.Native.Worker \
-  --control-ipc <control-endpoint> \
-  --event-ipc <event-endpoint> \
+  --http-token <shared-secret> \
   --host-id <stable-client-id>
 ```
 
-On Unix-like systems each endpoint is a distinct Unix-domain socket path; on Windows each is a
-distinct named pipe path. Both transports use length-prefixed MessagePack frames. Protocol v2
-separates request/response, heartbeat, cancellation, and reverse RPC on Control IPC from one-way
-progress/stream output on Event IPC. A slow or blocked event consumer can therefore reconnect
-without blocking `worker/ping` or causing the worker supervisor to recycle a healthy process.
+stdout must be piped: the worker binds an ephemeral loopback port and publishes it as a single
+`__OPEN_COWORK_WORKER_HTTP__ {json}` line there. Diagnostics go to stderr, so that line is the only
+thing on stdout. Every request carries `Authorization: Bearer <token>`; anything else gets 401.
+
+Handler failures stay inside `result` as `{ "error": "..." }`. HTTP status codes are reserved for
+transport faults, so a caller never has to distinguish "the worker rejected my arguments" from "the
+worker could not be reached".
+
+Reverse RPC and streamed output are on **separate** connections. `GET /reverse` carries reverse
+requests on a never-drop lane; `GET /events` carries `agent/stream` on a bounded droppable lane whose
+durable outbox is authoritative. They are split because a consumer that stops reading streamed output
+must still be able to answer an approval or a hook — one shared stream would deadlock the run instead.
+A stalled event consumer therefore cannot block `worker/ping`, delay a reverse request, or cause a
+healthy worker to be recycled.
+
+`GET /events` requires a `consumerId` and serves one lane per consumer, each with its own cursor,
+unacknowledged window, and byte budget. There is more than one consumer because the renderer talks to
+the worker directly while the host keeps its own subscription for background and scheduled runs;
+sharing a cursor would let one consumer's acknowledgement discard frames the other never received. A
+second reader of the _same_ consumer gets 409, and a missing `consumerId` gets 400 — defaulting it
+would let two clients collide on one lane and silently stall one of them.
+
+Browser callers are answered a CORS preflight before authentication, since a preflight never carries
+`Authorization`. Allowed origins are this machine's own app surfaces: loopback http(s) and the opaque
+`null` origin a packaged `file://` window sends. The bearer token remains the actual gate.
+
+`Runtime/{HttpWorkerServer,HttpWorkerEndpoint,WorkerEventRouter}.cs` and `Hosting/HttpWorkerHost.cs`
+are local to this worker.
+
+HTTP is the only transport: `--http-token` is required, and `Program.Main` has no socket fallback. The
+socket server still exists in the CodeGraph submodule but is no longer referenced; deleting it is a
+submodule change and lands there first.
 
 ## Background Jobs
 
@@ -66,7 +94,8 @@ of a Job route, so clients cannot accidentally move slow execution back onto a C
   checkpoint recovery is not yet available.
 - Agent stream envelopes are written to `runtime_event_batches` before Event IPC publication.
   Clients replay with `events/subscribe` / `events/replay` and advance durable cursors with
-  `events/ack` only after applying an envelope.
+  `events/checkpoint`, which is a resume hint rather than an acknowledgement: nothing is held
+  back waiting for it, and a consumer states its real position by resubscribing with a sequence.
 - Every finished tool call is journaled to `runtime_tool_results` on the emit path, before the
   stream envelope is published and before the loop appends the result to the conversation. A host
   that lost a tool_result — renderer crash, app kill, worker recycle mid-turn — recovers the real

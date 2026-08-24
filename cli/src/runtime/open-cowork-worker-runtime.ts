@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -76,6 +76,7 @@ import {
   getCurrentRid,
   type NativeWorkerProbe
 } from './native-worker-client.js'
+import type { WorkerBackendClient } from './worker-backend-client.js'
 import {
   loadAgentCatalog,
   loadModelCatalog,
@@ -1108,7 +1109,7 @@ function validatePromptImages(images: PromptImageAttachment[]): void {
 }
 
 export class OpenCoworkWorkerRuntime implements AgentRuntime {
-  private readonly client: NativeWorkerClient
+  private readonly client: WorkerBackendClient
   private sessionId = `cli-session-${randomUUID()}`
   private readonly subscriptions: Array<() => void> = []
   private readonly pendingReverse = new Map<string, PendingReverseRequest>()

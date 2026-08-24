@@ -35,6 +35,30 @@ public static class RuntimeRolloutModeValues
     public const string V2 = "v2";
 }
 
+public static class CompressionPhaseValues
+{
+    public const string Idle = "idle";
+    public const string Summarizing = "summarizing";
+    public const string Completed = "completed";
+}
+
+public static class SubAgentPhaseValues
+{
+    public const string Queued = "queued";
+    public const string Running = "running";
+    public const string Completed = "completed";
+}
+
+public static class SubAgentReportStatusValues
+{
+    public const string Pending = "pending";
+    public const string Queued = "queued";
+    public const string Submitted = "submitted";
+    public const string Retrying = "retrying";
+    public const string Fallback = "fallback";
+    public const string Missing = "missing";
+}
+
 public static class RunStatusValues
 {
     public const string Queued = "queued";
@@ -154,11 +178,20 @@ public sealed record GetDiagnosticsParams(string SubscriberId);
 
 public sealed record GetDiagnosticsResult(bool Ok, Dictionary<string, JsonElement> Details);
 
-public sealed record AgentRuntimeProjection(string GatewayEpoch, string WorkerInstanceId, int SchemaVersion, int ProjectionRevision, RuntimeRunOverlay[] Runs, RuntimeMessageOverlay[] Messages, RuntimeToolCallOverlay[] ToolCalls, RuntimeApprovalOverlay[] Approvals, RuntimeUiCapabilityOverlay[] PendingUiCapabilities);
+public sealed record AgentRuntimeProjection(string GatewayEpoch, string WorkerInstanceId, int SchemaVersion, int ProjectionRevision, RuntimeRunOverlay[] Runs, RuntimeMessageOverlay[] Messages, RuntimeToolCallOverlay[] ToolCalls, RuntimeApprovalOverlay[] Approvals, RuntimeUiCapabilityOverlay[] PendingUiCapabilities, RuntimeSubAgentOverlay[] SubAgents);
 
-public sealed record RuntimeRunOverlay(string RunId, string SessionId, string Status, string? AssistantMessageId, int LastSeq);
+/// <summary>A provider request being retried for the current iteration. Carried on the run because the UI shows it against the run, not a message: a retry banner, the composer status, and the session list indicator all read the same state.</summary>
+public sealed record RuntimeRequestRetryOverlay(int Attempt, int MaxAttempts, int DelayMs, int? StatusCode, string Reason);
 
-public sealed record RuntimeMessageOverlay(string MessageId, string RunId, string SessionId, string Role, string Text, string? Thinking);
+/// <summary>Context summarization progress for a run. The draft text the summarizer streams is deliberately absent: the worker emits those tokens as live-only frames that never enter the durable outbox, so they cannot reach this projection at all. Only the phase transitions can.</summary>
+public sealed record RuntimeCompressionOverlay(string Phase, int? Attempt, int? MaxAttempts, int? PreTokens, int? KeptMessageCount, bool? SummarizerFailed, string? SummaryMessageId);
+
+public sealed record RuntimeRunOverlay(string RunId, string SessionId, string Status, string? AssistantMessageId, int LastSeq, int? Iteration, string? LastStopReason, RuntimeRequestRetryOverlay? RequestRetry, RuntimeCompressionOverlay? Compression);
+
+/// <summary>A sub-agent spawned by a run, keyed by the parent tool-use id. This is the lifecycle spine only — phase, progress, outcome and a short live text preview. It deliberately does not carry the sub-agent's inner transcript. Patches land in a journal capped at 2000 entries and 8 MiB, and a transcript snapshot on every inner tool or image event would exhaust that budget within one busy sub-agent, forcing every late attach onto the expensive full-snapshot path. Inner transcript detail stays with the legacy render path.</summary>
+public sealed record RuntimeSubAgentOverlay(string ToolUseId, string RunId, string SessionId, string Name, string? DisplayName, string? Description, string Phase, string ReportStatus, string Report, int Iteration, bool? Success, string? EndReason, string? ErrorMessage, string StreamingText, Dictionary<string, JsonElement>? Usage, long StartedAt, long? CompletedAt);
+
+public sealed record RuntimeMessageOverlay(string MessageId, string RunId, string SessionId, string Role, string Text, string? Thinking, Dictionary<string, JsonElement>[] Blocks, Dictionary<string, JsonElement>? Usage);
 
 public sealed record RuntimeToolCallOverlay(string ToolCallId, string RunId, string SessionId, string ToolName, string Status, Dictionary<string, JsonElement>? Input, string? Output);
 
@@ -168,13 +201,24 @@ public sealed record RuntimeUiCapabilityOverlay(string RequestId, string RunId, 
 
 public sealed record RuntimeReset(string Type, string Reason, string WorkerInstanceId);
 
-public sealed record RunChanged(string Type, string RunId, string SessionId, string Status, string? AssistantMessageId);
+/// <summary>A patch to a run's overlay. Lifecycle fields are carried here rather than as their own event variants because they arrive interleaved with status changes and always describe the same row. Null clears a field; the reducer leaves anything absent untouched.</summary>
+public sealed record RunChanged(string Type, string RunId, string SessionId, string Status, string? AssistantMessageId, int? Iteration, string? LastStopReason, RuntimeRequestRetryOverlay? RequestRetry, RuntimeCompressionOverlay? Compression);
 
 public sealed record MessageStarted(string Type, string RunId, string SessionId, string MessageId);
 
 public sealed record MessageDelta(string Type, string RunId, string SessionId, string MessageId, string Text, string? Thinking);
 
-public sealed record MessageBlockChanged(string Type, string RunId, string SessionId, string MessageId, Dictionary<string, JsonElement> Block);
+/// <summary>Adds or replaces one content block on a message overlay. `blockKey` identifies a block that can be revised in place — web-search activity arrives twice, first as `searching` and then `completed`, and the second must not appear as a duplicate chip.</summary>
+public sealed record MessageBlockChanged(string Type, string RunId, string SessionId, string MessageId, Dictionary<string, JsonElement> Block, string? BlockKey);
+
+/// <summary>Usage and provider metadata reported when a provider call finishes.</summary>
+public sealed record MessageMetadataChanged(string Type, string RunId, string SessionId, string MessageId, Dictionary<string, JsonElement>? Usage);
+
+/// <summary>A patch to one sub-agent's overlay. Null clears a field; the reducer leaves anything the emitter had no opinion about untouched.</summary>
+public sealed record SubAgentChanged(string Type, string RunId, string SessionId, string ToolUseId, string Name, string? DisplayName, string? Description, string Phase, string? ReportStatus, string? Report, int? Iteration, bool? Success, string? EndReason, string? ErrorMessage, Dictionary<string, JsonElement>? Usage, long? CompletedAt);
+
+/// <summary>Streamed assistant text from a sub-agent, appended to its live preview.</summary>
+public sealed record SubAgentTextDelta(string Type, string RunId, string SessionId, string ToolUseId, string Text);
 
 public sealed record ToolCallChanged(string Type, string RunId, string SessionId, string ToolCallId, string ToolName, string Status, Dictionary<string, JsonElement>? Input, string? Output);
 
@@ -257,7 +301,10 @@ public sealed record CanvasActionResponse(string RequestId, bool Ok, JsonElement
 [JsonSerializable(typeof(GetDiagnosticsParams))]
 [JsonSerializable(typeof(GetDiagnosticsResult))]
 [JsonSerializable(typeof(AgentRuntimeProjection))]
+[JsonSerializable(typeof(RuntimeRequestRetryOverlay))]
+[JsonSerializable(typeof(RuntimeCompressionOverlay))]
 [JsonSerializable(typeof(RuntimeRunOverlay))]
+[JsonSerializable(typeof(RuntimeSubAgentOverlay))]
 [JsonSerializable(typeof(RuntimeMessageOverlay))]
 [JsonSerializable(typeof(RuntimeToolCallOverlay))]
 [JsonSerializable(typeof(RuntimeApprovalOverlay))]
@@ -267,6 +314,9 @@ public sealed record CanvasActionResponse(string RequestId, bool Ok, JsonElement
 [JsonSerializable(typeof(MessageStarted))]
 [JsonSerializable(typeof(MessageDelta))]
 [JsonSerializable(typeof(MessageBlockChanged))]
+[JsonSerializable(typeof(MessageMetadataChanged))]
+[JsonSerializable(typeof(SubAgentChanged))]
+[JsonSerializable(typeof(SubAgentTextDelta))]
 [JsonSerializable(typeof(ToolCallChanged))]
 [JsonSerializable(typeof(ApprovalChanged))]
 [JsonSerializable(typeof(UiCapabilityChanged))]
@@ -871,7 +921,7 @@ public static class RuntimeEventMessagePack
 
     internal static void WriteAgentRuntimeProjection(MessagePackWriter writer, AgentRuntimeProjection value)
     {
-        writer.WriteMapHeader(9);
+        writer.WriteMapHeader(10);
         writer.WriteString("gatewayEpoch");
         writer.WriteString(value.GatewayEpoch);
         writer.WriteString("workerInstanceId");
@@ -910,11 +960,79 @@ public static class RuntimeEventMessagePack
         {
             WriteRuntimeUiCapabilityOverlay(writer, item);
         }
+        writer.WriteString("subAgents");
+        writer.WriteArrayHeader(value.SubAgents.Length);
+        foreach (var item in value.SubAgents)
+        {
+            WriteRuntimeSubAgentOverlay(writer, item);
+        }
+    }
+
+    internal static void WriteRuntimeRequestRetryOverlay(MessagePackWriter writer, RuntimeRequestRetryOverlay value)
+    {
+        writer.WriteMapHeader(5);
+        writer.WriteString("attempt");
+        writer.WriteInt32(value.Attempt);
+        writer.WriteString("maxAttempts");
+        writer.WriteInt32(value.MaxAttempts);
+        writer.WriteString("delayMs");
+        writer.WriteInt32(value.DelayMs);
+        writer.WriteString("statusCode");
+        if (value.StatusCode is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.StatusCode.Value);
+        }
+        writer.WriteString("reason");
+        writer.WriteString(value.Reason);
+    }
+
+    internal static void WriteRuntimeCompressionOverlay(MessagePackWriter writer, RuntimeCompressionOverlay value)
+    {
+        writer.WriteMapHeader(7);
+        writer.WriteString("phase");
+        writer.WriteString(value.Phase);
+        writer.WriteString("attempt");
+        if (value.Attempt is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.Attempt.Value);
+        }
+        writer.WriteString("maxAttempts");
+        if (value.MaxAttempts is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.MaxAttempts.Value);
+        }
+        writer.WriteString("preTokens");
+        if (value.PreTokens is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.PreTokens.Value);
+        }
+        writer.WriteString("keptMessageCount");
+        if (value.KeptMessageCount is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.KeptMessageCount.Value);
+        }
+        writer.WriteString("summarizerFailed");
+        if (value.SummarizerFailed is null) writer.WriteNull();
+        else
+        {
+            writer.WriteBoolean(value.SummarizerFailed.Value);
+        }
+        writer.WriteString("summaryMessageId");
+        if (value.SummaryMessageId is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.SummaryMessageId);
+        }
     }
 
     internal static void WriteRuntimeRunOverlay(MessagePackWriter writer, RuntimeRunOverlay value)
     {
-        writer.WriteMapHeader(5);
+        writer.WriteMapHeader(9);
         writer.WriteString("runId");
         writer.WriteString(value.RunId);
         writer.WriteString("sessionId");
@@ -929,11 +1047,107 @@ public static class RuntimeEventMessagePack
         }
         writer.WriteString("lastSeq");
         writer.WriteInt32(value.LastSeq);
+        writer.WriteString("iteration");
+        if (value.Iteration is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.Iteration.Value);
+        }
+        writer.WriteString("lastStopReason");
+        if (value.LastStopReason is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.LastStopReason);
+        }
+        writer.WriteString("requestRetry");
+        if (value.RequestRetry is null) writer.WriteNull();
+        else
+        {
+            WriteRuntimeRequestRetryOverlay(writer, value.RequestRetry);
+        }
+        writer.WriteString("compression");
+        if (value.Compression is null) writer.WriteNull();
+        else
+        {
+            WriteRuntimeCompressionOverlay(writer, value.Compression);
+        }
+    }
+
+    internal static void WriteRuntimeSubAgentOverlay(MessagePackWriter writer, RuntimeSubAgentOverlay value)
+    {
+        writer.WriteMapHeader(17);
+        writer.WriteString("toolUseId");
+        writer.WriteString(value.ToolUseId);
+        writer.WriteString("runId");
+        writer.WriteString(value.RunId);
+        writer.WriteString("sessionId");
+        writer.WriteString(value.SessionId);
+        writer.WriteString("name");
+        writer.WriteString(value.Name);
+        writer.WriteString("displayName");
+        if (value.DisplayName is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.DisplayName);
+        }
+        writer.WriteString("description");
+        if (value.Description is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.Description);
+        }
+        writer.WriteString("phase");
+        writer.WriteString(value.Phase);
+        writer.WriteString("reportStatus");
+        writer.WriteString(value.ReportStatus);
+        writer.WriteString("report");
+        writer.WriteString(value.Report);
+        writer.WriteString("iteration");
+        writer.WriteInt32(value.Iteration);
+        writer.WriteString("success");
+        if (value.Success is null) writer.WriteNull();
+        else
+        {
+            writer.WriteBoolean(value.Success.Value);
+        }
+        writer.WriteString("endReason");
+        if (value.EndReason is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.EndReason);
+        }
+        writer.WriteString("errorMessage");
+        if (value.ErrorMessage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.ErrorMessage);
+        }
+        writer.WriteString("streamingText");
+        writer.WriteString(value.StreamingText);
+        writer.WriteString("usage");
+        if (value.Usage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteMapHeader(value.Usage.Count);
+            foreach (var pair in value.Usage)
+            {
+                writer.WriteString(pair.Key);
+                writer.WriteJsonElement(pair.Value);
+            }
+        }
+        writer.WriteString("startedAt");
+        writer.WriteInt64(value.StartedAt);
+        writer.WriteString("completedAt");
+        if (value.CompletedAt is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt64(value.CompletedAt.Value);
+        }
     }
 
     internal static void WriteRuntimeMessageOverlay(MessagePackWriter writer, RuntimeMessageOverlay value)
     {
-        writer.WriteMapHeader(6);
+        writer.WriteMapHeader(8);
         writer.WriteString("messageId");
         writer.WriteString(value.MessageId);
         writer.WriteString("runId");
@@ -949,6 +1163,28 @@ public static class RuntimeEventMessagePack
         else
         {
             writer.WriteString(value.Thinking);
+        }
+        writer.WriteString("blocks");
+        writer.WriteArrayHeader(value.Blocks.Length);
+        foreach (var item in value.Blocks)
+        {
+            writer.WriteMapHeader(item.Count);
+            foreach (var pair in item)
+            {
+                writer.WriteString(pair.Key);
+                writer.WriteJsonElement(pair.Value);
+            }
+        }
+        writer.WriteString("usage");
+        if (value.Usage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteMapHeader(value.Usage.Count);
+            foreach (var pair in value.Usage)
+            {
+                writer.WriteString(pair.Key);
+                writer.WriteJsonElement(pair.Value);
+            }
         }
     }
 
@@ -1044,7 +1280,7 @@ public static class RuntimeEventMessagePack
 
     internal static void WriteRunChanged(MessagePackWriter writer, RunChanged value)
     {
-        writer.WriteMapHeader(5);
+        writer.WriteMapHeader(9);
         writer.WriteString("type");
         writer.WriteString(value.Type);
         writer.WriteString("runId");
@@ -1058,6 +1294,30 @@ public static class RuntimeEventMessagePack
         else
         {
             writer.WriteString(value.AssistantMessageId);
+        }
+        writer.WriteString("iteration");
+        if (value.Iteration is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.Iteration.Value);
+        }
+        writer.WriteString("lastStopReason");
+        if (value.LastStopReason is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.LastStopReason);
+        }
+        writer.WriteString("requestRetry");
+        if (value.RequestRetry is null) writer.WriteNull();
+        else
+        {
+            WriteRuntimeRequestRetryOverlay(writer, value.RequestRetry);
+        }
+        writer.WriteString("compression");
+        if (value.Compression is null) writer.WriteNull();
+        else
+        {
+            WriteRuntimeCompressionOverlay(writer, value.Compression);
         }
     }
 
@@ -1097,7 +1357,7 @@ public static class RuntimeEventMessagePack
 
     internal static void WriteMessageBlockChanged(MessagePackWriter writer, MessageBlockChanged value)
     {
-        writer.WriteMapHeader(5);
+        writer.WriteMapHeader(6);
         writer.WriteString("type");
         writer.WriteString(value.Type);
         writer.WriteString("runId");
@@ -1113,6 +1373,133 @@ public static class RuntimeEventMessagePack
             writer.WriteString(pair.Key);
             writer.WriteJsonElement(pair.Value);
         }
+        writer.WriteString("blockKey");
+        if (value.BlockKey is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.BlockKey);
+        }
+    }
+
+    internal static void WriteMessageMetadataChanged(MessagePackWriter writer, MessageMetadataChanged value)
+    {
+        writer.WriteMapHeader(5);
+        writer.WriteString("type");
+        writer.WriteString(value.Type);
+        writer.WriteString("runId");
+        writer.WriteString(value.RunId);
+        writer.WriteString("sessionId");
+        writer.WriteString(value.SessionId);
+        writer.WriteString("messageId");
+        writer.WriteString(value.MessageId);
+        writer.WriteString("usage");
+        if (value.Usage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteMapHeader(value.Usage.Count);
+            foreach (var pair in value.Usage)
+            {
+                writer.WriteString(pair.Key);
+                writer.WriteJsonElement(pair.Value);
+            }
+        }
+    }
+
+    internal static void WriteSubAgentChanged(MessagePackWriter writer, SubAgentChanged value)
+    {
+        writer.WriteMapHeader(16);
+        writer.WriteString("type");
+        writer.WriteString(value.Type);
+        writer.WriteString("runId");
+        writer.WriteString(value.RunId);
+        writer.WriteString("sessionId");
+        writer.WriteString(value.SessionId);
+        writer.WriteString("toolUseId");
+        writer.WriteString(value.ToolUseId);
+        writer.WriteString("name");
+        writer.WriteString(value.Name);
+        writer.WriteString("displayName");
+        if (value.DisplayName is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.DisplayName);
+        }
+        writer.WriteString("description");
+        if (value.Description is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.Description);
+        }
+        writer.WriteString("phase");
+        writer.WriteString(value.Phase);
+        writer.WriteString("reportStatus");
+        if (value.ReportStatus is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.ReportStatus);
+        }
+        writer.WriteString("report");
+        if (value.Report is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.Report);
+        }
+        writer.WriteString("iteration");
+        if (value.Iteration is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt32(value.Iteration.Value);
+        }
+        writer.WriteString("success");
+        if (value.Success is null) writer.WriteNull();
+        else
+        {
+            writer.WriteBoolean(value.Success.Value);
+        }
+        writer.WriteString("endReason");
+        if (value.EndReason is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.EndReason);
+        }
+        writer.WriteString("errorMessage");
+        if (value.ErrorMessage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteString(value.ErrorMessage);
+        }
+        writer.WriteString("usage");
+        if (value.Usage is null) writer.WriteNull();
+        else
+        {
+            writer.WriteMapHeader(value.Usage.Count);
+            foreach (var pair in value.Usage)
+            {
+                writer.WriteString(pair.Key);
+                writer.WriteJsonElement(pair.Value);
+            }
+        }
+        writer.WriteString("completedAt");
+        if (value.CompletedAt is null) writer.WriteNull();
+        else
+        {
+            writer.WriteInt64(value.CompletedAt.Value);
+        }
+    }
+
+    internal static void WriteSubAgentTextDelta(MessagePackWriter writer, SubAgentTextDelta value)
+    {
+        writer.WriteMapHeader(5);
+        writer.WriteString("type");
+        writer.WriteString(value.Type);
+        writer.WriteString("runId");
+        writer.WriteString(value.RunId);
+        writer.WriteString("sessionId");
+        writer.WriteString(value.SessionId);
+        writer.WriteString("toolUseId");
+        writer.WriteString(value.ToolUseId);
+        writer.WriteString("text");
+        writer.WriteString(value.Text);
     }
 
     internal static void WriteToolCallChanged(MessagePackWriter writer, ToolCallChanged value)

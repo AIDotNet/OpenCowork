@@ -710,6 +710,38 @@ internal static class RuntimeJobStore
         command.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Places a consumer's cursors at the newest event of every job on this host.
+    /// </summary>
+    /// <remarks>
+    /// A consumer id that has never been seen has no cursor, and a missing cursor
+    /// reads as zero, so its first subscribe would replay the entire retained
+    /// outbox — every run still inside the retention window, not just the live one.
+    /// A newly opened window wants what happens from now on; it asks for specific
+    /// history separately, by job, when it attaches to a run.
+    /// </remarks>
+    public static int SeedCursorsToLatest(string hostId, string consumerId, long now)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO runtime_event_cursors (consumer_id, job_id, through_seq, updated_at)
+            SELECT $consumer, e.job_id, MAX(e.seq), $now
+              FROM runtime_event_batches e
+              JOIN runtime_jobs j ON j.job_id = e.job_id
+             WHERE j.host_id = $hostId
+             GROUP BY e.job_id
+            ON CONFLICT(consumer_id, job_id) DO UPDATE SET
+              through_seq = MAX(runtime_event_cursors.through_seq, excluded.through_seq),
+              updated_at = excluded.updated_at;
+            """;
+        command.Parameters.AddWithValue("$consumer", consumerId);
+        command.Parameters.AddWithValue("$hostId", hostId);
+        command.Parameters.AddWithValue("$now", now);
+        return command.ExecuteNonQuery();
+    }
+
     public static List<RuntimeEventBatch> Replay(
         string hostId,
         string consumerId,

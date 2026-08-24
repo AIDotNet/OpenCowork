@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-import { decode, encode } from '@msgpack/msgpack'
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { startWorkerOverHttp } from './lib/worker-http-harness.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
 const defaultWorkerDll = path.join(
@@ -23,94 +21,14 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
-function createFrame(payload) {
-  const frame = Buffer.allocUnsafe(4 + payload.byteLength)
-  frame.writeUInt32BE(payload.byteLength, 0)
-  Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength).copy(frame, 4)
-  return frame
-}
-
-class WorkerClient {
-  constructor(controlEndpoint, eventEndpoint, child, dbPath) {
-    this.controlEndpoint = controlEndpoint
-    this.eventEndpoint = eventEndpoint
-    this.child = child
-    this.dbPath = dbPath
-    this.socket = null
-    this.eventSocket = null
-    this.buffer = Buffer.alloc(0)
-    this.nextId = 1
-    this.pending = new Map()
-  }
-
-  async connect() {
-    const [socket, eventSocket] = await Promise.all([
-      this.connectEndpoint(this.controlEndpoint),
-      this.connectEndpoint(this.eventEndpoint)
-    ])
-    this.socket = socket
-    this.eventSocket = eventSocket
-    socket.on('data', (chunk) => this.onData(chunk))
-    // This verification has no event assertions, but connecting the required
-    // endpoint exercises the same dual-IPC boot contract as production.
-    eventSocket.on('error', () => {})
-  }
-
-  async connectEndpoint(endpoint) {
-    for (let attempt = 0; attempt < 300; attempt += 1) {
-      try {
-        return await new Promise((resolve, reject) => {
-          const socket = net.createConnection(endpoint)
-          socket.once('connect', () => resolve(socket))
-          socket.once('error', (error) => {
-            socket.destroy()
-            reject(error)
-          })
-        })
-      } catch {
-        if (this.child.exitCode !== null) {
-          throw new Error(`Native worker exited with code ${this.child.exitCode}`)
-        }
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-    }
-    throw new Error('Timed out connecting to Native Worker')
-  }
-
-  request(method, params = {}) {
-    const id = this.nextId++
-    const requestParams = method.startsWith('db/') ? { ...params, dbPath: this.dbPath } : params
-    const frame = createFrame(encode({ id, method, params: requestParams }))
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`Timed out: ${method}`))
-      }, 120_000)
-      this.pending.set(id, { resolve, reject, timer })
-      this.socket.write(frame)
-    })
-  }
-
-  onData(chunk) {
-    this.buffer = Buffer.concat([this.buffer, chunk])
-    while (this.buffer.length >= 4) {
-      const length = this.buffer.readUInt32BE(0)
-      if (this.buffer.length < length + 4) return
-      const frame = decode(this.buffer.subarray(4, length + 4))
-      this.buffer = this.buffer.subarray(length + 4)
-      if (typeof frame?.id !== 'number') continue
-      const pending = this.pending.get(frame.id)
-      if (!pending) continue
-      clearTimeout(pending.timer)
-      this.pending.delete(frame.id)
-      if (frame.error) pending.reject(new Error(String(frame.error)))
-      else pending.resolve(frame.result)
-    }
-  }
-
-  close() {
-    this.socket?.destroy()
-    this.eventSocket?.destroy()
+/**
+ * Every `db/*` route in this harness targets the temp database, so the path is
+ * injected once here rather than at each of the ~20 call sites.
+ */
+function createDbScopedClient(worker, dbPath) {
+  return {
+    request: (method, params = {}) =>
+      worker.request(method, method.startsWith('db/') ? { ...params, dbPath } : params)
   }
 }
 
@@ -144,15 +62,6 @@ async function main() {
   const indexOnlyDbPath = indexOnlyDbFlag >= 0 ? process.argv[indexOnlyDbFlag + 1] : null
   const tempHome = await mkdtemp(path.join(os.tmpdir(), 'open-cowork-agent-history-'))
   const dataDir = path.join(tempHome, '.open-cowork')
-  const endpointSuffix = `${process.pid}-${randomUUID()}`
-  const controlEndpoint =
-    process.platform === 'win32'
-      ? `\\\\.\\pipe\\open-cowork-history-control-${endpointSuffix}`
-      : path.join(tempHome, 'control.sock')
-  const eventEndpoint =
-    process.platform === 'win32'
-      ? `\\\\.\\pipe\\open-cowork-history-event-${endpointSuffix}`
-      : path.join(tempHome, 'events.sock')
   const settingsPath = path.join(dataDir, 'settings.json')
   const dbPath = indexOnlyDbPath ? path.resolve(indexOnlyDbPath) : path.join(dataDir, 'data.db')
   const first = historyEntry('call-first', 'session-a', 100, 'first')
@@ -160,9 +69,8 @@ async function main() {
   let expectedImported = 2
   let sessionIds = ['session-a', 'session-b']
   let settingsFixture
-  let child
+  let worker
   let client
-  let stderr = ''
 
   try {
     await mkdir(dataDir, { recursive: true })
@@ -201,32 +109,20 @@ async function main() {
     }
     await writeFile(settingsPath, JSON.stringify(settingsFixture, null, 2))
 
-    const workerCommand = workerPath.endsWith('.dll') ? 'dotnet' : workerPath
-    const endpointArgs = [
-      '--control-ipc',
-      controlEndpoint,
-      '--event-ipc',
-      eventEndpoint,
-      '--host-id',
-      `verify-history-${endpointSuffix}`
-    ]
-    const workerArgs = workerPath.endsWith('.dll') ? [workerPath, ...endpointArgs] : endpointArgs
-    child = spawn(workerCommand, workerArgs, {
+    const runsManagedDll = workerPath.endsWith('.dll')
+    worker = await startWorkerOverHttp({
+      command: runsManagedDll ? 'dotnet' : workerPath,
+      commandArgs: runsManagedDll ? [workerPath] : [],
+      hostId: `verify-history-${process.pid}-${randomUUID()}`,
       cwd: repoRoot,
       env: {
-        ...process.env,
         HOME: tempHome,
         USERPROFILE: tempHome,
         OPEN_COWORK_NATIVE_SETTINGS_PATH: settingsPath,
         OPEN_COWORK_RUNTIME_DB_PATH: path.join(dataDir, 'runtime-jobs.db')
-      },
-      stdio: ['ignore', 'ignore', 'pipe']
+      }
     })
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString('utf8')
-    })
-    client = new WorkerClient(controlEndpoint, eventEndpoint, child, dbPath)
-    await client.connect()
+    client = createDbScopedClient(worker, dbPath)
 
     if (indexOnlyDbPath) {
       const baselineMemory = await client.request('worker/memory')
@@ -390,10 +286,10 @@ async function main() {
       })
     )
   } catch (error) {
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr ?? ''}`)
+    const stderr = worker?.stderrTail?.join('\n') ?? ''
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderr}`)
   } finally {
-    client?.close()
-    child?.kill('SIGTERM')
+    await worker?.close()
     await rm(tempHome, { recursive: true, force: true })
   }
 }

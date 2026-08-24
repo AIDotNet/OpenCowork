@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isProjectSession, workspaceContextAvailable } from '../../src/renderer/src/lib/session-scope.ts'
+import {
+  isProjectSession,
+  workspaceContextAvailable
+} from '../../src/renderer/src/lib/session-scope.ts'
 
 test('home with a selected project is project-scoped before a session exists', () => {
   assert.equal(

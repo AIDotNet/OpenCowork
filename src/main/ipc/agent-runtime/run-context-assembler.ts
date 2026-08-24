@@ -55,6 +55,8 @@ export function hostedSessionPrefixIdentity(args: {
   mode: string
   providerId: string
   modelId: string
+  /** Request protocol. Changing chat ↔ responses must reopen; the Worker pins provider on open. */
+  providerType?: string | null
   workingFolder: string | null
   sshConnectionId: string | null
   /** Recorded compaction cut; changes after compression force a reopen. */
@@ -67,6 +69,7 @@ export function hostedSessionPrefixIdentity(args: {
     args.mode,
     args.providerId,
     args.modelId,
+    args.providerType ?? '',
     args.workingFolder ?? '',
     args.sshConnectionId ?? '',
     args.compressionFence ?? '',
@@ -380,6 +383,7 @@ export async function assembleSessionContext(
       mode,
       providerId,
       modelId,
+      providerType: typeof provider.type === 'string' ? provider.type : '',
       workingFolder: session.workingFolder,
       sshConnectionId: session.sshConnectionId,
       compressionFence: compressionFenceForTemplate({ compression, compressionProvider }),

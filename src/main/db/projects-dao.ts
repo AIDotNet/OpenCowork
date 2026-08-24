@@ -6,6 +6,7 @@ import { readSettings } from '../ipc/settings-handlers'
 export interface ProjectRow {
   id: string
   name: string
+  icon: string | null
   working_folder: string | null
   ssh_connection_id: string | null
   plugin_id: string | null
@@ -86,6 +87,7 @@ export async function findProjectByPluginId(pluginId: string): Promise<ProjectRo
 export function createProject(project: {
   id?: string
   name: string
+  icon?: string | null
   workingFolder?: string | null
   sshConnectionId?: string | null
   pluginId?: string | null
@@ -104,6 +106,7 @@ export async function updateProject(
   id: string,
   patch: Partial<{
     name: string
+    icon: string | null
     workingFolder: string | null
     sshConnectionId: string | null
     pluginId: string | null

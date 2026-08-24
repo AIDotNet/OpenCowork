@@ -14,7 +14,7 @@ internal sealed class RuntimeJobModule : IWorkerModule
         context.Register("jobs/cancel", Cancel);
         context.Register("jobs/command", Command);
         context.Register("events/subscribe", SubscribeAsync);
-        context.Register("events/ack", Ack);
+        context.Register("events/checkpoint", Checkpoint);
         context.Register("events/replay", ReplayAsync);
     }
 
@@ -133,20 +133,29 @@ internal sealed class RuntimeJobModule : IWorkerModule
         return await ReplayCoreAsync(parameters, context);
     }
 
-    private static WorkerResponse Ack(JsonElement parameters)
+    /// <summary>
+    /// Records how far a consumer has read.
+    /// </summary>
+    /// <remarks>
+    /// Optional. The pump does not wait for it and nothing is held back until it
+    /// arrives; skipping it only risks re-reading events after a worker restart.
+    /// Consumers state their real position by resubscribing with a sequence.
+    /// </remarks>
+    private static WorkerResponse Checkpoint(JsonElement parameters)
     {
         var consumerId = JsonHelpers.GetString(parameters, "consumerId")?.Trim();
         var jobId = JsonHelpers.GetString(parameters, "jobId")?.Trim();
         var throughSeq = JsonHelpers.GetLong(parameters, "throughSeq", 0);
         if (string.IsNullOrEmpty(consumerId) || string.IsNullOrEmpty(jobId) || throughSeq <= 0)
         {
-            return WorkerResponse.Error("events/ack requires consumerId, jobId and throughSeq");
+            return WorkerResponse.Error(
+                "events/checkpoint requires consumerId, jobId and throughSeq");
         }
-        RuntimeJobCoordinator.Ack(consumerId, jobId, throughSeq);
+        RuntimeJobCoordinator.Checkpoint(consumerId, jobId, throughSeq);
         return WorkerResponse.FromWriter(writer =>
         {
             writer.WriteStartObject();
-            writer.WriteBoolean("acked", true);
+            writer.WriteBoolean("checkpointed", true);
             writer.WriteString("jobId", jobId);
             writer.WriteNumber("throughSeq", throughSeq);
             writer.WriteEndObject();
@@ -169,12 +178,17 @@ internal sealed class RuntimeJobModule : IWorkerModule
         {
             return WorkerResponse.Error("events/subscribe requires consumerId");
         }
+        // `fromLatest` is how a consumer that has never subscribed says it wants
+        // live output only. Without it a fresh consumer id has no cursor, and a
+        // missing cursor reads as zero, so its first subscribe would replay every
+        // run still inside the retention window.
         var count = await RuntimeJobCoordinator.ReplayAsync(
             consumerId,
             JsonHelpers.GetString(parameters, "jobId"),
             JsonHelpers.GetLongNullable(parameters, "sinceSeq"),
             JsonHelpers.GetInt(parameters, "limit", 4096),
-            context.CancellationToken);
+            context.CancellationToken,
+            JsonHelpers.GetBool(parameters, "fromLatest", false));
         return WorkerResponse.FromWriter(writer =>
         {
             writer.WriteStartObject();

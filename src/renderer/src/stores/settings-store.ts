@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand'
+import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import type { ProviderType, ReasoningEffortLevel, ThinkingConfig } from '../lib/api/types'
 import { ipcStorage } from '../lib/ipc/ipc-storage'
@@ -66,8 +66,6 @@ export type PromptRecommendationModelBindings = Record<
   PromptRecommendationModelBinding
 >
 
-export type MemoryAutomationWritePolicy = 'auto'
-export type MemoryScopeMode = 'hybrid'
 export type ClarifyPlanModeAutoSwitchTarget = 'off' | 'code' | 'acp'
 export type ProjectDefaultDirectoryMode = 'last-used' | 'custom'
 export type FileDiffViewMode = 'split' | 'inline'
@@ -412,20 +410,8 @@ interface SettingsStore {
   onboardingInterests: string[]
   defaultSoulTemplateId: string
   conversationGuideSeen: boolean
-  memoryAutomationEnabled: boolean
-  memoryAutomationWritePolicy: MemoryAutomationWritePolicy
-  memoryAutomationMainSessionsOnly: boolean
-  memoryAutomationSummaryBudgetTokens: number
-  memoryAutomationDailyRollupEnabled: boolean
   memoryUseMemories: boolean
-  memoryGenerateMemories: boolean
-  memoryScopeMode: MemoryScopeMode
-  memoryMaxRolloutsPerStartup: number
-  memoryMinRolloutIdleHours: number
-  memoryMaxRawMemoriesForConsolidation: number
-  memoryMaxUnusedDays: number
   memorySummaryBudgetTokens: number
-  memoryDailyRollupEnabled: boolean
 
   // Appearance Settings
   backgroundColor: string
@@ -539,20 +525,8 @@ export const useSettingsStore = create<SettingsStore>()(
       onboardingInterests: [],
       defaultSoulTemplateId: '',
       conversationGuideSeen: false,
-      memoryAutomationEnabled: true,
-      memoryAutomationWritePolicy: 'auto',
-      memoryAutomationMainSessionsOnly: true,
-      memoryAutomationSummaryBudgetTokens: 12_000,
-      memoryAutomationDailyRollupEnabled: true,
       memoryUseMemories: true,
-      memoryGenerateMemories: true,
-      memoryScopeMode: 'hybrid',
-      memoryMaxRolloutsPerStartup: 8,
-      memoryMinRolloutIdleHours: 0,
-      memoryMaxRawMemoriesForConsolidation: 500,
-      memoryMaxUnusedDays: 180,
       memorySummaryBudgetTokens: 12_000,
-      memoryDailyRollupEnabled: true,
 
       // Appearance Settings
       backgroundColor: '',
@@ -639,7 +613,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'opencowork-settings',
-      version: 30,
+      version: 31,
       storage: createJSONStorage(() => ipcStorage),
       migrate: (persisted: unknown, version: number) => {
         const state = persisted as Record<string, unknown>
@@ -881,62 +855,20 @@ export const useSettingsStore = create<SettingsStore>()(
         if (state.conversationGuideSeen === undefined) {
           state.conversationGuideSeen = false
         }
-        if (state.memoryAutomationEnabled === undefined) {
-          state.memoryAutomationEnabled = true
-        }
-        state.memoryAutomationWritePolicy = 'auto'
-        if (state.memoryAutomationMainSessionsOnly === undefined) {
-          state.memoryAutomationMainSessionsOnly = true
-        }
-        if (
-          state.memoryAutomationSummaryBudgetTokens === undefined ||
-          typeof state.memoryAutomationSummaryBudgetTokens !== 'number'
-        ) {
-          state.memoryAutomationSummaryBudgetTokens = 12_000
-        }
-        if (state.memoryAutomationDailyRollupEnabled === undefined) {
-          state.memoryAutomationDailyRollupEnabled = true
-        }
         if (state.memoryUseMemories === undefined) {
           state.memoryUseMemories = true
-        }
-        if (state.memoryGenerateMemories === undefined) {
-          state.memoryGenerateMemories = state.memoryAutomationEnabled
-        }
-        state.memoryScopeMode = 'hybrid'
-        if (
-          state.memoryMaxRolloutsPerStartup === undefined ||
-          typeof state.memoryMaxRolloutsPerStartup !== 'number'
-        ) {
-          state.memoryMaxRolloutsPerStartup = 8
-        }
-        if (
-          state.memoryMinRolloutIdleHours === undefined ||
-          typeof state.memoryMinRolloutIdleHours !== 'number'
-        ) {
-          state.memoryMinRolloutIdleHours = 0
-        }
-        if (
-          state.memoryMaxRawMemoriesForConsolidation === undefined ||
-          typeof state.memoryMaxRawMemoriesForConsolidation !== 'number'
-        ) {
-          state.memoryMaxRawMemoriesForConsolidation = 500
-        }
-        if (
-          state.memoryMaxUnusedDays === undefined ||
-          typeof state.memoryMaxUnusedDays !== 'number'
-        ) {
-          state.memoryMaxUnusedDays = 180
         }
         if (
           state.memorySummaryBudgetTokens === undefined ||
           typeof state.memorySummaryBudgetTokens !== 'number'
         ) {
-          state.memorySummaryBudgetTokens = state.memoryAutomationSummaryBudgetTokens
+          const legacyBudget = (state as { memoryAutomationSummaryBudgetTokens?: unknown })
+            .memoryAutomationSummaryBudgetTokens
+          state.memorySummaryBudgetTokens =
+            typeof legacyBudget === 'number' ? legacyBudget : 12_000
         }
-        if (state.memoryDailyRollupEnabled === undefined) {
-          state.memoryDailyRollupEnabled = state.memoryAutomationDailyRollupEnabled
-        }
+        // `agentRuntimeBackend` from older installs is left in place on disk and
+        // ignored: there is one runtime now, so the key has no effect.
         return state as unknown as SettingsStore
       },
       partialize: (state) => ({
@@ -982,20 +914,8 @@ export const useSettingsStore = create<SettingsStore>()(
         onboardingInterests: state.onboardingInterests,
         defaultSoulTemplateId: state.defaultSoulTemplateId,
         conversationGuideSeen: state.conversationGuideSeen,
-        memoryAutomationEnabled: state.memoryAutomationEnabled,
-        memoryAutomationWritePolicy: 'auto' as const,
-        memoryAutomationMainSessionsOnly: state.memoryAutomationMainSessionsOnly,
-        memoryAutomationSummaryBudgetTokens: state.memoryAutomationSummaryBudgetTokens,
-        memoryAutomationDailyRollupEnabled: state.memoryAutomationDailyRollupEnabled,
         memoryUseMemories: state.memoryUseMemories,
-        memoryGenerateMemories: state.memoryGenerateMemories,
-        memoryScopeMode: 'hybrid' as const,
-        memoryMaxRolloutsPerStartup: state.memoryMaxRolloutsPerStartup,
-        memoryMinRolloutIdleHours: state.memoryMinRolloutIdleHours,
-        memoryMaxRawMemoriesForConsolidation: state.memoryMaxRawMemoriesForConsolidation,
-        memoryMaxUnusedDays: state.memoryMaxUnusedDays,
         memorySummaryBudgetTokens: state.memorySummaryBudgetTokens,
-        memoryDailyRollupEnabled: state.memoryDailyRollupEnabled,
         // Appearance Settings
         backgroundColor: state.backgroundColor,
         fontFamily: state.fontFamily,

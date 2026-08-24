@@ -22,7 +22,7 @@ There is no root test suite. For UI/IPC/workflow changes, smoke test with `npm r
 
 Four-layer Electron + .NET Native Worker app. Keep process boundaries explicit — system access stays in main, UI state stays in renderer, agent loop authority belongs in the Worker, shared types go through `src/shared`.
 
-1. **Electron main (`src/main/`)** — system layer. App bootstrap (`index.ts`), window lifecycle, IPC handlers (`ipc/`), SQLite via `better-sqlite3` (`db/`), cron (`cron/`, `node-cron`), channels/plugins for messaging platforms (`channels/`), MCP clients (`mcp/`), SSH (`ssh/`, `ssh2` + `node-pty`), auto-updates (`updater.ts`), crash logging. Main is the host gateway: it supervises the Native Worker, journals/replays in-flight run frames (`runtime-registry.ts`), and is the sole writer of the Worker durable event cursor (`consumerId: 'desktop'`).
+1. **Electron main (`src/main/`)** — system layer. App bootstrap (`index.ts`), window lifecycle, IPC handlers (`ipc/`), SQLite via `better-sqlite3` (`db/`), cron (`cron/`, `node-cron`), channels/plugins for messaging platforms (`channels/`), MCP clients (`mcp/`), SSH (`ssh/`, `ssh2` + `node-pty`), auto-updates (`updater.ts`), crash logging. Main is the host gateway: it supervises the Native Worker, tracks in-flight run status (`runtime-registry.ts`), and keeps its own durable event cursor (`consumerId: 'desktop'`) for runs with no window. It no longer buffers or replays stream frames — each window subscribes to the worker's durable outbox itself.
 2. **Preload (`src/preload/`)** — secure bridge exposing a narrow API surface to the renderer. All main↔renderer traffic goes through here; do not add `nodeIntegration` shortcuts.
 3. **Renderer (`src/renderer/src/`)** — React 19 UI. Zustand stores (`stores/`), i18n (`locales/`, `react-i18next`, `en`/`zh`), Tailwind v4, Monaco, xterm, recharts. The renderer owns message presentation, approvals, and session UX. `session-runtime-router.ts` buffers message state for background (non-visible) sessions and flushes it when those sessions come to the foreground. Interactive runs are still constructed in the renderer today (`SidecarAgentRunRequest` via `agent:run`) and forwarded to the Worker; that orchestration is migrating off the renderer — see the target state below.
 4. **.NET Native Worker (`sidecars/OpenCowork.Native.Worker/`)** — the agent loop. It owns provider transport, tool execution, hosted sessions (`agent/session-open|send|close`), approvals, cancellation, and the durable job/event outbox. `src/main/ipc/native-agent-runtime.ts` is only the handshake/subscribe/request/notify/lifecycle shim, not a JavaScript provider runtime.
@@ -57,7 +57,21 @@ Bundled skills live in `resources/skills/` as folders containing a `SKILL.md` me
 
 Interactive runs: the renderer currently builds a `SidecarAgentRunRequest` and invokes `agent:run`; Main forwards it to Worker `agent/run` and streams `agent/stream` envelopes back. Cron runs: Main builds the request and calls `agent/run` itself. The Worker is the loop authority in both cases. `native-agent-runtime.ts` handles `initialize` / event subscribe / reverse requests / worker recycle — it does not iterate the provider or execute tools.
 
-Do not introduce a new JavaScript agent loop in Main or Renderer. New runtime commands, queries, and events belong in `src/shared/runtime-contracts/model.ts` and must go through the generated protocol.
+The agent loop must stay a single authority that Main hosts but does not participate in — never iterate a provider or execute a tool from Main or Renderer. Adding a second loop anywhere (Main, Renderer, or a new in-process runtime) is prohibited. New runtime commands, queries, and events belong in `src/shared/runtime-contracts/model.ts` and must go through the generated protocol.
+
+### Agent runtime transport
+
+`getNativeWorker()` returns a `WorkerRuntimeClient` (`src/shared/worker-runtime-client.ts`), always served by the .NET Native Worker child process over a loopback HTTP API: `POST /rpc`, `POST /cancel`, `GET /events` (SSE), `GET /health`.
+
+Main spawns the worker with `--http-token <secret>` and a piped stdout; the worker binds an ephemeral port and publishes it as one `__OPEN_COWORK_WORKER_HTTP__ {json}` line. Handler errors arrive as `{ id, result: { error } }`; HTTP status codes are reserved for transport faults.
+
+- Server: `sidecars/OpenCowork.Native.Worker/Runtime/HttpWorkerServer.cs`, composed through `Hosting/HttpWorkerHost.cs` (mirrors the submodule's `WorkerHostBuilder` registration order). Every endpoint is an `HttpContext`-only delegate writing bytes via `Utf8JsonWriter` — no parameter binding, no reflective JSON, so Native AOT stays intact.
+- Host: `src/shared/worker-http-channel.ts` owns only the wire; supervision stays in `native-worker.ts`. Frames are handed up already parsed — there is no re-encoding step, because nothing replays bytes verbatim any more.
+- Gate: `npm run verify:worker-http` runs the channel against the published binary.
+
+HTTP is the only transport. Electron main goes through `native-worker.ts`, the CLI through `cli/src/runtime/native-worker-client.ts` (which vendors the same channel), and the verification harnesses through `scripts/lib/worker-http-harness.mjs`. `--http-token` is required and `Program.Main` has no socket fallback; the socket server survives only in the CodeGraph submodule as dead code, and deleting it lands there first.
+
+The renderer is also a direct client: `agent-bridge.request()` posts to the worker's `/rpc` from the window itself (`src/renderer/src/lib/runtime/worker-http-client.ts`), with main handing over the endpoint and token via `sidecar:connection`. Main stays in the path only where it contributes state the renderer does not have — `agent:run` (goal enrichment, session-start hooks, permission policy, window routing, run tracking), `agent:cancel`, `agent:compress-context` (compact hooks), and the registry-backed `agent:runtime-state` / `agent:attach-run`.
 
 ### Data and runtime assets
 

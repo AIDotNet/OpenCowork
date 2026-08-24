@@ -135,7 +135,12 @@ test('persisted JSON content and meta are restored for compact marks', () => {
 
 test('persisted usage is restored for compression trigger tokens', () => {
   const usage = parsePersistedMessageUsage(
-    JSON.stringify({ inputTokens: 1200, outputTokens: 40, contextTokens: 1200, contextLength: 200000 })
+    JSON.stringify({
+      inputTokens: 1200,
+      outputTokens: 40,
+      contextTokens: 1200,
+      contextLength: 200000
+    })
   )
   assert.equal(usage?.contextTokens, 1200)
   assert.equal(usage?.contextLength, 200000)

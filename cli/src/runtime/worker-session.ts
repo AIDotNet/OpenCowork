@@ -190,7 +190,8 @@ const CORE_TOOL_DEFINITIONS: WorkerToolDefinition[] = [
   },
   {
     name: 'LS',
-    description: 'List files and directories in a path.',
+    description:
+      'List files and directories at `path`. Pass a directory path, not a shell `command`.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -76,6 +76,7 @@ internal static class DbProjectTools
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var id = NormalizeOptional(JsonHelpers.GetString(parameters, "id")) ?? CreateId();
             var name = SanitizeProjectName(RequireString(parameters, "name"));
+            var icon = NormalizeOptional(JsonHelpers.GetString(parameters, "icon"));
             var sshConnectionId = NormalizeOptional(JsonHelpers.GetString(parameters, "sshConnectionId"));
             var workingFolder = NormalizeOptional(JsonHelpers.GetString(parameters, "workingFolder"));
             var pluginId = NormalizeOptional(JsonHelpers.GetString(parameters, "pluginId"));
@@ -102,6 +103,7 @@ internal static class DbProjectTools
             {
                 Id = id,
                 Name = name,
+                Icon = icon,
                 WorkingFolder = workingFolder,
                 SshConnectionId = sshConnectionId,
                 PluginId = pluginId,
@@ -300,7 +302,7 @@ internal static class DbProjectTools
     }
 
     private const string ProjectSelectSql = """
-        SELECT p.id, p.name, p.working_folder, p.ssh_connection_id, p.plugin_id, p.pinned,
+        SELECT p.id, p.name, p.icon, p.working_folder, p.ssh_connection_id, p.plugin_id, p.pinned,
                p.created_at, p.updated_at,
                (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count
           FROM projects p
@@ -364,13 +366,14 @@ internal static class DbProjectTools
             {
                 Id = reader.GetString(0),
                 Name = reader.GetString(1),
-                WorkingFolder = GetNullableString(reader, 2),
-                SshConnectionId = GetNullableString(reader, 3),
-                PluginId = GetNullableString(reader, 4),
-                Pinned = reader.IsDBNull(5) ? 0 : reader.GetInt32(5),
-                CreatedAt = reader.GetInt64(6),
-                UpdatedAt = reader.GetInt64(7),
-                SessionCount = reader.IsDBNull(8) ? 0 : reader.GetInt32(8)
+                Icon = GetNullableString(reader, 2),
+                WorkingFolder = GetNullableString(reader, 3),
+                SshConnectionId = GetNullableString(reader, 4),
+                PluginId = GetNullableString(reader, 5),
+                Pinned = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
+                CreatedAt = reader.GetInt64(7),
+                UpdatedAt = reader.GetInt64(8),
+                SessionCount = reader.IsDBNull(9) ? 0 : reader.GetInt32(9)
             });
         }
 
@@ -387,13 +390,14 @@ internal static class DbProjectTools
             transaction,
             """
             INSERT INTO projects (
-              id, name, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
+              id, name, icon, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
             ) VALUES (
-              $id, $name, $workingFolder, $sshConnectionId, $pluginId, $pinned, $createdAt, $updatedAt
+              $id, $name, $icon, $workingFolder, $sshConnectionId, $pluginId, $pinned, $createdAt, $updatedAt
             )
             """,
             new DbSql.SqlParam("$id", row.Id),
             new DbSql.SqlParam("$name", row.Name),
+            new DbSql.SqlParam("$icon", row.Icon),
             new DbSql.SqlParam("$workingFolder", row.WorkingFolder),
             new DbSql.SqlParam("$sshConnectionId", row.SshConnectionId),
             new DbSql.SqlParam("$pluginId", row.PluginId),
@@ -413,6 +417,7 @@ internal static class DbProjectTools
             """
             UPDATE projects
                SET name = $name,
+                   icon = $icon,
                    working_folder = $workingFolder,
                    ssh_connection_id = $sshConnectionId,
                    plugin_id = $pluginId,
@@ -421,6 +426,7 @@ internal static class DbProjectTools
              WHERE id = $id
             """,
             new DbSql.SqlParam("$name", row.Name),
+            new DbSql.SqlParam("$icon", row.Icon),
             new DbSql.SqlParam("$workingFolder", row.WorkingFolder),
             new DbSql.SqlParam("$sshConnectionId", row.SshConnectionId),
             new DbSql.SqlParam("$pluginId", row.PluginId),
@@ -438,6 +444,13 @@ internal static class DbProjectTools
             nameElement.ValueKind == JsonValueKind.String)
         {
             row.Name = SanitizeProjectName(nameElement.GetString() ?? string.Empty);
+        }
+
+        if (patch.TryGetProperty("icon", out var iconElement))
+        {
+            row.Icon = iconElement.ValueKind == JsonValueKind.String
+                ? NormalizeOptional(iconElement.GetString())
+                : null;
         }
 
         var hasSshPatch = patch.TryGetProperty("sshConnectionId", out var sshElement);

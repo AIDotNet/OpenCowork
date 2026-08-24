@@ -30,13 +30,31 @@ const CHECKPOINT_TIMEOUT_MS = 10_000
  */
 const CHECKPOINT_EVERY = 64
 
-type EnvelopeSink = (envelope: AgentStreamEnvelope) => void
+/**
+ * Applies an envelope and reports the outcome. A `gap` result means the sink
+ * refused it because an earlier sequence never arrived.
+ */
+type EnvelopeSink = (envelope: AgentStreamEnvelope) => EnvelopeApplyResult
+
+type EnvelopeApplyResult =
+  | { status: 'applied' }
+  | { status: 'duplicate' }
+  | { status: 'rejected' }
+  | { status: 'gap'; runId: string; expected: number }
+
+type StreamHooks = {
+  /** Highest sequence the sink has applied for a run, if any. */
+  lastAppliedSeq: (runId: string) => number | undefined
+}
 
 let connection: WorkerConnection | null = null
 let abort: AbortController | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let started = false
 let sink: EnvelopeSink | null = null
+let hooks: StreamHooks | null = null
+/** Runs with a replay already in flight, so a burst of gaps asks only once. */
+const healingRuns = new Set<string>()
 
 const CONSUMER_ID_STORAGE_KEY = 'openCowork.workerConsumerId'
 
@@ -82,16 +100,22 @@ const lastAppliedSeq = new Map<string, number>()
 /** Envelopes applied for a run since its cursor was last written. */
 const sinceCheckpoint = new Map<string, number>()
 
-export function startWorkerEventStream(applyEnvelope: EnvelopeSink): void {
+export function startWorkerEventStream(
+  applyEnvelope: EnvelopeSink,
+  streamHooks: StreamHooks
+): void {
   if (started) return
   started = true
   sink = applyEnvelope
+  hooks = streamHooks
   void connectStream({ resubscribe: true })
 }
 
 export function stopWorkerEventStream(): void {
   started = false
   sink = null
+  hooks = null
+  healingRuns.clear()
   if (reconnectTimer) clearTimeout(reconnectTimer)
   reconnectTimer = null
   abort?.abort()
@@ -223,17 +247,29 @@ function readAgentStreamEnvelope(payload: unknown): AgentStreamEnvelope | null {
 }
 
 function applyAndAcknowledge(envelope: AgentStreamEnvelope): void {
+  let result: EnvelopeApplyResult
   try {
-    sink?.(envelope)
+    result = sink?.(envelope) ?? { status: 'rejected' }
   } catch (error) {
-    // Do not acknowledge what the UI failed to take: leaving it unacknowledged is
+    // Do not checkpoint what the UI failed to take: leaving the cursor behind is
     // what lets the outbox re-deliver it.
     console.warn(
-      '[worker-event-stream] failed to apply envelope; withholding ack',
+      '[worker-event-stream] failed to apply envelope; withholding checkpoint',
       error instanceof Error ? error.message : String(error)
     )
     return
   }
+
+  if (result.status === 'gap') {
+    // The sink is holding out for an earlier sequence and will refuse everything
+    // after it, so the run would go silent — no terminal event, no sub-agent
+    // completion, not even what a cancel emits. Refill from the durable outbox.
+    healRunFromOutbox(result.runId, result.expected)
+    return
+  }
+  // Checkpointing a rejected envelope would move the cursor past something the UI
+  // never took, making it unrecoverable.
+  if (result.status !== 'applied') return
 
   // Live frames are not in the durable outbox, so there is no cursor to advance.
   if (envelope.live === true) return
@@ -259,6 +295,41 @@ function applyAndAcknowledge(envelope: AgentStreamEnvelope): void {
   ).catch(() => {
     // Losing a checkpoint only means resubscribing rewinds further.
   })
+}
+
+/**
+ * Asks the worker to re-send a run from the last sequence the UI actually
+ * applied.
+ *
+ * This is the durable outbox earning its keep: the events are still on disk, so a
+ * gap is recoverable rather than terminal. It replaced a host-side journal that
+ * used to serve the same purpose from memory, capped, and lossy on long runs.
+ */
+function healRunFromOutbox(runId: string, expected: number): void {
+  if (healingRuns.has(runId)) return
+  healingRuns.add(runId)
+
+  const sinceSeq = Math.max(0, hooks?.lastAppliedSeq(runId) ?? expected - 1)
+  console.warn('[worker-event-stream] sequence gap; replaying run from the outbox', {
+    runId,
+    expected,
+    sinceSeq
+  })
+
+  void requestWorker(
+    'events/replay',
+    { consumerId, jobId: runId, sinceSeq, limit: 4096 },
+    CHECKPOINT_TIMEOUT_MS
+  )
+    .catch((error) => {
+      console.warn(
+        '[worker-event-stream] gap replay failed',
+        error instanceof Error ? error.message : String(error)
+      )
+    })
+    .finally(() => {
+      healingRuns.delete(runId)
+    })
 }
 
 function scheduleReconnect(): void {

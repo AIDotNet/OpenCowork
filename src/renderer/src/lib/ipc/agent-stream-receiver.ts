@@ -13,6 +13,13 @@ import { ipcClient } from './ipc-client'
 type RunEventCallback = (event: AgentStreamEvent) => void
 type GlobalEventCallback = (runId: string, sessionId: string, event: AgentStreamEvent) => void
 
+/** Outcome of handing one envelope to the receiver. */
+export type AgentStreamApplyResult =
+  | { status: 'applied' }
+  | { status: 'duplicate' }
+  | { status: 'rejected' }
+  | { status: 'gap'; runId: string; expected: number }
+
 // Keep completed runs long enough to deduplicate an ACK-loss replay without
 // allowing a long-lived Renderer process to grow this journal index forever.
 const MAX_TRACKED_RUN_SEQUENCES = 4096
@@ -33,7 +40,9 @@ export class AgentStreamReceiver {
   attach(): void {
     if (this.attached) return
     this.attached = true
-    startWorkerEventStream((envelope) => this.acceptEnvelope(envelope))
+    startWorkerEventStream((envelope) => this.acceptEnvelope(envelope), {
+      lastAppliedSeq: (runId) => this.getLastSeq(runId)
+    })
 
     // Envelopes the worker could not send itself, such as the terminal error for
     // a run whose worker died. Without this a lost worker leaves the UI streaming
@@ -85,10 +94,19 @@ export class AgentStreamReceiver {
     ipcClient.send('agent:session-visibility', { sessionId, visible })
   }
 
-  private acceptEnvelope(envelope: AgentStreamEnvelope): void {
+  /**
+   * Applies one envelope, reporting why it did not when it did not.
+   *
+   * A gap must be reported rather than swallowed. The sequence is not advanced
+   * past it, so every later envelope for that run would also read as a gap and
+   * the run would go silent for good — no terminal event, no sub-agent
+   * completion, not even the events a cancel produces. The caller answers a gap
+   * by replaying the run from the worker's durable outbox.
+   */
+  private acceptEnvelope(envelope: AgentStreamEnvelope): AgentStreamApplyResult {
     if (envelope.v !== AGENT_STREAM_PROTOCOL_VERSION) {
       console.warn('[AgentStream] Unknown protocol version', envelope.v)
-      return
+      return { status: 'rejected' }
     }
 
     const lastSeq = this.lastSeqByRun.get(envelope.runId)
@@ -98,13 +116,10 @@ export class AgentStreamReceiver {
     // completed context_compressed event.
     if (!live) {
       if (lastSeq !== undefined && envelope.seq <= lastSeq) {
-        return
+        return { status: 'duplicate' }
       }
       if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
-        console.warn(
-          `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
-        )
-        return
+        return { status: 'gap', runId: envelope.runId, expected: lastSeq + 1 }
       }
       if (lastSeq === undefined || envelope.seq > lastSeq) {
         this.rememberSequence(envelope.runId, envelope.seq)
@@ -123,6 +138,7 @@ export class AgentStreamReceiver {
     for (const event of envelope.events) {
       this.dispatch(envelope.runId, envelope.sessionId, event)
     }
+    return { status: 'applied' }
   }
 
   /** Highest seq applied for a run, or undefined if none seen. Used to compute

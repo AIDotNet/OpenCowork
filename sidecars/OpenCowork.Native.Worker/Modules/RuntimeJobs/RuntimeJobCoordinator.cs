@@ -14,6 +14,13 @@ internal static class RuntimeJobCoordinator
     // rows that are dead weight the moment the tool_result reaches the messages table.
     private static readonly TimeSpan ToolResultRetention = TimeSpan.FromDays(3);
     private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long a job may sit untouched by a host with no live lease before it is
+    /// treated as abandoned. Comfortably longer than the lease renewal interval, so
+    /// a host that is merely slow to renew is never reaped out from under itself.
+    /// </summary>
+    private static readonly TimeSpan AbandonedJobGrace = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan HostedSessionRetention = TimeSpan.FromDays(14);
     private const int HostedSessionMaxRows = 256;
     private static readonly int MaxConcurrentJobs = Math.Clamp(Environment.ProcessorCount, 4, 12);
@@ -330,12 +337,25 @@ internal static class RuntimeJobCoordinator
                 WorkerLog.Warn(
                     $"runtime jobs marked interrupted hostId={hostId} count={interrupted}");
             }
+            ReapAbandonedJobs(now);
             RuntimeJobStore.CleanupEvents(now - (long)EventRetention.TotalMilliseconds);
             RuntimeJobStore.CleanupToolResults(now - (long)ToolResultRetention.TotalMilliseconds);
             RuntimeJobStore.CleanupHostedSessions(
                 now - (long)HostedSessionRetention.TotalMilliseconds,
                 HostedSessionMaxRows);
             schedulerTask = Task.Run(() => SchedulerLoopAsync(Lifetime.Token), CancellationToken.None);
+        }
+    }
+
+    private static void ReapAbandonedJobs(long now)
+    {
+        var abandoned = RuntimeJobStore.FailAbandonedJobs(
+            HostId,
+            now,
+            (long)AbandonedJobGrace.TotalMilliseconds);
+        if (abandoned > 0)
+        {
+            WorkerLog.Warn($"runtime jobs marked abandoned count={abandoned}");
         }
     }
 
@@ -360,6 +380,10 @@ internal static class RuntimeJobCoordinator
 
                 if (now >= nextMaintenance)
                 {
+                    // Reaping runs before sweeping events: the sweep only removes
+                    // batches whose job is terminal, so a job nobody will ever close
+                    // pins every envelope it produced.
+                    ReapAbandonedJobs(now);
                     RuntimeJobStore.CleanupEvents(
                         now - (long)EventRetention.TotalMilliseconds);
                     RuntimeJobStore.CleanupToolResults(

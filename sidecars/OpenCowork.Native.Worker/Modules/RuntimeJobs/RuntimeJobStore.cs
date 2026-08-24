@@ -132,6 +132,50 @@ internal static class RuntimeJobStore
         return command.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Marks jobs terminal when the host that owned them is gone for good.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="FailInterruptedJobs"/> only reaps the calling host's own jobs, so a
+    /// host that never returns — a CLI invocation, a desktop build that was replaced
+    /// — leaves its running jobs running forever. Nothing else ever closes them, and
+    /// two things then grow without bound: event batches are only swept once their
+    /// job is terminal, so the outbox keeps every envelope those runs ever produced;
+    /// and `jobs/list` keeps reporting them as active, which makes recovery logic
+    /// re-subscribe for runs that ended days ago.
+    ///
+    /// A host is considered gone when its lease has expired, or when it never had
+    /// one. The grace period keeps this away from a host that is merely between
+    /// lease renewals.
+    /// </remarks>
+    public static int FailAbandonedJobs(string hostId, long now, long graceMs)
+    {
+        EnsureReady();
+        using var connection = DbConnectionFactory.OpenReadWriteCreate(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE runtime_jobs
+               SET state = 'failed',
+                   params_json = '{}',
+                   updated_at = $now,
+                   finished_at = $now,
+                   error_code = 'host_abandoned',
+                   error_message = 'The host that started this job never came back.',
+                   owner_instance_id = NULL
+             WHERE state IN ('running', 'cancelling')
+               AND host_id <> $hostId
+               AND updated_at < $cutoff
+               AND NOT EXISTS (
+                 SELECT 1 FROM runtime_host_leases l
+                  WHERE l.host_id = runtime_jobs.host_id AND l.expires_at > $now
+               );
+            """;
+        command.Parameters.AddWithValue("$hostId", hostId);
+        command.Parameters.AddWithValue("$now", now);
+        command.Parameters.AddWithValue("$cutoff", now - graceMs);
+        return command.ExecuteNonQuery();
+    }
+
     /// <summary>Persists a hosted-session snapshot (template + canonical history).</summary>
     public static void UpsertHostedSession(
         string sessionId,

@@ -318,6 +318,7 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
     const project = decodeMessagePackPayload<{
       id?: string
       name: string
+      icon?: string | null
       workingFolder?: string | null
       sshConnectionId?: string | null
       pluginId?: string | null
@@ -333,6 +334,7 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
       id: string
       patch: Partial<{
         name: string
+        icon: string | null
         workingFolder: string | null
         sshConnectionId: string | null
         pluginId: string | null

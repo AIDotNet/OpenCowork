@@ -165,6 +165,8 @@ function mergeOverlayIntoMessage(
   // Any resident content is an ordered timeline the merge must respect — rebuilding
   // wholesale as [thinking, text, tools] would flatten interleaved blocks back into
   // the wrong order. Only a message with no blocks at all can be built from scratch.
+  const overlayMedia = overlayMediaBlocks(overlayMessage)
+
   if (blocks.length > 0) {
     return {
       ...message,
@@ -172,7 +174,8 @@ function mergeOverlayIntoMessage(
         blocks,
         overlayText,
         overlayThinking,
-        overlayTools
+        overlayTools,
+        overlayMedia
       ),
       _revision: overlay.projectionRevision
     }
@@ -180,7 +183,12 @@ function mergeOverlayIntoMessage(
 
   return {
     ...message,
-    content: buildBlocks(overlayThinking, overlayText, overlayTools.map(toolCallToBlock), []),
+    content: buildBlocks(
+      overlayThinking,
+      overlayText,
+      overlayTools.map(toolCallToBlock),
+      overlayMedia
+    ),
     _revision: overlay.projectionRevision
   }
 }
@@ -217,8 +225,53 @@ function buildBlocks(
   if (text) {
     blocks.push({ type: 'text', text })
   }
-  blocks.push(...toolBlocks, ...preserved)
+  // Media before tools, on the same reasoning the suffix merge uses: within an
+  // iteration the model produces its content first and calls tools after.
+  blocks.push(...preserved, ...toolBlocks)
   return blocks
+}
+
+/**
+ * Content blocks the overlay carries that the flat text and thinking strings
+ * cannot express — generated images, image failures, web-search activity.
+ */
+function overlayMediaBlocks(overlayMessage: RuntimeMessageOverlay | null): ContentBlock[] {
+  if (!overlayMessage?.blocks?.length) return []
+  return overlayMessage.blocks.filter(isRenderableBlock) as unknown as ContentBlock[]
+}
+
+function isRenderableBlock(block: unknown): boolean {
+  if (!block || typeof block !== 'object') return false
+  const type = (block as { type?: unknown }).type
+  return type === 'image' || type === 'image_error' || type === 'web_search'
+}
+
+/** Media blocks the resident timeline does not already contain. */
+function missingMediaBlocks(blocks: ContentBlock[], overlayMedia: ContentBlock[]): ContentBlock[] {
+  if (overlayMedia.length === 0) return []
+  const present = new Set(blocks.map(mediaIdentity).filter((key): key is string => key !== null))
+  return overlayMedia.filter((block) => {
+    const key = mediaIdentity(block)
+    return key === null || !present.has(key)
+  })
+}
+
+/**
+ * Identity used to tell an overlay media block from one already in the
+ * transcript. Images are identified by their source, search chips by their id.
+ */
+function mediaIdentity(block: ContentBlock): string | null {
+  if (block.type === 'image') {
+    const source = block.source
+    return `image:${source.url ?? source.filePath ?? source.data?.slice(0, 64) ?? ''}`
+  }
+  if (block.type === 'web_search') {
+    return `web_search:${block.id ?? block.query}`
+  }
+  if (block.type === 'image_error') {
+    return `image_error:${block.code}:${block.message}`
+  }
+  return null
 }
 
 function toolCallToBlock(toolCall: RuntimeToolCallOverlay): ContentBlock {
@@ -242,7 +295,8 @@ function mergeOverlayIntoStructuredTimeline(
   blocks: ContentBlock[],
   overlayText: string,
   overlayThinking: string | null,
-  overlayTools: RuntimeToolCallOverlay[]
+  overlayTools: RuntimeToolCallOverlay[],
+  overlayMedia: ContentBlock[] = []
 ): ContentBlock[] {
   let next = blocks.map((block) => ({ ...block }))
   const missingTools = updateOverlayToolsInPlace(next, overlayTools)
@@ -251,6 +305,9 @@ function mergeOverlayIntoStructuredTimeline(
   // resident timeline the prose belongs ahead of the new tool cards.
   next = appendOverlaySuffix(next, 'thinking', stripThinkTagMarkers(overlayThinking ?? ''))
   next = appendOverlaySuffix(next, 'text', overlayText)
+  // Media the transcript already holds is left alone; only blocks this window
+  // never saw are added, on the same content-before-tools reasoning.
+  next = [...next, ...missingMediaBlocks(next, overlayMedia)]
   next = appendMissingOverlayTools(next, missingTools)
   return next
 }

@@ -1,7 +1,15 @@
 import { decode, decodeMulti, encode } from '@msgpack/msgpack'
 import { AGENT_STREAM_PROTOCOL_VERSION, type AgentStreamEnvelope } from '../agent-stream-protocol'
 
-export const AGENT_STREAM_MSGPACK_CHANNEL = 'agent:stream:msgpack'
+/**
+ * Host-injected stream envelopes.
+ *
+ * Windows read the agent stream straight from the worker, so this carries only
+ * what the worker cannot send: envelopes the host has to synthesize on its
+ * behalf, such as the terminal error for a run whose worker died mid-flight.
+ * JSON, because nothing on this path needs a binary encoding.
+ */
+export const AGENT_STREAM_INJECTED_CHANNEL = 'agent:stream:injected'
 
 type NativeAgentStreamFrame =
   | (AgentStreamEnvelope & { event?: 'agent/stream' })
@@ -56,6 +64,14 @@ export function isAgentStreamEnvelope(value: unknown): value is AgentStreamEnvel
     typeof record.seq === 'number' &&
     Array.isArray(record.events)
   )
+}
+
+/**
+ * Reads an envelope out of an already-parsed worker frame, accepting either the
+ * bare envelope or the `{ event: 'agent/stream', ... }` wrapper the worker sends.
+ */
+export function readAgentStreamEnvelope(value: unknown): AgentStreamEnvelope | null {
+  return normalizeAgentStreamEnvelope(value)
 }
 
 function normalizeAgentStreamEnvelope(value: unknown): AgentStreamEnvelope | null {

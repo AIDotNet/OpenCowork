@@ -21,6 +21,7 @@ function toHomeProjectSnapshot(project: Project): HomeProjectSnapshot {
   return {
     id: project.id,
     name: project.name,
+    icon: project.icon,
     pluginId: project.pluginId,
     workingFolder: project.workingFolder,
     sshConnectionId: project.sshConnectionId

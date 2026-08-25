@@ -99,7 +99,9 @@ export function RuntimePanel(): React.JSX.Element {
           <Slider
             value={[settings.maxConcurrentSubAgents]}
             onValueChange={([value]) =>
-              settings.updateSettings({ maxConcurrentSubAgents: clampMaxConcurrentSubAgents(value) })
+              settings.updateSettings({
+                maxConcurrentSubAgents: clampMaxConcurrentSubAgents(value)
+              })
             }
             min={MIN_MAX_CONCURRENT_SUB_AGENTS}
             max={MAX_MAX_CONCURRENT_SUB_AGENTS}

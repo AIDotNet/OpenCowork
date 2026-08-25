@@ -102,7 +102,8 @@ const CORE_SESSION_TOOLS: SessionToolDefinition[] = [
   },
   {
     name: 'LS',
-    description: 'List files and directories in a given path',
+    description:
+      'List files and directories at `path`. Pass a directory path, not a shell `command`.',
     inputSchema: {
       type: 'object',
       properties: {

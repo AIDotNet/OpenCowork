@@ -175,8 +175,20 @@ test('an unreadable day list bills peak rather than inventing a discount', () =>
   // The mixed lists matter most: dropping just the bad entry would leave [1..5]
   // standing, which reads as a clean weekday rule and quietly discounts the Saturday
   // the card was trying to charge for. One bad entry has to take the list with it.
-  for (const days of [[], [0], [8], [1.5], [true], ['1'], 5, null, { 1: true },
-                      [1, 2, 3, 4, 5, '6'], [1, 2, 3, 4, 5, 6.5], [6, 0]]) {
+  for (const days of [
+    [],
+    [0],
+    [8],
+    [1.5],
+    [true],
+    ['1'],
+    5,
+    null,
+    { 1: true },
+    [1, 2, 3, 4, 5, '6'],
+    [1, 2, 3, 4, 5, 6.5],
+    [6, 0]
+  ]) {
     const schedule = { ...DEEPSEEK_PRICING_SCHEDULE, peakDaysIso: days } as ModelPricingSchedule
     const label = `days=${JSON.stringify(days)}`
     assert.equal(isPeakPricingHour(at('2026-01-03T02:00:00Z'), schedule), true, label)

@@ -14,7 +14,7 @@ export function getWorkerEventConsumer(): WorkerEventConsumer {
       ack: (runId, throughSeq) => {
         void getNativeWorker()
           .request(
-            'events/ack',
+            'events/checkpoint',
             { consumerId: DESKTOP_EVENT_CONSUMER_ID, jobId: runId, throughSeq },
             10_000
           )

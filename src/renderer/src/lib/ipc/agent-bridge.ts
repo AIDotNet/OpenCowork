@@ -29,6 +29,11 @@ import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-clien
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { toAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
 import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
+import {
+  invalidateWorkerConnection,
+  requestWorker,
+  WorkerUnavailableError
+} from '../runtime/worker-http-client'
 import type {
   RuntimeInitializeResultV2,
   RuntimeRolloutMode
@@ -135,6 +140,9 @@ class AgentBridgeClient {
         if (!result.ok) {
           throw new Error('sidecar:start returned ok=false')
         }
+        // A start may have produced a new process on a new port, so the endpoint
+        // this window cached is not necessarily the one now running.
+        invalidateWorkerConnection()
 
         // Explicit timeout: an omitted timeoutMs crosses MessagePack as nil/null,
         // which main-side default parameters do not catch.
@@ -171,6 +179,7 @@ class AgentBridgeClient {
           // Recycle replaces the worker OS process; a plain sidecar:stop only
           // sends a shutdown RPC that a wedged process would survive.
           await ipcClient.invoke('sidecar:recycle').catch(() => {})
+          invalidateWorkerConnection()
           await new Promise((resolve) => setTimeout(resolve, 250))
           continue
         }
@@ -182,12 +191,20 @@ class AgentBridgeClient {
     return false
   }
 
+  /**
+   * Commands and queries go straight to the worker's loopback HTTP API. The host
+   * is not in this path — it only supervises the process and hands over the
+   * endpoint. If the worker has been replaced, fall back to the host once so a
+   * stale endpoint becomes a restart rather than a hard failure.
+   */
   async request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
-    return await invokeMessagePackBinary(toMessagePackChannel('sidecar:request'), {
-      method,
-      params,
-      timeoutMs
-    })
+    try {
+      return await requestWorker(method, params, timeoutMs)
+    } catch (error) {
+      if (!(error instanceof WorkerUnavailableError)) throw error
+      await this.initialize()
+      return await requestWorker(method, params, timeoutMs)
+    }
   }
 
   notify(method: string, params?: unknown): void {
@@ -265,6 +282,7 @@ class AgentBridgeClient {
     if (now - this.lastRecycleRequestAt < 30_000) return
     this.lastRecycleRequestAt = now
     this.initialized = false
+    invalidateWorkerConnection()
     void ipcClient.invoke('sidecar:recycle').catch(() => {})
   }
 
@@ -306,14 +324,12 @@ class AgentBridgeClient {
     recovered: boolean
     published: number
     jobState: string | null
-    journalFrames: number
     lastEventAt: number | null
   }> {
     return await invokeMessagePackBinary<{
       recovered: boolean
       published: number
       jobState: string | null
-      journalFrames: number
       lastEventAt: number | null
     }>(toMessagePackChannel('agent:recover-stream'), {
       runId,
@@ -356,29 +372,42 @@ class AgentBridgeClient {
     })) as { cancelled: boolean; count: number }
   }
 
+  /**
+   * Straight to the worker: the host added nothing to this call but a liveness
+   * guard, which a failed request already reports.
+   */
   async requestStopAgent(runId: string): Promise<{ stopped: boolean; runId?: string }> {
-    return await invokeMessagePackBinary<{ stopped: boolean; runId?: string }>(
-      toMessagePackChannel('agent:request-stop'),
-      { runId }
-    )
+    try {
+      return (await this.request('agent/request-stop', { runId }, 10_000)) as {
+        stopped: boolean
+        runId?: string
+      }
+    } catch (error) {
+      if (error instanceof WorkerUnavailableError) return { stopped: false }
+      throw error
+    }
   }
 
   async appendAgentMessages(
     runId: string,
     messages: UnifiedMessage[]
   ): Promise<{ appended: boolean; runId?: string; count: number }> {
-    return await invokeMessagePackBinary<{ appended: boolean; runId?: string; count: number }>(
-      toMessagePackChannel('agent:append-messages'),
-      {
-        runId,
-        messages
+    try {
+      return (await this.request('agent/append-messages', { runId, messages }, 10_000)) as {
+        appended: boolean
+        runId?: string
+        count: number
       }
-    )
+    } catch (error) {
+      if (error instanceof WorkerUnavailableError) return { appended: false, count: 0 }
+      throw error
+    }
   }
 
   async stop(): Promise<void> {
     this.initializePromise = null
     await ipcClient.invoke('sidecar:stop')
+    invalidateWorkerConnection()
     this.initialized = false
     this.lastInitializationError = null
   }

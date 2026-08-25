@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.17] - 2026-08-25
+
+### Added
+
+- Added custom project icons: pick a Lucide icon or upload an image (under 1 MB) from the project picker, so projects are easier to tell apart in the sidebar and home view.
+
+### Changed
+
+- Native Worker now talks over a token-gated loopback HTTP API (`POST /rpc`, `GET /events`, `GET /reverse`, `GET /health`) instead of dual MessagePack sockets. Each window and the CLI subscribe to the worker's durable outbox themselves and resume after a reload; Main stays in the path only for host-owned state (hooks, permission policy, goals, window routing).
+- The right-hand panel is now a workbench tab strip. Files, Review, Preview, Browser, Terminal, and sub-agent views open as closable tabs, and the header can add another file, browser, or project terminal.
+- Removed automatic memory extraction and daily rollup. SOUL.md, USER.md, MEMORY.md, and daily memory files can still be edited and injected into prompts.
+- Muse Spark 1.2 on Routin AI now uses the Anthropic Messages protocol. Thinking is always on (`thinking.type=adaptive`) with `output_config.effort` levels of low/medium/high/xhigh (default medium); saved Responses-era think settings (empty body, minimal/ultra) are replaced. Context is 1M tokens and vision is enabled.
+- DeepSeek V4 Flash, Vision Exp, and Pro on Routin AI now share the official weekday peak windows, with Routin list prices at peak and half-rate off-peak.
+- Moved the session-header Open Folder action into the overflow menu so the conversation toolbar stays less crowded.
+
+### Fixed
+
+- Fixed `native:publish` failing after 1.3.16 with CS0246 because the OpenAI stream aggregator was renamed to `ToolCallAggregationState` without adding the type.
+
 ## [1.3.16] - 2026-08-23
 
 ### Added
@@ -10,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Packaged macOS builds now require macOS 13 or newer instead of 14, by lowering `LSMinimumSystemVersion` and the Native AOT `AppleMinOSVersion` deployment target.
 - Ox Alpha on Routin AI no longer allows turning thinking off; `reasoning_effort` is now low/high/max (default max), matching GLM-5.3.
 
 ### Fixed

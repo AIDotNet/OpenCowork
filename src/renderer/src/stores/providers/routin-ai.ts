@@ -20,7 +20,11 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v18: ox-alpha 思考不可关闭，reasoning_effort 仅 low/high/max（与 GLM-5.3 相同）
   // v19: add DeepSeek V4 Flash Vision Exp
   // v20: DeepSeek 模型使用官方工作日峰谷定价（高峰为现价，低谷一半）
-  version: 20,
+  // v21: muse-spark-1.2 思考不可关闭，reasoning_effort 为 minimal/low/medium/high/xhigh（1M 上下文 + 视觉）
+  // v22: muse-spark-1.2 改用 openai-responses（官方推荐，可跨轮次回放 reasoning）
+  // v23: muse-spark-1.2 改用 anthropic Messages（thinking.adaptive + output_config.effort）
+  // v24: 覆盖已保存的 Responses 思考配置（空 bodyParams / minimal+ultra）
+  version: 24,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -786,18 +790,26 @@ export const routinAiPreset: BuiltinProviderPreset = {
       name: 'Muse Spark 1.2',
       icon: 'meta',
       enabled: true,
-      type: 'openai-chat',
-      contextLength: 262_144,
+      type: 'anthropic',
+      // Meta Model API：1,048,576 上下文；输入含 text/image/video/PDF。
+      // Messages API：thinking.adaptive + output_config.effort。
+      // https://ai.developer.meta.com/docs/features/messages/
+      contextLength: 1_048_576,
       maxOutputTokens: 32_768,
-      supportsVision: false,
+      supportsVision: true,
       supportsFunctionCall: true,
       inputPrice: 0.1,
       outputPrice: 0.2,
       cacheHitPrice: 0.002,
       supportsThinking: true,
+      // Muse Spark 始终思考。Messages 用 thinking.type=adaptive，深度走 output_config.effort。
+      // 官方接受 low/medium/high/xhigh。thinking.type=disabled 返回 HTTP 400，不可关闭。
+      // https://ai.developer.meta.com/docs/reasoning/
       thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
       }
     },
     {

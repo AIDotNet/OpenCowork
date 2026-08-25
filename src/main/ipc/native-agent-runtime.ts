@@ -1,4 +1,5 @@
 import { getNativeWorker, type NativeWorkerRawEventFrame } from '../lib/native-worker'
+import { DESKTOP_EVENT_CONSUMER_ID } from '../../shared/worker-event-consumers'
 import type { RuntimeInitializeResultV2 } from '../../shared/agent-runtime-v2'
 import { getWorkerEventConsumer } from './agent-runtime/worker-event-consumer-host'
 
@@ -40,6 +41,16 @@ export class NativeAgentRuntimeManager {
 
   get isRunning(): boolean {
     return this.running && getNativeWorker().isRunning
+  }
+
+  /**
+   * Loopback endpoint + token for the running worker. Handed to the renderer so
+   * its commands and queries reach the worker directly instead of being relayed
+   * through this process.
+   */
+  get connection(): { baseUrl: string; token: string } | null {
+    if (!this.isRunning) return null
+    return getNativeWorker().connection
   }
 
   get runtimeCapabilities(): RuntimeInitializeResultV2 | null {
@@ -283,7 +294,7 @@ export class NativeAgentRuntimeManager {
   private async subscribeEvents(): Promise<void> {
     await getNativeWorker().request(
       'events/subscribe',
-      { consumerId: 'desktop', limit: 4096 },
+      { consumerId: DESKTOP_EVENT_CONSUMER_ID, limit: 4096 },
       30_000
     )
   }

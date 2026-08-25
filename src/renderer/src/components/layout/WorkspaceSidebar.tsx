@@ -12,10 +12,9 @@ import {
   Eraser,
   ExternalLink,
   FileText,
-  Folder,
   FolderInput,
-  FolderOpen,
   GitBranch,
+  Image as ImageIcon,
   ListFilter,
   Loader2,
   MessageSquare,
@@ -46,6 +45,8 @@ import {
   type SidebarResourceMenuControls
 } from '@renderer/components/agents/ai-sidebar'
 import { SharedLayoutBg } from '@renderer/components/motion/shared-layout-bg'
+import { ProjectIcon } from '@renderer/components/chat/ProjectIcon'
+import { ProjectIconPickerDialog } from '@renderer/components/chat/ProjectIconPickerDialog'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
@@ -115,7 +116,7 @@ const SESSION_RESOURCE_PREFIX = 'session:'
 const CHATS_FOLDER_ID = 'folder:chats'
 const LOAD_MORE_CHATS_ID = 'action:load-more-chats'
 const SIDEBAR_NAV_BUTTON_CLASS =
-  'relative flex min-h-9 w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-xl px-3 text-left text-sm font-medium outline-none text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring'
+  'relative flex min-h-7 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-lg px-2 text-left text-sm font-medium outline-none text-muted-foreground transition-colors hover:text-foreground focus-visible:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring'
 const SIDEBAR_RESOURCE_MENU_ITEM_CLASS =
   'flex h-8 w-full items-center gap-2 rounded-lg px-2.5 text-left text-xs text-foreground outline-none transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40'
 const SIDEBAR_RESOURCE_MENU_DESTRUCTIVE_CLASS =
@@ -201,6 +202,17 @@ interface ProjectTreeGroup {
   isLoadingMore: boolean
 }
 
+function projectGroupHasMoreSessions(
+  page: { loaded: boolean; hasMore: boolean } | undefined,
+  loadedSessionCount: number,
+  knownSessionCount?: number
+): boolean {
+  if (typeof knownSessionCount === 'number' && loadedSessionCount >= knownSessionCount) {
+    return false
+  }
+  return page?.loaded === true && page.hasMore === true
+}
+
 function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'][number]): {
   id: string
   title: string
@@ -228,6 +240,7 @@ function mapSession(session: ReturnType<typeof useChatStore.getState>['sessions'
 function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'][number]): {
   id: string
   name: string
+  icon?: string
   createdAt: number
   updatedAt: number
   workingFolder?: string
@@ -239,6 +252,7 @@ function mapProject(project: ReturnType<typeof useChatStore.getState>['projects'
   return {
     id: project.id,
     name: project.name,
+    icon: project.icon,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     workingFolder: project.workingFolder,
@@ -262,6 +276,7 @@ function areProjectListsEqual(
     if (
       a.id !== b.id ||
       a.name !== b.name ||
+      a.icon !== b.icon ||
       a.createdAt !== b.createdAt ||
       a.updatedAt !== b.updatedAt ||
       a.workingFolder !== b.workingFolder ||
@@ -560,6 +575,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   const renameProject = useChatStore((state) => state.renameProject)
   const deleteProject = useChatStore((state) => state.deleteProject)
   const togglePinProject = useChatStore((state) => state.togglePinProject)
+  const updateProjectIcon = useChatStore((state) => state.updateProjectIcon)
   const updateProjectDirectory = useChatStore((state) => state.updateProjectDirectory)
   const deleteSession = useChatStore((state) => state.deleteSession)
   const updateSessionTitle = useChatStore((state) => state.updateSessionTitle)
@@ -617,6 +633,10 @@ export function WorkspaceSidebar(): React.JSX.Element {
   } | null>(null)
   const [autoRenamingSessionId, setAutoRenamingSessionId] = useState<string | null>(null)
   const [folderPickerTarget, setFolderPickerTarget] = useState<FolderPickerTarget | null>(null)
+  const [iconPickerTarget, setIconPickerTarget] = useState<{
+    id: string
+    name: string
+  } | null>(null)
   const [featureMenuOpen, setFeatureMenuOpen] = useState(false)
   const [projectSortMode, setProjectSortMode] = useState<ProjectSortMode>(readProjectSortMode)
   const [isFolderDragOver, setIsFolderDragOver] = useState(false)
@@ -663,6 +683,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
     folderPickerTarget?.type === 'project' ? folderPickerTarget.projectId : null
   const folderPickerProject = folderPickerProjectId
     ? visibleProjects.find((project) => project.id === folderPickerProjectId)
+    : undefined
+  const iconPickerProject = iconPickerTarget
+    ? visibleProjects.find((project) => project.id === iconPickerTarget.id)
     : undefined
   const chatSurfaceActive =
     !settingsPageOpen &&
@@ -724,7 +747,11 @@ export function WorkspaceSidebar(): React.JSX.Element {
         project,
         sessions: projectSessions,
         isRunning,
-        hasMore: sessionListPageState[project.id]?.hasMore ?? true,
+        hasMore: projectGroupHasMoreSessions(
+          sessionListPageState[project.id],
+          projectSessions.length,
+          project.sessionCount
+        ),
         isLoadingMore: sessionListPageState[project.id]?.loading ?? false
       }
     })
@@ -1449,12 +1476,12 @@ export function WorkspaceSidebar(): React.JSX.Element {
       0,
       (project.sessionCount ?? 0) - runningProjectSessionCount
     )
-    const ProjectIcon = project.sshConnectionId ? Server : SquareKanban
+    const OpenProjectMenuIcon = project.sshConnectionId ? Server : SquareKanban
 
     return (
       <>
         <SidebarResourceMenuItem
-          icon={<ProjectIcon className="size-3.5" />}
+          icon={<OpenProjectMenuIcon className="size-3.5" />}
           onSelect={() => {
             controls.close()
             openProjectSession(project.id)
@@ -1467,6 +1494,20 @@ export function WorkspaceSidebar(): React.JSX.Element {
           onSelect={() => controls.rename()}
         >
           {tCommon('action.rename')}
+        </SidebarResourceMenuItem>
+        <SidebarResourceMenuItem
+          icon={<ImageIcon className="size-3.5" />}
+          onSelect={() => {
+            controls.close()
+            deferDropdownAction(() =>
+              setIconPickerTarget({
+                id: project.id,
+                name: project.name
+              })
+            )
+          }}
+        >
+          {t('sidebar.changeProjectIcon', { defaultValue: 'Change icon' })}
         </SidebarResourceMenuItem>
         <SidebarResourceMenuItem
           icon={<FolderInput className="size-3.5" />}
@@ -1628,7 +1669,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
     })
 
     const chatChildren: SidebarResource[] = chatSessions.map(mapSessionResource)
-    if (chatSessionPageState?.hasMore) {
+    if (chatSessionPageState?.loaded && chatSessionPageState.hasMore) {
       chatChildren.push({
         id: LOAD_MORE_CHATS_ID,
         label: chatSessionPageState.loading
@@ -1649,6 +1690,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
   }, [
     activeSessionId,
     chatSessionPageState?.hasMore,
+    chatSessionPageState?.loaded,
     chatSessionPageState?.loading,
     chatSessions,
     expandedProjectIds,
@@ -1828,7 +1870,13 @@ export function WorkspaceSidebar(): React.JSX.Element {
         if (group?.isRunning) {
           return <Loader2 className="size-4 animate-spin text-primary" />
         }
-        return expanded ? <FolderOpen className="size-4" /> : <Folder className="size-4" />
+        return (
+          <ProjectIcon
+            icon={group?.project.icon}
+            sshConnectionId={group?.project.sshConnectionId}
+            expanded={expanded}
+          />
+        )
       }
       if (item.id === CHATS_FOLDER_ID) return <MessageSquare className="size-4" />
       if (item.id.startsWith('action:')) return <ChevronRight className="size-4" />
@@ -1857,7 +1905,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
             </span>
             <button
               type="button"
-              className="grid size-7 shrink-0 place-items-center rounded-lg text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-foreground/5 hover:text-foreground group-hover/resource:opacity-100"
+              className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-foreground/5 hover:text-foreground group-hover/resource:opacity-100"
               title={t('sidebar.newChat')}
               onClick={(event) => {
                 event.preventDefault()
@@ -1877,7 +1925,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
         const group = projectGroupsById.get(projectId)
         if (!group) return null
         return (
-          <span className="relative flex size-7 shrink-0 items-center justify-center">
+          <span className="relative flex size-6 shrink-0 items-center justify-center">
             <span className="text-[10px] text-muted-foreground/80 group-hover/resource:opacity-0">
               {group.project.sessionCount ?? group.sessions.length}
             </span>
@@ -1961,9 +2009,9 @@ export function WorkspaceSidebar(): React.JSX.Element {
           <SharedLayoutBg
             as="ul"
             inset={0}
-            pillClassName="rounded-xl bg-muted/70"
-            pillContainerClassName="inset-y-auto top-0 h-9"
-            className="flex w-full min-w-0 shrink-0 list-none flex-col gap-1 px-1"
+            pillClassName="rounded-lg bg-muted/70"
+            pillContainerClassName="inset-y-auto top-0 h-7"
+            className="flex w-full min-w-0 shrink-0 list-none flex-col gap-0.5 px-1"
           >
             {navItems.slice(0, 2).map(renderNavItem)}
             <li>
@@ -2269,6 +2317,20 @@ export function WorkspaceSidebar(): React.JSX.Element {
             sshConnectionId: connectionId
           })
           toast.success(t('sidebar_toast.projectWorkingFolderUpdated'))
+        }}
+      />
+
+      <ProjectIconPickerDialog
+        open={!!iconPickerTarget}
+        projectName={iconPickerTarget?.name ?? ''}
+        currentIcon={iconPickerProject?.icon}
+        sshConnectionId={iconPickerProject?.sshConnectionId}
+        onOpenChange={(open) => {
+          if (!open) setIconPickerTarget(null)
+        }}
+        onSelect={(icon) => {
+          if (!iconPickerTarget) return
+          updateProjectIcon(iconPickerTarget.id, icon)
         }}
       />
 

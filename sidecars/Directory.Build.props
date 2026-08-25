@@ -1,0 +1,9 @@
+<Project>
+  <!-- .NET 11 Native AOT defaults AppleMinOSVersion to 14.0 (macos14.0 triple).
+       Packaged OpenCowork still launches on macOS 13 (Ventura), so pin Mach-O
+       minos to 13.0 for both the Native Worker and CodeGraph sidecar. This is a
+       deployment-target override, not a claim that Microsoft tests .NET 11 on 13. -->
+  <PropertyGroup>
+    <AppleMinOSVersion Condition="'$(AppleMinOSVersion)' == ''">13.0</AppleMinOSVersion>
+  </PropertyGroup>
+</Project>

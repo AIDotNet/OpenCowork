@@ -1,6 +1,7 @@
 import type React from 'react'
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import type { ResourceUri } from '../../../shared/workbench/uri'
 import {
   BOTTOM_TERMINAL_DOCK_DEFAULT_HEIGHT,
   LEFT_SIDEBAR_DEFAULT_WIDTH,
@@ -66,6 +67,8 @@ export interface RightPanelTabInstance {
   kind: RightPanelTabKind
   title: string
   closable: boolean
+  pinned?: boolean
+  uri?: ResourceUri
   sessionId?: string | null
   toolUseId?: string | null
   inlineText?: string | null
@@ -316,6 +319,7 @@ interface UIStore {
   setRightPanelWidth: (width: number) => void
   rightPanelExpandedForReading: boolean
   expandRightPanelForReading: () => void
+  toggleRightPanelExpandedForReading: () => void
   agentFilesActiveTabBySurface: Partial<Record<AgentFilesSurface, AgentFilesTab>>
   agentFilesSelectedChangeKey: string | null
   agentFilesChangeSource: AgentFilesChangeSource
@@ -384,6 +388,16 @@ interface UIStore {
   ) => void
   openDevServerPreview: (projectDir: string, port: number, sessionId?: string | null) => void
   openMarkdownPreview: (title: string, content: string, sessionId?: string | null) => void
+  openResourceUri: (
+    uri: ResourceUri,
+    options?: {
+      viewMode?: 'preview' | 'code' | 'split'
+      title?: string
+      targetLine?: number
+      targetColumn?: number
+      background?: boolean
+    }
+  ) => void
   openPreviewTab: (
     state: PreviewPanelState,
     preserveExistingViewMode?: boolean,
@@ -1306,6 +1320,8 @@ export const useUIStore = create<UIStore>()(
         }),
       rightPanelExpandedForReading: false,
       expandRightPanelForReading: () => set({ rightPanelExpandedForReading: true }),
+      toggleRightPanelExpandedForReading: () =>
+        set((s) => ({ rightPanelExpandedForReading: !s.rightPanelExpandedForReading })),
       agentFilesActiveTabBySurface: {},
       agentFilesSelectedChangeKey: null,
       agentFilesChangeSource: 'all',
@@ -1739,6 +1755,58 @@ export const useUIStore = create<UIStore>()(
           markdownTitle: title,
           sessionId
         }),
+      openResourceUri: (uri, options) => {
+        if (uri.scheme === 'file') {
+          get().openFilePreview(
+            uri.path,
+            options?.viewMode === 'split' ? 'code' : options?.viewMode,
+            uri.query?.sshConnectionId,
+            uri.authority || undefined,
+            options?.targetLine,
+            options?.targetColumn
+          )
+          return
+        }
+        if (uri.scheme === 'review' || uri.scheme === 'changes') {
+          get().openReviewTab(uri.query?.turnId)
+          return
+        }
+        if (uri.scheme === 'agent-diff') {
+          get().openFilesTab('changes', uri.authority, undefined, uri.query?.turnId)
+          return
+        }
+        if (uri.scheme === 'webview') {
+          get().ensureBrowserTab(
+            uri.query?.url,
+            uri.authority === 'global' ? null : uri.authority,
+            undefined,
+            { background: options?.background }
+          )
+          return
+        }
+        if (uri.scheme === 'term') {
+          if (uri.authority === 'local' || uri.authority === 'ssh') {
+            get().ensureProjectTerminalRightPanelTab({
+              terminalSource: uri.authority as 'local' | 'ssh',
+              localTabId: uri.authority === 'local' ? uri.path.replace(/^\//, '') : undefined,
+              sshTabId: uri.authority === 'ssh' ? uri.path.replace(/^\//, '') : undefined,
+              title: options?.title
+            })
+          } else {
+            get().ensureTerminalTab(uri.path.replace(/^\//, ''), options?.title)
+          }
+          return
+        }
+        if (uri.scheme === 'subagent') {
+          get().ensureSubAgentTab(
+            uri.path === '/list' ? null : uri.path.replace(/^\//, ''),
+            undefined,
+            options?.title,
+            uri.authority === 'active' ? null : uri.authority
+          )
+          return
+        }
+      },
       closePreviewPanel: () => set({ previewPanelOpen: false }),
       setPreviewViewMode: (mode) =>
         set((state) => ({

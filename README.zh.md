@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/AIDotNet/OpenCowork/releases/latest"><img src="https://img.shields.io/github/v/release/AIDotNet/OpenCowork?label=Release" alt="Release"></a>
   <img src="https://img.shields.io/badge/License-Apache_2.0-green" alt="License">
-  <img src="https://img.shields.io/badge/Version-1.3.16-orange" alt="Version">
+  <img src="https://img.shields.io/badge/Version-1.3.17-orange" alt="Version">
   <a href="https://github.com/AIDotNet/OpenCowork/stargazers"><img src="https://img.shields.io/github/stars/AIDotNet/OpenCowork?style=social" alt="Stars"></a>
 </p>
 
@@ -185,7 +185,7 @@ npm install
 npm run dev
 ```
 
-安装包见 [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest)（Windows 安装包 / 免安装 zip、macOS 14 或更高版本、Linux）。
+安装包见 [GitHub Releases](https://github.com/AIDotNet/OpenCowork/releases/latest)（Windows 安装包 / 免安装 zip、macOS 13 或更高版本、Linux）。
 
 | 命令                      | 说明 |
 | ------------------------- | ---- |

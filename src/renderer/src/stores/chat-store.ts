@@ -92,6 +92,7 @@ export interface SessionPromptSnapshot {
 export interface Project {
   id: string
   name: string
+  icon?: string
   createdAt: number
   updatedAt: number
   workingFolder?: string
@@ -499,6 +500,7 @@ function dbCreateProject(project: Project): void {
   invokeMessagePack(DB_PROJECTS_CREATE_MSGPACK_CHANNEL, {
     id: project.id,
     name: project.name,
+    icon: project.icon ?? null,
     workingFolder: project.workingFolder,
     sshConnectionId: project.sshConnectionId,
     pluginId: project.pluginId,
@@ -1431,6 +1433,7 @@ interface ChatStore {
   renameProject: (projectId: string, name: string) => void
   deleteProject: (projectId: string) => Promise<void>
   togglePinProject: (projectId: string) => void
+  updateProjectIcon: (projectId: string, icon: string | null) => void
   updateProjectDirectory: (
     projectId: string,
     patch: Partial<{
@@ -1561,6 +1564,7 @@ interface ChatStore {
 interface ProjectRow {
   id: string
   name: string
+  icon?: string | null
   created_at: number
   updated_at: number
   working_folder: string | null
@@ -1729,10 +1733,9 @@ function resetSessionListCursorForScope(
   const wasLoaded = page.loaded
   page.generation = getSessionListPageGeneration(scope)
   page.cursor = null
-  page.hasMore = true
-  // Keep an already-rendered page resident. The next explicit "load more"
-  // starts from the head because cursor is null, while the sidebar does not
-  // refetch on every streaming timestamp update.
+  // Keep the last known hasMore. Forcing true here makes the sidebar advertise
+  // "Load more sessions" after every title or timestamp update, even when the
+  // latest fetch already reported the list as exhausted.
   page.loaded = wasLoaded
   page.loading = false
   page.error = null
@@ -1798,6 +1801,7 @@ function rowToProject(row: ProjectRow): Project {
   return {
     id: row.id,
     name: row.name,
+    icon: row.icon ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     workingFolder: row.working_folder ?? undefined,
@@ -3017,6 +3021,23 @@ export const useChatStore = create<ChatStore>()(
 
       dbUpdateProject(projectId, {
         name: nextName,
+        updatedAt: now
+      })
+    },
+
+    updateProjectIcon: (projectId, icon) => {
+      const now = Date.now()
+      const nextIcon = typeof icon === 'string' && icon.trim() ? icon.trim() : undefined
+
+      set((state) => {
+        const project = state.projects.find((item) => item.id === projectId)
+        if (!project) return
+        project.icon = nextIcon
+        project.updatedAt = now
+      })
+
+      dbUpdateProject(projectId, {
+        icon: nextIcon ?? null,
         updatedAt: now
       })
     },
@@ -4446,7 +4467,7 @@ export const useChatStore = create<ChatStore>()(
             if (!state.sessionListPageState[project.id]) {
               state.sessionListPageState[project.id] = {
                 cursor: null,
-                hasMore: true,
+                hasMore: false,
                 loading: false,
                 loaded: false,
                 generation: getSessionListPageGeneration(project.id),

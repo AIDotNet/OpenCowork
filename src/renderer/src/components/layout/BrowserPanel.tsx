@@ -1,6 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { ArrowLeft, ArrowRight, RefreshCw, Square, Globe, AlertCircle } from 'lucide-react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  RefreshCw,
+  Square,
+  Globe,
+  AlertCircle,
+  History,
+  Search,
+  Trash2,
+  Bot
+} from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@renderer/components/ui/button'
+import { Input } from '@renderer/components/ui/input'
 import { useUIStore } from '@renderer/stores/ui-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
@@ -16,10 +29,38 @@ import {
   type MaybePromise
 } from '@renderer/lib/browser/webview-helpers'
 import { useTranslation } from 'react-i18next'
+import { AuxiliaryDrawerHost } from '@renderer/components/workbench/AuxiliaryDrawerHost'
 import {
   BUILTIN_BROWSER_PARTITION,
   stripElectronFromUserAgent
 } from '../../../../shared/browser-plugin'
+
+interface BrowserHistoryEntry {
+  id: string
+  url: string
+  title: string
+  timestamp: number
+}
+
+const BROWSER_HISTORY_STORAGE_KEY = 'opencowork_browser_history_v1'
+
+function loadSavedHistory(): BrowserHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(BROWSER_HISTORY_STORAGE_KEY)
+    if (!raw) return []
+    return JSON.parse(raw) as BrowserHistoryEntry[]
+  } catch {
+    return []
+  }
+}
+
+function saveHistory(entries: BrowserHistoryEntry[]): void {
+  try {
+    localStorage.setItem(BROWSER_HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, 100)))
+  } catch {
+    // Ignore storage quota errors
+  }
+}
 
 export function BrowserPanel({
   sessionId = null,
@@ -46,6 +87,13 @@ export function BrowserPanel({
 
   const [inputUrl, setInputUrl] = useState(storedUrl)
   const [committedUrl, setCommittedUrl] = useState(storedUrl)
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false)
+  const [historySearchQuery, setHistorySearchQuery] = useState('')
+  const [historyEntries, setHistoryEntries] = useState<BrowserHistoryEntry[]>(() =>
+    loadSavedHistory()
+  )
+  const [showErrorDetails, setShowErrorDetails] = useState(false)
+
   const [runtimeBrowserUserDataReuseEnabled, setRuntimeBrowserUserDataReuseEnabled] = useState(
     browserUserDataReuseEnabled
   )
@@ -121,98 +169,89 @@ export function BrowserPanel({
     [handleWebviewOperationError]
   )
 
+  const updateNavState = useCallback((): void => {
+    runWebviewCommand('update navigation state', (wv) => {
+      setBrowserCanGoBack(wv.canGoBack(), sessionId, projectId)
+      setBrowserCanGoForward(wv.canGoForward(), sessionId, projectId)
+    })
+  }, [projectId, runWebviewCommand, sessionId, setBrowserCanGoBack, setBrowserCanGoForward])
+
+  const canNavigateTo = useCallback(
+    (targetUrl: string): boolean => {
+      const decision = getBrowserAccessDecision(targetUrl)
+      if (decision.allowed) return true
+
+      toast.error(
+        decision.reason ?? t('browser.accessBlocked', { defaultValue: 'URL is blocked by policy' })
+      )
+      return false
+    },
+    [t]
+  )
+
+  const recordHistory = useCallback((url: string, title?: string) => {
+    if (!url || url.startsWith('about:')) return
+    setHistoryEntries((prev) => {
+      const filtered = prev.filter((item) => item.url !== url)
+      const next = [
+        { id: `${Date.now()}-${url}`, url, title: title || url, timestamp: Date.now() },
+        ...filtered
+      ]
+      saveHistory(next)
+      return next
+    })
+  }, [])
+
+  const navigate = useCallback(
+    (rawUrl: string): void => {
+      const target = normalizeBrowserUrl(rawUrl)
+      if (!target) return
+      if (!canNavigateTo(target)) return
+      setInputUrl(target)
+      setCommittedUrl(target)
+      setBrowserUrl(target, sessionId, projectId)
+      setBrowserErrorInfo(null, sessionId, projectId)
+      recordHistory(target)
+    },
+    [canNavigateTo, projectId, recordHistory, sessionId, setBrowserErrorInfo, setBrowserUrl]
+  )
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'Enter') {
+      navigate(inputUrl)
+    }
+  }
+
+  const handleAskAgentToFix = (): void => {
+    if (!errorInfo) return
+    const prompt = `The built-in browser failed to connect to ${errorInfo.url} with error ${errorInfo.desc} (${errorInfo.code}). Please check if the local server is running and help diagnose or start it.`
+    useUIStore.getState().setPendingInsertText(prompt)
+    toast.success('Added diagnostic prompt to chat input')
+  }
+
+  const handleClearHistory = (): void => {
+    setHistoryEntries([])
+    saveHistory([])
+    toast.success('History cleared')
+  }
+
+  useEffect(() => {
+    if (storedUrl !== committedUrl) {
+      setInputUrl(storedUrl)
+      setCommittedUrl(storedUrl)
+    }
+  }, [committedUrl, storedUrl])
+
   useEffect(() => {
     setBrowserWebviewRef(webviewRef, sessionId, projectId)
     return () => {
       setBrowserWebviewRef(null, sessionId, projectId)
-      setBrowserLoading(false, sessionId, projectId)
     }
-  }, [projectId, sessionId, setBrowserLoading, setBrowserWebviewRef])
-
-  useEffect(() => {
-    setInputUrl(storedUrl)
-    setCommittedUrl(storedUrl)
-  }, [storedUrl])
-
-  const blockNavigation = useCallback(
-    (url: string, reason?: string): void => {
-      setBrowserErrorInfo(
-        {
-          code: -10,
-          desc: reason ?? t('browser.blockedByRules'),
-          url
-        },
-        sessionId,
-        projectId
-      )
-      setBrowserLoading(false, sessionId, projectId)
-    },
-    [projectId, sessionId, setBrowserErrorInfo, setBrowserLoading, t]
-  )
-
-  const canNavigateTo = useCallback(
-    (url: string): boolean => {
-      const decision = getBrowserAccessDecision(url)
-      if (decision.allowed) return true
-      blockNavigation(url, decision.reason)
-      return false
-    },
-    [blockNavigation]
-  )
-
-  const navigate = useCallback(
-    (url: string): void => {
-      const normalized = normalizeBrowserUrl(url)
-      if (!normalized) return
-      setInputUrl(normalized)
-      if (!canNavigateTo(normalized)) return
-      setCommittedUrl(normalized)
-      setBrowserUrl(normalized, sessionId, projectId)
-      setBrowserErrorInfo(null, sessionId, projectId)
-      const wv = webviewRef.current
-      if (isWebviewConnected(wv)) {
-        try {
-          wv.src = normalized
-        } catch (error) {
-          handleWebviewOperationError('navigate', error)
-        }
-      }
-    },
-    [
-      canNavigateTo,
-      handleWebviewOperationError,
-      projectId,
-      sessionId,
-      setBrowserErrorInfo,
-      setBrowserUrl
-    ]
-  )
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter') navigate(inputUrl)
-  }
-
-  const updateNavState = useCallback(() => {
-    const wv = webviewRef.current
-    if (!isWebviewConnected(wv)) return
-
-    try {
-      setBrowserCanGoBack(wv.canGoBack(), sessionId, projectId)
-      setBrowserCanGoForward(wv.canGoForward(), sessionId, projectId)
-    } catch (error) {
-      handleWebviewOperationError('read navigation state', error)
-    }
-  }, [
-    handleWebviewOperationError,
-    projectId,
-    sessionId,
-    setBrowserCanGoBack,
-    setBrowserCanGoForward
-  ])
+  }, [projectId, sessionId, setBrowserWebviewRef])
 
   useEffect(() => {
     const wv = webviewRef.current
-    if (!isWebviewConnected(wv)) return
+    if (!wv) return
 
     const onStartLoading = (): void => {
       setBrowserLoading(true, sessionId, projectId)
@@ -227,17 +266,24 @@ export function BrowserPanel({
     const onNavigate = (e: Electron.DidNavigateEvent): void => {
       setInputUrl(e.url)
       setBrowserUrl(e.url, sessionId, projectId)
+      recordHistory(e.url, wv.getTitle?.())
       updateNavState()
     }
 
     const onNavigateInPage = (e: Electron.DidNavigateInPageEvent): void => {
       setInputUrl(e.url)
       setBrowserUrl(e.url, sessionId, projectId)
+      recordHistory(e.url, wv.getTitle?.())
       updateNavState()
     }
 
     const onTitleUpdated = (e: Electron.PageTitleUpdatedEvent): void => {
       setBrowserPageTitle(e.title, sessionId, projectId)
+      if (e.title) {
+        setHistoryEntries((prev) =>
+          prev.map((item) => (item.url === inputUrl ? { ...item, title: e.title } : item))
+        )
+      }
     }
 
     const onFailLoad = (e: Electron.DidFailLoadEvent): void => {
@@ -283,23 +329,54 @@ export function BrowserPanel({
   }, [
     canNavigateTo,
     committedUrl,
+    inputUrl,
     projectId,
+    recordHistory,
     sessionId,
-    setBrowserLoading,
     setBrowserErrorInfo,
-    setBrowserUrl,
+    setBrowserLoading,
     setBrowserPageTitle,
+    setBrowserUrl,
     updateNavState
   ])
 
+  const groupedHistory = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayMs = today.getTime()
+    const yesterdayMs = todayMs - 86400000
+
+    const filtered = historyEntries.filter(
+      (item) =>
+        item.url.toLowerCase().includes(historySearchQuery.toLowerCase()) ||
+        item.title.toLowerCase().includes(historySearchQuery.toLowerCase())
+    )
+
+    const todayItems: BrowserHistoryEntry[] = []
+    const yesterdayItems: BrowserHistoryEntry[] = []
+    const olderItems: BrowserHistoryEntry[] = []
+
+    for (const item of filtered) {
+      if (item.timestamp >= todayMs) {
+        todayItems.push(item)
+      } else if (item.timestamp >= yesterdayMs) {
+        yesterdayItems.push(item)
+      } else {
+        olderItems.push(item)
+      }
+    }
+
+    return { today: todayItems, yesterday: yesterdayItems, older: olderItems }
+  }, [historyEntries, historySearchQuery])
+
   return (
-    <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/50 px-2">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* Tier 2 Context Sub-Header Toolbar */}
+      <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/50 bg-background/80 px-2 backdrop-blur-sm">
         <Button
           variant="ghost"
           size="icon"
-          className="size-6"
+          className="size-6 rounded text-muted-foreground hover:text-foreground"
           onClick={() => runWebviewCommand('go back', (wv) => wv.goBack())}
           disabled={!canGoBack}
           title={t('browser.back')}
@@ -309,7 +386,7 @@ export function BrowserPanel({
         <Button
           variant="ghost"
           size="icon"
-          className="size-6"
+          className="size-6 rounded text-muted-foreground hover:text-foreground"
           onClick={() => runWebviewCommand('go forward', (wv) => wv.goForward())}
           disabled={!canGoForward}
           title={t('browser.forward')}
@@ -320,7 +397,7 @@ export function BrowserPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6"
+            className="size-6 rounded text-muted-foreground hover:text-foreground"
             onClick={() => runWebviewCommand('stop loading', (wv) => wv.stop())}
             title={t('browser.stop')}
           >
@@ -330,15 +407,15 @@ export function BrowserPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="size-6"
+            className="size-6 rounded text-muted-foreground hover:text-foreground"
             onClick={() => runWebviewCommand('refresh', (wv) => wv.reload())}
             title={t('browser.refresh')}
           >
-            <RefreshCw className="size-3.5" />
+            <RefreshCw className="size-3" />
           </Button>
         )}
 
-        <div className="flex flex-1 items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 h-6">
+        <div className="flex h-6 flex-1 items-center gap-1.5 rounded border border-border/50 bg-muted/25 px-2">
           <Globe className="size-3 shrink-0 text-muted-foreground" />
           <input
             className="flex-1 bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
@@ -353,10 +430,20 @@ export function BrowserPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 px-2 text-[11px]"
+          className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
           onClick={() => navigate(inputUrl)}
         >
           {t('browser.go')}
+        </Button>
+
+        <Button
+          variant={historyDrawerOpen ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-6 rounded text-muted-foreground hover:text-foreground"
+          onClick={() => setHistoryDrawerOpen((prev) => !prev)}
+          title="Browsing History"
+        >
+          <History className="size-3.5" />
         </Button>
       </div>
 
@@ -367,44 +454,195 @@ export function BrowserPanel({
         </div>
       )}
 
-      {/* Content */}
-      <div className="relative min-h-0 flex-1">
-        {committedUrl && (
-          <webview
-            key={runtimeBrowserUserDataReuseEnabled ? 'user-browser-profile' : 'opencowork-profile'}
-            ref={webviewRef as React.Ref<Electron.WebviewTag>}
-            src={committedUrl}
-            className="size-full"
-            {...webviewSessionProps}
-          />
-        )}
-        {errorInfo ? (
-          <>
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground">
-              <AlertCircle className="size-10 opacity-30" />
-              <p className="font-medium">{t('rightPanel.browserLoadFailed')}</p>
-              <p className="text-xs opacity-70">
-                {errorInfo.desc} ({errorInfo.code})
-              </p>
-              <p className="max-w-[80%] truncate text-xs opacity-50">{errorInfo.url}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setBrowserErrorInfo(null, sessionId, projectId)
-                  runWebviewCommand('retry load', (wv) => wv.reload())
-                }}
-              >
-                {t('rightPanel.browserRetry')}
-              </Button>
+      {/* Content Area & Auxiliary History Drawer */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          {committedUrl && (
+            <webview
+              key={
+                runtimeBrowserUserDataReuseEnabled ? 'user-browser-profile' : 'opencowork-profile'
+              }
+              ref={webviewRef as React.Ref<Electron.WebviewTag>}
+              src={committedUrl}
+              className="size-full"
+              {...webviewSessionProps}
+            />
+          )}
+
+          {errorInfo ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background p-6 text-center select-none">
+              <div className="grid size-12 place-items-center rounded-2xl border border-destructive/20 bg-destructive/10">
+                <AlertCircle className="size-6 text-destructive/70" />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">
+                  Can&apos;t connect to server
+                </p>
+                <p className="font-mono text-xs text-muted-foreground">
+                  {errorInfo.url} refused to connect. ({errorInfo.code})
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs font-medium"
+                  onClick={handleAskAgentToFix}
+                >
+                  <Bot className="size-3.5" />
+                  Ask Agent
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => setShowErrorDetails((prev) => !prev)}
+                >
+                  {showErrorDetails ? 'Hide Details' : 'Show Details'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => {
+                    setBrowserErrorInfo(null, sessionId, projectId)
+                    runWebviewCommand('retry load', (wv) => wv.reload())
+                  }}
+                >
+                  Retry
+                </Button>
+              </div>
+
+              {showErrorDetails && (
+                <div className="max-w-sm rounded border border-border/50 bg-muted/20 p-2 text-left font-mono text-[10px] text-muted-foreground">
+                  <div>Error description: {errorInfo.desc}</div>
+                  <div>Error code: {errorInfo.code}</div>
+                  <div>Target URL: {errorInfo.url}</div>
+                </div>
+              )}
             </div>
-          </>
-        ) : !committedUrl ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Globe className="size-8 opacity-20" />
-            <span>{t('rightPanel.browserEmptyState')}</span>
+          ) : !committedUrl ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground select-none">
+              <Globe className="size-8 opacity-20" />
+              <span>{t('rightPanel.browserEmptyState')}</span>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Auxiliary History Drawer */}
+        <AuxiliaryDrawerHost
+          open={historyDrawerOpen}
+          title="History"
+          width={220}
+          onClose={() => setHistoryDrawerOpen(false)}
+          actions={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 rounded p-0 text-muted-foreground hover:text-foreground"
+              onClick={handleClearHistory}
+              title="Clear History"
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          }
+        >
+          <div className="flex h-full flex-col p-2">
+            <div className="relative mb-2">
+              <Search className="absolute left-2 top-1.5 size-3 text-muted-foreground" />
+              <Input
+                placeholder="Search history..."
+                value={historySearchQuery}
+                onChange={(e) => setHistorySearchQuery(e.target.value)}
+                className="h-6 pl-7 text-[11px]"
+              />
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-0.5">
+              {groupedHistory.today.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground/70 uppercase">
+                    Today
+                  </div>
+                  <div className="space-y-0.5">
+                    {groupedHistory.today.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => navigate(item.url)}
+                        className="group flex cursor-pointer flex-col rounded p-1.5 text-[11px] transition-colors hover:bg-muted/40"
+                      >
+                        <div className="flex items-center gap-1.5 font-medium text-foreground">
+                          <Globe className="size-3 shrink-0 text-sky-400 opacity-70" />
+                          <span className="truncate">{item.title}</span>
+                        </div>
+                        <span className="truncate pl-4 font-mono text-[9px] text-muted-foreground">
+                          {item.url}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {groupedHistory.yesterday.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground/70 uppercase">
+                    Yesterday
+                  </div>
+                  <div className="space-y-0.5">
+                    {groupedHistory.yesterday.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => navigate(item.url)}
+                        className="group flex cursor-pointer flex-col rounded p-1.5 text-[11px] transition-colors hover:bg-muted/40"
+                      >
+                        <div className="flex items-center gap-1.5 font-medium text-foreground">
+                          <Globe className="size-3 shrink-0 text-sky-400 opacity-70" />
+                          <span className="truncate">{item.title}</span>
+                        </div>
+                        <span className="truncate pl-4 font-mono text-[9px] text-muted-foreground">
+                          {item.url}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {groupedHistory.older.length > 0 && (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground/70 uppercase">
+                    Earlier
+                  </div>
+                  <div className="space-y-0.5">
+                    {groupedHistory.older.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => navigate(item.url)}
+                        className="group flex cursor-pointer flex-col rounded p-1.5 text-[11px] transition-colors hover:bg-muted/40"
+                      >
+                        <div className="flex items-center gap-1.5 font-medium text-foreground">
+                          <Globe className="size-3 shrink-0 text-sky-400 opacity-70" />
+                          <span className="truncate">{item.title}</span>
+                        </div>
+                        <span className="truncate pl-4 font-mono text-[9px] text-muted-foreground">
+                          {item.url}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {historyEntries.length === 0 && (
+                <div className="py-6 text-center text-xs text-muted-foreground">
+                  No browsing history yet
+                </div>
+              )}
+            </div>
           </div>
-        ) : null}
+        </AuxiliaryDrawerHost>
       </div>
     </div>
   )

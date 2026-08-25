@@ -43,6 +43,23 @@ export function safePostMessageToWindow(
   }
 }
 
+/** Sends a plain JSON-serializable value, guarding a window that is going away. */
+export function safeSendToWindow(win: BrowserWindow, channel: string, payload: unknown): boolean {
+  if (win.isDestroyed()) return false
+  const contents = win.webContents
+  if (!contents || contents.isDestroyed() || contents.isCrashed()) return false
+
+  try {
+    contents.send(channel, payload)
+    return true
+  } catch (error) {
+    if (!isDisposedFrameError(error)) {
+      console.warn(`[Window IPC] Failed to send ${channel}:`, error)
+    }
+    return false
+  }
+}
+
 export function safeSendMessagePackToWindow(
   win: BrowserWindow,
   channel: string,

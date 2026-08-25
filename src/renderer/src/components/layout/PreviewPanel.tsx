@@ -12,6 +12,7 @@ import {
   FileDiff,
   FileOutput,
   FolderOpen,
+  FolderTree,
   Globe,
   PanelRightClose,
   Plus,
@@ -46,6 +47,8 @@ import {
 } from '@renderer/lib/preview/viewers/markdown-components'
 import { BROWSER_PLUGIN_ID } from '@renderer/lib/app-plugin/types'
 import { cn } from '@renderer/lib/utils'
+import { AuxiliaryDrawerHost } from '@renderer/components/workbench/AuxiliaryDrawerHost'
+import { FileTreePanel } from '@renderer/components/cowork/FileTreePanel'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -178,6 +181,7 @@ export function PreviewPanel({
   const ViewerComponent = viewerDef?.component
   const [copied, setCopied] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [fileTreeDrawerOpen, setFileTreeDrawerOpen] = useState(false)
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
   const pendingCloseTab = tabs.find((tab) => tab.id === pendingCloseTabId) ?? null
 
@@ -642,75 +646,96 @@ export function PreviewPanel({
             <ExternalLink className="size-3.5" />
           </Button>
         )}
+
+        <Button
+          variant={fileTreeDrawerOpen ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-7 shrink-0"
+          onClick={() => setFileTreeDrawerOpen((prev) => !prev)}
+          title="Toggle File Explorer"
+        >
+          <FolderTree className="size-3.5" />
+        </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {isDiff ? (
-          <Suspense
-            fallback={
-              <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
-                <RefreshCw className="size-4 animate-spin" />
-                Loading preview...
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {isDiff ? (
+            <Suspense
+              fallback={
+                <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="size-4 animate-spin" />
+                  Loading preview...
+                </div>
+              }
+            >
+              <MonacoDiffEditor
+                filePath={activeTab.filePath}
+                original={activeTab.diffOriginal ?? ''}
+                modified={diffModifiedValue}
+                language={activeTab.diffLanguage}
+                modifiedEditable={Boolean(activeTab.diffModifiedEditable)}
+                renderSideBySide={diffViewMode !== 'inline'}
+                isBinary={Boolean(activeTab.diffIsBinary)}
+                onModifiedChange={handleContentChange}
+                onSave={handleSave}
+              />
+            </Suspense>
+          ) : isMarkdown ? (
+            <div className="size-full overflow-y-auto p-6">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                  rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                  urlTransform={markdownUrlTransform}
+                  components={createMarkdownComponents()}
+                >
+                  {activeTab.markdownContent || ''}
+                </ReactMarkdown>
               </div>
-            }
-          >
-            <MonacoDiffEditor
-              filePath={activeTab.filePath}
-              original={activeTab.diffOriginal ?? ''}
-              modified={diffModifiedValue}
-              language={activeTab.diffLanguage}
-              modifiedEditable={Boolean(activeTab.diffModifiedEditable)}
-              renderSideBySide={diffViewMode !== 'inline'}
-              isBinary={Boolean(activeTab.diffIsBinary)}
-              onModifiedChange={handleContentChange}
-              onSave={handleSave}
-            />
-          </Suspense>
-        ) : isMarkdown ? (
-          <div className="size-full overflow-y-auto p-6">
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown
-                remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
-                urlTransform={markdownUrlTransform}
-                components={createMarkdownComponents()}
-              >
-                {activeTab.markdownContent || ''}
-              </ReactMarkdown>
             </div>
-          </div>
-        ) : fileLoading && !activeTab.modified ? (
-          <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
-            <RefreshCw className="size-4 animate-spin" />
-            Loading preview...
-          </div>
-        ) : ViewerComponent ? (
-          <Suspense
-            fallback={
-              <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
-                <RefreshCw className="size-4 animate-spin" />
-                Loading preview...
-              </div>
-            }
-          >
-            <ViewerComponent
-              filePath={activeTab.filePath}
-              content={content}
-              viewMode={activeTab.viewMode}
-              onContentChange={handleContentChange}
-              onSave={handleSave}
-              sshConnectionId={activeTab.sshConnectionId}
-              initialLine={activeTab.targetLine}
-              initialColumn={activeTab.targetColumn}
-              initialPositionKey={activeTab.targetPositionKey}
-              fileVersion={fileVersion}
-            />
-          </Suspense>
-        ) : (
-          <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
-            {t('preview.noViewer')}
-          </div>
-        )}
+          ) : fileLoading && !activeTab.modified ? (
+            <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="size-4 animate-spin" />
+              Loading preview...
+            </div>
+          ) : ViewerComponent ? (
+            <Suspense
+              fallback={
+                <div className="flex size-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="size-4 animate-spin" />
+                  Loading preview...
+                </div>
+              }
+            >
+              <ViewerComponent
+                filePath={activeTab.filePath}
+                content={content}
+                viewMode={activeTab.viewMode}
+                onContentChange={handleContentChange}
+                onSave={handleSave}
+                sshConnectionId={activeTab.sshConnectionId}
+                initialLine={activeTab.targetLine}
+                initialColumn={activeTab.targetColumn}
+                initialPositionKey={activeTab.targetPositionKey}
+                fileVersion={fileVersion}
+              />
+            </Suspense>
+          ) : (
+            <div className="flex size-full items-center justify-center text-sm text-muted-foreground">
+              {t('preview.noViewer')}
+            </div>
+          )}
+        </div>
+
+        <AuxiliaryDrawerHost
+          open={fileTreeDrawerOpen}
+          title="Workspace Files"
+          width={220}
+          onClose={() => setFileTreeDrawerOpen(false)}
+        >
+          <FileTreePanel />
+        </AuxiliaryDrawerHost>
       </div>
 
       <AlertDialog open={showSaveDialog} onOpenChange={handleSaveDialogOpenChange}>

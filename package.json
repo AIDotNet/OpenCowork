@@ -1,6 +1,6 @@
 {
   "name": "open-cowork",
-  "version": "1.3.16",
+  "version": "1.3.17",
   "description": "Open-source desktop platform for multi-agent AI collaboration with local tools and workplace integration",
   "main": "./out/main/index.js",
   "bin": {
@@ -42,6 +42,7 @@
     "verify:runtime-protocol": "node ./scripts/verify-runtime-protocol.mjs",
     "verify:runtime-projection": "node ./scripts/verify-runtime-projection.mjs",
     "verify:native-worker-jobs": "node ./scripts/verify-native-worker-jobs.mjs",
+    "verify:worker-http": "node --experimental-strip-types --import ./scripts/lib/register-ts-ext.mjs --test scripts/test/worker-http-channel.test.ts",
     "native:publish": "node ./scripts/publish-native-worker.mjs",
     "codegraph:publish": "npm run native:publish",
     "codegraph:grammars:validate": "node ./scripts/validate-codegraph-grammars.mjs",

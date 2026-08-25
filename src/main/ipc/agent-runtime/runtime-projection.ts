@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { decodeAgentStreamEnvelope } from '../../../shared/messagepack/agent-stream-codec'
+import { readAgentStreamEnvelope } from '../../../shared/messagepack/agent-stream-codec'
 import { RUNTIME_OVERLAY_RETENTION_MS } from '../../../shared/runtime-projection/journal'
 import { RuntimeProjectionEngine } from '../../../shared/runtime-projection/engine'
 import type { AgentRuntimeProjection } from '../../../shared/runtime-contracts/generated/contracts'
@@ -69,16 +69,12 @@ export class RuntimeProjectionHost {
     const sessionId = typeof frame.sessionId === 'string' ? frame.sessionId : ''
     if (!runId || !sessionId) return []
 
-    let events
-    try {
-      events = decodeAgentStreamEnvelope(frame.bytes).events
-    } catch (error) {
-      console.warn(
-        '[runtime-projection] failed to decode stream frame',
-        error instanceof Error ? error.message : String(error)
-      )
+    const envelope = readAgentStreamEnvelope(frame.envelope)
+    if (!envelope) {
+      console.warn('[runtime-projection] unreadable stream frame', { runId, sessionId })
       return []
     }
+    const events = envelope.events
 
     const pending = this.expireTimers.get(runId)
     if (pending) {

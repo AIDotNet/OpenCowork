@@ -1,11 +1,9 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-import { decode, encode } from '@msgpack/msgpack'
-import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { startWorkerOverHttp } from './lib/worker-http-harness.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '..')
 const workerProject = path.join(
@@ -14,8 +12,6 @@ const workerProject = path.join(
   'OpenCowork.Native.Worker',
   'OpenCowork.Native.Worker.csproj'
 )
-const frameHeaderBytes = 4
-const maxFrameBytes = 256 * 1024 * 1024
 
 function assert(condition, message) {
   if (!condition) {
@@ -48,246 +44,65 @@ function messageContent(text) {
   return JSON.stringify(text)
 }
 
-function createFrame(payload) {
-  if (payload.byteLength <= 0 || payload.byteLength > maxFrameBytes) {
-    throw new Error(`Invalid frame payload length: ${payload.byteLength}`)
-  }
-  const frame = Buffer.allocUnsafe(frameHeaderBytes + payload.byteLength)
-  frame.writeUInt32BE(payload.byteLength, 0)
-  Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength).copy(frame, frameHeaderBytes)
-  return frame
-}
+const DEFAULT_REQUEST_TIMEOUT_MS = 20_000
 
-class NativeWorkerClient {
-  constructor(controlEndpoint, eventEndpoint, consumerId, child) {
-    this.controlEndpoint = controlEndpoint
-    this.eventEndpoint = eventEndpoint
-    this.consumerId = consumerId
-    this.child = child
-    this.socket = null
-    this.eventSocket = null
-    this.readBuffer = Buffer.alloc(0)
-    this.eventReadBuffer = Buffer.alloc(0)
-    this.nextId = 1
-    this.pending = new Map()
-    this.eventListeners = new Map()
-  }
-
-  async connect() {
-    const [socket, eventSocket] = await Promise.all([
-      this.connectEndpoint(this.controlEndpoint),
-      this.connectEndpoint(this.eventEndpoint)
-    ])
-    this.socket = socket
-    this.eventSocket = eventSocket
-    socket.on('data', (chunk) => this.handleControlData(chunk))
-    socket.on('error', (error) => this.rejectAll(error))
-    socket.on('close', () => this.rejectAll(new Error('Native worker control socket closed')))
-    eventSocket.on('data', (chunk) => this.handleEventData(chunk))
-    // Event IPC has a separate health fate. Its failure must not reject Control RPCs.
-    eventSocket.on('error', () => {})
-  }
-
-  async connectEndpoint(endpoint) {
-    const deadline = Date.now() + 60_000
-    let lastError = null
-    while (Date.now() < deadline) {
-      if (this.child.exitCode !== null) {
-        throw new Error(`Native worker exited before connect: ${this.child.exitCode}`)
-      }
-      try {
-        return await new Promise((resolve, reject) => {
-          const socket = net.createConnection(endpoint)
-          socket.once('connect', () => resolve(socket))
-          socket.once('error', (error) => {
-            socket.destroy()
-            reject(error)
-          })
-        })
-      } catch (error) {
-        lastError = error
-        await new Promise((resolve) => setTimeout(resolve, 80))
-      }
-    }
-    throw lastError ?? new Error('Timed out connecting to native worker')
-  }
-
-  onEvent(eventName, listener) {
-    const listeners = this.eventListeners.get(eventName) ?? new Set()
-    listeners.add(listener)
-    this.eventListeners.set(eventName, listeners)
-    return () => listeners.delete(listener)
-  }
-
-  request(method, params = {}, timeoutMs = 20_000) {
-    if (!this.socket) throw new Error('Native worker is not connected')
-    const id = this.nextId++
-    const payload = encode({ id, method, params })
-    const frame = createFrame(payload)
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`Native worker request timed out: ${method}`))
-      }, timeoutMs)
-      this.pending.set(id, { resolve, reject, timer, method })
-      this.socket.write(frame, (error) => {
-        if (error) {
-          clearTimeout(timer)
-          this.pending.delete(id)
-          reject(error)
-        }
+/**
+ * Wraps the shared HTTP harness with what these assertions need: the durable
+ * consumer id, an `agent/stream` auto-ack (the outbox stops publishing once its
+ * in-flight window fills, so a harness that never acks stalls after ~32 batches),
+ * and the `jobs/submit` indirection `agent/run` requires.
+ */
+function createWindowingClient(worker, consumerId) {
+  const client = {
+    consumerId,
+    request: (method, params = {}, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) =>
+      worker.request(method, params, timeoutMs),
+    onEvent: (eventName, listener) => worker.on(eventName, listener),
+    async submitAgentRun(params) {
+      const runId = params.runId
+      const submission = await client.request('jobs/submit', {
+        method: 'agent/run',
+        params,
+        jobId: runId,
+        idempotencyKey: runId
       })
-    })
+      assert(
+        submission.accepted,
+        `agent/run was not durably accepted: ${JSON.stringify(submission)}`
+      )
+      return submission
+    },
+    close: () => worker.close()
   }
 
-  async submitAgentRun(params) {
-    const runId = params.runId
-    const submission = await this.request('jobs/submit', {
-      method: 'agent/run',
-      params,
-      jobId: runId,
-      idempotencyKey: runId
-    })
-    assert(submission.accepted, `agent/run was not durably accepted: ${JSON.stringify(submission)}`)
-    return submission
-  }
+  worker.on('agent/stream', (frame) => {
+    if (typeof frame?.runId !== 'string' || typeof frame?.seq !== 'number') return
+    void client
+      .request('events/checkpoint', { consumerId, jobId: frame.runId, throughSeq: frame.seq })
+      .catch(() => {})
+  })
 
-  handleControlData(chunk) {
-    this.readBuffer = Buffer.concat([this.readBuffer, chunk])
-    while (this.readBuffer.length >= frameHeaderBytes) {
-      const length = this.readBuffer.readUInt32BE(0)
-      if (length <= 0 || length > maxFrameBytes) {
-        this.rejectAll(new Error(`Invalid frame length: ${length}`))
-        return
-      }
-      const frameLength = frameHeaderBytes + length
-      if (this.readBuffer.length < frameLength) return
-      const payload = this.readBuffer.subarray(frameHeaderBytes, frameLength)
-      this.readBuffer = this.readBuffer.subarray(frameLength)
-      this.handleControlFrame(payload)
-    }
-  }
-
-  handleControlFrame(payload) {
-    const decoded = decode(payload)
-    if (!decoded || typeof decoded !== 'object') return
-    if (decoded.event) {
-      this.emit(decoded.event, decoded)
-      return
-    }
-    if (typeof decoded.id !== 'number') return
-    const pending = this.pending.get(decoded.id)
-    if (!pending) return
-    clearTimeout(pending.timer)
-    this.pending.delete(decoded.id)
-    if (decoded.error) {
-      pending.reject(new Error(String(decoded.error)))
-    } else {
-      pending.resolve(decoded.result)
-    }
-  }
-
-  handleEventData(chunk) {
-    this.eventReadBuffer = Buffer.concat([this.eventReadBuffer, chunk])
-    while (this.eventReadBuffer.length >= frameHeaderBytes) {
-      const length = this.eventReadBuffer.readUInt32BE(0)
-      if (length <= 0 || length > maxFrameBytes) {
-        this.eventSocket?.destroy(new Error(`Invalid Event IPC frame length: ${length}`))
-        return
-      }
-      const frameLength = frameHeaderBytes + length
-      if (this.eventReadBuffer.length < frameLength) return
-      const payload = this.eventReadBuffer.subarray(frameHeaderBytes, frameLength)
-      this.eventReadBuffer = this.eventReadBuffer.subarray(frameLength)
-      const decoded = decode(payload)
-      if (decoded && typeof decoded === 'object' && typeof decoded.event === 'string') {
-        this.emit(decoded.event, decoded)
-        if (
-          decoded.event === 'agent/stream' &&
-          typeof decoded.runId === 'string' &&
-          typeof decoded.seq === 'number'
-        ) {
-          void this.request('events/ack', {
-            consumerId: this.consumerId,
-            jobId: decoded.runId,
-            throughSeq: decoded.seq
-          }).catch(() => {})
-        }
-      }
-    }
-  }
-
-  emit(eventName, payload) {
-    const listeners = this.eventListeners.get(eventName)
-    if (!listeners) return
-    for (const listener of listeners) {
-      listener(payload)
-    }
-  }
-
-  rejectAll(error) {
-    for (const [id, pending] of this.pending.entries()) {
-      clearTimeout(pending.timer)
-      pending.reject(error)
-      this.pending.delete(id)
-    }
-  }
-
-  close() {
-    this.socket?.destroy()
-    this.eventSocket?.destroy()
-    this.rejectAll(new Error('Native worker closed'))
-  }
+  return client
 }
 
 async function startWorker(tempDir) {
   const suffix = `${process.pid}-${randomUUID()}`
-  const controlEndpoint =
-    process.platform === 'win32'
-      ? `\\\\.\\pipe\\open-cowork-window-control-${suffix}`
-      : path.join(tempDir, 'control.sock')
-  const eventEndpoint =
-    process.platform === 'win32'
-      ? `\\\\.\\pipe\\open-cowork-window-event-${suffix}`
-      : path.join(tempDir, 'events.sock')
-  const hostId = `verify-windowing-${suffix}`
   const consumerId = `verify-windowing-${process.pid}`
-  const child = spawn(
-    'dotnet',
-    [
-      'run',
-      '--project',
-      workerProject,
-      '--',
-      '--control-ipc',
-      controlEndpoint,
-      '--event-ipc',
-      eventEndpoint,
-      '--host-id',
-      hostId
-    ],
-    {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        OPEN_COWORK_NATIVE_DEBUG_BODY_PREVIEW_CHARS: '200000',
-        OPEN_COWORK_RUNTIME_DB_PATH: path.join(tempDir, 'runtime-jobs.db')
-      },
-      stdio: ['ignore', 'ignore', 'pipe']
+  const worker = await startWorkerOverHttp({
+    command: 'dotnet',
+    commandArgs: ['run', '--project', workerProject, '--'],
+    hostId: `verify-windowing-${suffix}`,
+    cwd: repoRoot,
+    env: {
+      OPEN_COWORK_NATIVE_DEBUG_BODY_PREVIEW_CHARS: '200000',
+      OPEN_COWORK_RUNTIME_DB_PATH: path.join(tempDir, 'runtime-jobs.db')
     }
-  )
-  child.stderr?.on('data', (chunk) => {
-    const text = chunk.toString('utf8').trim()
-    if (text) console.warn(`[native-worker] ${text}`)
   })
-  const client = new NativeWorkerClient(controlEndpoint, eventEndpoint, consumerId, child)
-  await client.connect()
+  const client = createWindowingClient(worker, consumerId)
+  await worker.attachEvents(consumerId)
   await client.request('worker/ping')
-  await client.request('events/subscribe', {
-    consumerId,
-    limit: 4096
-  })
-  return { client, child }
+  await client.request('events/subscribe', { consumerId, limit: 4096 })
+  return { client, worker }
 }
 
 function buildSeedMessages(sessionId) {
@@ -522,10 +337,10 @@ async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'open-cowork-windowing-'))
   const dbPath = path.join(tempDir, 'data.db')
   let client
-  let child
+  let worker
 
   try {
-    ;({ client, child } = await startWorker(tempDir))
+    ;({ client, worker } = await startWorker(tempDir))
 
     const memory = await client.request('worker/memory')
     assert(memory.success, `worker/memory failed: ${memory.error ?? 'unknown error'}`)
@@ -1108,10 +923,7 @@ async function main() {
 
     console.log('message-windowing verification passed')
   } finally {
-    client?.close()
-    if (child && child.exitCode === null) {
-      child.kill()
-    }
+    await worker?.close()
     await rm(tempDir, { recursive: true, force: true })
   }
 }

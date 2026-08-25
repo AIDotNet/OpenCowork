@@ -116,7 +116,9 @@ nsis:
   allowToChangeInstallationDirectory: true
 mac:
   icon: resources/icon-mac.png
-  minimumSystemVersion: '14.0'
+  # Electron 36 still runs on Ventura. .NET 11 Native AOT defaults minos to 14.0;
+  # sidecars/Directory.Build.props lowers AppleMinOSVersion so the worker matches.
+  minimumSystemVersion: '13.0'
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

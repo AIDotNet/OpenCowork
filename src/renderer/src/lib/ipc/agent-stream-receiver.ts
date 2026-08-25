@@ -4,13 +4,21 @@ import type {
 } from '../../../../shared/agent-stream-protocol'
 import { AGENT_STREAM_PROTOCOL_VERSION } from '../../../../shared/agent-stream-protocol'
 import {
-  AGENT_STREAM_MSGPACK_CHANNEL,
-  decodeAgentStreamEnvelopes
+  AGENT_STREAM_INJECTED_CHANNEL,
+  readAgentStreamEnvelope
 } from '../../../../shared/messagepack/agent-stream-codec'
+import { startWorkerEventStream, stopWorkerEventStream } from '../runtime/worker-event-stream'
 import { ipcClient } from './ipc-client'
 
 type RunEventCallback = (event: AgentStreamEvent) => void
 type GlobalEventCallback = (runId: string, sessionId: string, event: AgentStreamEvent) => void
+
+/** Outcome of handing one envelope to the receiver. */
+export type AgentStreamApplyResult =
+  | { status: 'applied' }
+  | { status: 'duplicate' }
+  | { status: 'rejected' }
+  | { status: 'gap'; runId: string; expected: number }
 
 // Keep completed runs long enough to deduplicate an ACK-loss replay without
 // allowing a long-lived Renderer process to grow this journal index forever.
@@ -22,31 +30,37 @@ export class AgentStreamReceiver {
   private lastSeqByRun = new Map<string, number>()
   private attached = false
 
+  /**
+   * Subscribes this window directly to the worker's durable event stream.
+   *
+   * Frames no longer arrive relayed from the host. Owning the subscription means
+   * this window has its own cursor, so a reload resumes from the worker's on-disk
+   * outbox rather than from a size-bounded journal in the host process.
+   */
   attach(): void {
     if (this.attached) return
     this.attached = true
+    startWorkerEventStream((envelope) => this.acceptEnvelope(envelope), {
+      lastAppliedSeq: (runId) => this.getLastSeq(runId)
+    })
 
+    // Envelopes the worker could not send itself, such as the terminal error for
+    // a run whose worker died. Without this a lost worker leaves the UI streaming
+    // forever, because the subscription it was reading simply stops.
     window.electron.ipcRenderer.on(
-      AGENT_STREAM_MSGPACK_CHANNEL,
-      (_ipcEvent: unknown, bytes: ArrayBuffer | ArrayBufferView) => {
-        const startedAt = performance.now()
-        try {
-          const envelopes = decodeAgentStreamEnvelopes(bytes)
-          const metrics = {
-            byteLength: getByteLength(bytes),
-            decodeMs: Math.round((performance.now() - startedAt) * 100) / 100
-          }
-          for (const envelope of envelopes) {
-            this.acceptEnvelope(envelope, metrics)
-          }
-        } catch (error) {
-          console.warn(
-            '[AgentStream] Failed to decode MessagePack envelope',
-            error instanceof Error ? error.message : String(error)
-          )
-        }
+      AGENT_STREAM_INJECTED_CHANNEL,
+      (_ipcEvent: unknown, payload: unknown) => {
+        const envelope = readAgentStreamEnvelope(payload)
+        if (!envelope) return
+        this.acceptEnvelope(envelope)
       }
     )
+  }
+
+  detach(): void {
+    if (!this.attached) return
+    this.attached = false
+    stopWorkerEventStream()
   }
 
   get isAttached(): boolean {
@@ -80,13 +94,19 @@ export class AgentStreamReceiver {
     ipcClient.send('agent:session-visibility', { sessionId, visible })
   }
 
-  private acceptEnvelope(
-    envelope: AgentStreamEnvelope,
-    metrics?: { byteLength: number; decodeMs: number }
-  ): void {
+  /**
+   * Applies one envelope, reporting why it did not when it did not.
+   *
+   * A gap must be reported rather than swallowed. The sequence is not advanced
+   * past it, so every later envelope for that run would also read as a gap and
+   * the run would go silent for good — no terminal event, no sub-agent
+   * completion, not even the events a cancel produces. The caller answers a gap
+   * by replaying the run from the worker's durable outbox.
+   */
+  private acceptEnvelope(envelope: AgentStreamEnvelope): AgentStreamApplyResult {
     if (envelope.v !== AGENT_STREAM_PROTOCOL_VERSION) {
       console.warn('[AgentStream] Unknown protocol version', envelope.v)
-      return
+      return { status: 'rejected' }
     }
 
     const lastSeq = this.lastSeqByRun.get(envelope.runId)
@@ -96,32 +116,29 @@ export class AgentStreamReceiver {
     // completed context_compressed event.
     if (!live) {
       if (lastSeq !== undefined && envelope.seq <= lastSeq) {
-        return
+        return { status: 'duplicate' }
       }
       if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
-        console.warn(
-          `[AgentStream] Gap detected for run ${envelope.runId}: expected ${lastSeq + 1}, got ${envelope.seq}`
-        )
-        return
+        return { status: 'gap', runId: envelope.runId, expected: lastSeq + 1 }
       }
       if (lastSeq === undefined || envelope.seq > lastSeq) {
         this.rememberSequence(envelope.runId, envelope.seq)
       }
     }
 
-    if (shouldLogMessagePackTrace()) {
-      console.debug('[AgentStream] MessagePack envelope decoded', {
+    if (shouldLogStreamTrace()) {
+      console.debug('[AgentStream] envelope applied', {
         runId: envelope.runId,
         sessionId: envelope.sessionId,
         seq: envelope.seq,
-        events: envelope.events.length,
-        ...metrics
+        events: envelope.events.length
       })
     }
 
     for (const event of envelope.events) {
       this.dispatch(envelope.runId, envelope.sessionId, event)
     }
+    return { status: 'applied' }
   }
 
   /** Highest seq applied for a run, or undefined if none seen. Used to compute
@@ -158,11 +175,7 @@ export class AgentStreamReceiver {
 
 export const agentStream = new AgentStreamReceiver()
 
-function getByteLength(bytes: ArrayBuffer | ArrayBufferView): number {
-  return bytes instanceof ArrayBuffer ? bytes.byteLength : bytes.byteLength
-}
-
-function shouldLogMessagePackTrace(): boolean {
+function shouldLogStreamTrace(): boolean {
   try {
     return localStorage.getItem('openCowork.msgpackTrace') === '1'
   } catch {

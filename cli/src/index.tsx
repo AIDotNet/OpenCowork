@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -378,7 +378,7 @@ program
   )
   .option(
     '--doctor',
-    t('cli.options.doctor', 'Check the Native Worker transport and shared provider configuration'),
+    t('cli.options.doctor', 'Check the agent runtime transport and shared provider configuration'),
     false
   )
   .option(

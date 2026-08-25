@@ -57,7 +57,6 @@ import { registerCommandsHandlers } from './ipc/commands-handlers'
 import { registerProcessManagerHandlers, killAllManagedProcesses } from './ipc/process-manager'
 import { registerDbHandlers } from './ipc/db-handlers'
 import { registerGoalRuntimeHandlers } from './ipc/goal-runtime-handlers'
-import { registerMemoryAutomationHandlers } from './ipc/memory-automation-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
 import { registerAiProviderHandlers } from './ipc/ai-provider-handlers'
 import { applyOpenCoworkImportUrl, findOpenCoworkImportUrl } from './lib/opencowork-import'
@@ -1575,7 +1574,6 @@ if (gotSingleInstanceLock) {
       console.error('[DB] Startup failed:', error)
     })
     registerGoalRuntimeHandlers()
-    registerMemoryAutomationHandlers()
     registerConfigHandlers()
     registerAiProviderHandlers()
     registerExtensionHandlers(mcpManager)

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -48,7 +48,13 @@ const toolExecutorFiles = new Set([
   `${rendererRoot}lib/mcp/mcp-tools.ts`,
   toolRegistryPath
 ])
-const mainOnlySourceFiles = new Set(['src/shared/native-worker-protocol.ts'])
+// Shared modules that only a host process may import. Both speak to the worker
+// over Node-only APIs (Buffer, child_process, raw sockets/HTTP), so a renderer
+// import would either fail to bundle or hand the UI a transport it must not own.
+const mainOnlySourceFiles = new Set([
+  'src/shared/native-worker-protocol.ts',
+  'src/shared/worker-http-channel.ts'
+])
 const mainOnlyPackages = new Set([
   ...builtinModules,
   ...builtinModules.map((moduleName) => `node:${moduleName}`),

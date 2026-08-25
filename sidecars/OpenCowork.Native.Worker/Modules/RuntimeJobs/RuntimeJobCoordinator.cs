@@ -14,18 +14,44 @@ internal static class RuntimeJobCoordinator
     // rows that are dead weight the moment the tool_result reaches the messages table.
     private static readonly TimeSpan ToolResultRetention = TimeSpan.FromDays(3);
     private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// How long a job may sit untouched by a host with no live lease before it is
+    /// treated as abandoned. Comfortably longer than the lease renewal interval, so
+    /// a host that is merely slow to renew is never reaped out from under itself.
+    /// </summary>
+    private static readonly TimeSpan AbandonedJobGrace = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan HostedSessionRetention = TimeSpan.FromDays(14);
     private const int HostedSessionMaxRows = 256;
     private static readonly int MaxConcurrentJobs = Math.Clamp(Environment.ProcessorCount, 4, 12);
-    private const int MaxUnackedEventBatches = 32;
-    private const long MaxUnackedEventBytes = 4L * 1024 * 1024;
+
+    /// <summary>
+    /// How many batches a consumer may fall behind before its cursor is written
+    /// back to SQLite.
+    ///
+    /// The cursor used to be persisted once per batch, driven by an acknowledgement
+    /// RPC from the consumer — thousands of round trips for a single run. Delivery
+    /// no longer needs confirming: a consumer that misses frames resubscribes with
+    /// the sequence it reached. The cursor only has to be durable enough that a
+    /// worker restart does not replay an entire run.
+    /// </summary>
+    private const int CursorCheckpointBatches = 32;
     private static readonly SemaphoreSlim MediaSlots = new(4, 4);
     private static readonly SemaphoreSlim EventPumpGate = new(1, 1);
     private static readonly string WorkerInstanceId = Guid.NewGuid().ToString("N");
     private static readonly object Sync = new();
     private static readonly object EventSync = new();
     private static readonly HashSet<string> ActiveLanes = new(StringComparer.Ordinal);
-    private static readonly Dictionary<(string JobId, long Seq), int> InFlightEvents = [];
+
+    /// <summary>
+    /// Durable event consumers, keyed by consumer id. There is more than one because
+    /// each window subscribes to the worker directly while the host keeps its own
+    /// subscription for background and scheduled runs. Each needs an independent
+    /// cursor; sharing one would let a window's progress discard frames the host had
+    /// not received.
+    /// </summary>
+    private static readonly Dictionary<string, EventConsumer> EventConsumers =
+        new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> ActiveJobs =
         new(StringComparer.Ordinal);
     private static readonly Channel<bool> WakeChannel = Channel.CreateBounded<bool>(
@@ -42,18 +68,17 @@ internal static class RuntimeJobCoordinator
     private static WorkerDispatcher? dispatcher;
     private static Task? schedulerTask;
     private static int activeCount;
-    private static string? eventConsumerId;
-    private static string? eventReplayJobId;
-    private static long? eventReplaySinceSeq;
-    private static int eventReplayLimit = 4096;
-    private static long inFlightEventBytes;
 
     public static string HostId => hostId ?? throw new InvalidOperationException(
         "Runtime Job host has not been configured.");
 
-    public static void Configure(WorkerEndpoint endpoint)
+    /// <summary>
+    /// Durable jobs and events are scoped by host id alone; the transport's own
+    /// addressing is not part of that identity.
+    /// </summary>
+    public static void Configure(string workerHostId)
     {
-        hostId = endpoint.HostId;
+        hostId = workerHostId;
     }
 
     public static void BindDispatcher(WorkerDispatcher workerDispatcher)
@@ -235,24 +260,17 @@ internal static class RuntimeJobCoordinator
             completedAt ?? Now());
     }
 
-    public static void Ack(string consumerId, string jobId, long throughSeq)
+    /// <summary>
+    /// Records how far a consumer has read, so a restart resumes there.
+    /// </summary>
+    /// <remarks>
+    /// This is a checkpoint, not an acknowledgement: nothing is held back waiting
+    /// for it, and a consumer that never calls it only risks re-reading events it
+    /// already saw. Callers resubscribe with their own sequence when they reconnect.
+    /// </remarks>
+    public static void Checkpoint(string consumerId, string jobId, long throughSeq)
     {
         RuntimeJobStore.Ack(consumerId, jobId, throughSeq, Now());
-        lock (EventSync)
-        {
-            if (string.Equals(eventConsumerId, consumerId, StringComparison.Ordinal))
-            {
-                foreach (var key in InFlightEvents.Keys
-                    .Where(key => key.JobId == jobId && key.Seq <= throughSeq)
-                    .ToArray())
-                {
-                    inFlightEventBytes -= InFlightEvents[key];
-                    InFlightEvents.Remove(key);
-                }
-                inFlightEventBytes = Math.Max(0, inFlightEventBytes);
-            }
-        }
-        Wake();
     }
 
     public static async Task<int> ReplayAsync(
@@ -260,16 +278,28 @@ internal static class RuntimeJobCoordinator
         string? jobId,
         long? sinceSeq,
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool fromLatest = false)
     {
+        if (fromLatest)
+        {
+            RuntimeJobStore.SeedCursorsToLatest(HostId, consumerId, Now());
+        }
         lock (EventSync)
         {
-            eventConsumerId = consumerId;
-            eventReplayJobId = NormalizeIdentifier(jobId);
-            eventReplaySinceSeq = sinceSeq;
-            eventReplayLimit = Math.Clamp(limit, 1, 4096);
-            InFlightEvents.Clear();
-            inFlightEventBytes = 0;
+            if (!EventConsumers.TryGetValue(consumerId, out var consumer))
+            {
+                consumer = new EventConsumer();
+                EventConsumers.Add(consumerId, consumer);
+            }
+            consumer.ReplayJobId = NormalizeIdentifier(jobId);
+            consumer.ReplaySinceSeq = sinceSeq;
+            consumer.ReplayLimit = Math.Clamp(limit, 1, 4096);
+            // Subscribing is how a consumer states where it is. Clearing what we
+            // believe it already has is what makes a reconnect resume rather than
+            // silently skip the events it missed while it was away.
+            consumer.PublishedThrough.Clear();
+            consumer.SinceCheckpoint = 0;
         }
         EnsureStarted();
         var published = await PumpDurableEventsAsync(cancellationToken);
@@ -307,12 +337,25 @@ internal static class RuntimeJobCoordinator
                 WorkerLog.Warn(
                     $"runtime jobs marked interrupted hostId={hostId} count={interrupted}");
             }
+            ReapAbandonedJobs(now);
             RuntimeJobStore.CleanupEvents(now - (long)EventRetention.TotalMilliseconds);
             RuntimeJobStore.CleanupToolResults(now - (long)ToolResultRetention.TotalMilliseconds);
             RuntimeJobStore.CleanupHostedSessions(
                 now - (long)HostedSessionRetention.TotalMilliseconds,
                 HostedSessionMaxRows);
             schedulerTask = Task.Run(() => SchedulerLoopAsync(Lifetime.Token), CancellationToken.None);
+        }
+    }
+
+    private static void ReapAbandonedJobs(long now)
+    {
+        var abandoned = RuntimeJobStore.FailAbandonedJobs(
+            HostId,
+            now,
+            (long)AbandonedJobGrace.TotalMilliseconds);
+        if (abandoned > 0)
+        {
+            WorkerLog.Warn($"runtime jobs marked abandoned count={abandoned}");
         }
     }
 
@@ -337,6 +380,10 @@ internal static class RuntimeJobCoordinator
 
                 if (now >= nextMaintenance)
                 {
+                    // Reaping runs before sweeping events: the sweep only removes
+                    // batches whose job is terminal, so a job nobody will ever close
+                    // pins every envelope it produced.
+                    ReapAbandonedJobs(now);
                     RuntimeJobStore.CleanupEvents(
                         now - (long)EventRetention.TotalMilliseconds);
                     RuntimeJobStore.CleanupToolResults(
@@ -375,75 +422,26 @@ internal static class RuntimeJobCoordinator
         }
     }
 
+    /// <summary>
+    /// Pumps the durable outbox for every subscribed consumer, independently, so a
+    /// consumer that has stopped reading affects only its own delivery.
+    /// </summary>
     private static async Task<int> PumpDurableEventsAsync(CancellationToken cancellationToken)
     {
         await EventPumpGate.WaitAsync(cancellationToken);
         try
         {
-            string? consumerId;
-            string? replayJobId;
-            long? replaySinceSeq;
-            int replayLimit;
+            KeyValuePair<string, EventConsumer>[] consumers;
             lock (EventSync)
             {
-                consumerId = eventConsumerId;
-                replayJobId = eventReplayJobId;
-                replaySinceSeq = eventReplaySinceSeq;
-                replayLimit = eventReplayLimit;
-                if (consumerId is null || InFlightEvents.Count >= MaxUnackedEventBatches)
-                {
-                    return 0;
-                }
+                consumers = [.. EventConsumers];
             }
 
-            var batches = RuntimeJobStore.Replay(
-                HostId,
-                consumerId,
-                replayJobId,
-                replaySinceSeq,
-                replayLimit);
             var published = 0;
-            foreach (var batch in batches)
+            foreach (var (consumerId, consumer) in consumers)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var key = (batch.JobId, batch.Seq);
-                lock (EventSync)
-                {
-                    if (!string.Equals(eventConsumerId, consumerId, StringComparison.Ordinal))
-                    {
-                        break;
-                    }
-                    if (InFlightEvents.ContainsKey(key))
-                    {
-                        continue;
-                    }
-                    if (InFlightEvents.Count >= MaxUnackedEventBatches)
-                    {
-                        break;
-                    }
-                    if (inFlightEventBytes > 0 &&
-                        inFlightEventBytes + batch.Payload.Length > MaxUnackedEventBytes)
-                    {
-                        break;
-                    }
-
-                    InFlightEvents.Add(key, batch.Payload.Length);
-                    inFlightEventBytes += batch.Payload.Length;
-                }
-
-                if (!WorkerTransportHub.TryPublishEvent(
-                    new WorkerMessagePackEvent("agent/stream", batch.Payload)))
-                {
-                    lock (EventSync)
-                    {
-                        if (InFlightEvents.Remove(key, out var bytes))
-                        {
-                            inFlightEventBytes = Math.Max(0, inFlightEventBytes - bytes);
-                        }
-                    }
-                    break;
-                }
-                published++;
+                published += PumpConsumer(consumerId, consumer, cancellationToken);
             }
             return published;
         }
@@ -451,6 +449,96 @@ internal static class RuntimeJobCoordinator
         {
             EventPumpGate.Release();
         }
+    }
+
+    private static int PumpConsumer(
+        string consumerId,
+        EventConsumer consumer,
+        CancellationToken cancellationToken)
+    {
+        string? replayJobId;
+        long? replaySinceSeq;
+        int replayLimit;
+        lock (EventSync)
+        {
+            replayJobId = consumer.ReplayJobId;
+            replaySinceSeq = consumer.ReplaySinceSeq;
+            replayLimit = consumer.ReplayLimit;
+        }
+
+        var batches = RuntimeJobStore.Replay(
+            HostId,
+            consumerId,
+            replayJobId,
+            replaySinceSeq,
+            replayLimit);
+        var published = 0;
+        foreach (var batch in batches)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (EventSync)
+            {
+                if (!EventConsumers.TryGetValue(consumerId, out var current) ||
+                    !ReferenceEquals(current, consumer))
+                {
+                    break;
+                }
+                // Nothing gates on delivery being confirmed; this only stops the
+                // pump from re-sending what it already put on this consumer's lane
+                // before its cursor was checkpointed.
+                if (consumer.PublishedThrough.TryGetValue(batch.JobId, out var sent) &&
+                    batch.Seq <= sent)
+                {
+                    continue;
+                }
+            }
+
+            if (!WorkerEventRouter.TryPublishToConsumer(
+                consumerId,
+                new WorkerMessagePackEvent("agent/stream", batch.Payload)))
+            {
+                // The lane is saturated or detached. Leaving the cursor where it is
+                // means the consumer picks these up when it resubscribes.
+                break;
+            }
+
+            long checkpointSeq = 0;
+            var shouldCheckpoint = false;
+            lock (EventSync)
+            {
+                consumer.PublishedThrough[batch.JobId] = batch.Seq;
+                consumer.SinceCheckpoint += 1;
+                if (consumer.SinceCheckpoint >= CursorCheckpointBatches || batch.Terminal)
+                {
+                    consumer.SinceCheckpoint = 0;
+                    checkpointSeq = batch.Seq;
+                    shouldCheckpoint = true;
+                }
+            }
+            if (shouldCheckpoint)
+            {
+                Checkpoint(consumerId, batch.JobId, checkpointSeq);
+            }
+            published++;
+        }
+        return published;
+    }
+
+    private sealed class EventConsumer
+    {
+        public string? ReplayJobId;
+        public long? ReplaySinceSeq;
+        public int ReplayLimit = 4096;
+
+        /// <summary>Batches published since this consumer's cursor was last written.</summary>
+        public int SinceCheckpoint;
+
+        /// <summary>
+        /// Highest sequence already placed on this consumer's lane, per job. Purely
+        /// an in-memory de-duplicator between cursor checkpoints; it is not a record
+        /// of what the consumer received.
+        /// </summary>
+        public readonly Dictionary<string, long> PublishedThrough = new(StringComparer.Ordinal);
     }
 
     private static bool LaunchAvailableJobs()

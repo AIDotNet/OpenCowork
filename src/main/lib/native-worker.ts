@@ -3,10 +3,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { EventEmitter } from 'events'
 import * as fs from 'fs'
-import * as net from 'net'
 import * as path from 'path'
-import { decode, encode } from '@msgpack/msgpack'
-import { readNativeMessagePackRoute, type NativeMessagePackRoute } from './messagepack-route-reader'
 import { getCrashLogDir, writeCrashLog } from '../crash-logger'
 import {
   WORKER_PROTOCOL_VERSION,
@@ -14,10 +11,20 @@ import {
 } from '../../shared/worker-contracts/generated/contracts'
 import {
   WORKER_HEARTBEAT_INTERVAL_MS,
-  WORKER_HEARTBEAT_TIMEOUT_MS,
-  WorkerFrameDecoder,
-  createWorkerFrame as createFrame
+  WORKER_HEARTBEAT_TIMEOUT_MS
 } from '../../shared/native-worker-protocol'
+import { WorkerHttpChannel } from '../../shared/worker-http-channel'
+import { DESKTOP_EVENT_CONSUMER_ID } from '../../shared/worker-event-consumers'
+import {
+  WORKER_RUNTIME_NO_TIMEOUT,
+  type WorkerRawEventFrame,
+  type WorkerStreamRoute,
+  type WorkerRuntimeClient,
+  type WorkerRuntimeDiagnosticsSnapshot,
+  type WorkerRuntimeStartupPhase,
+  type WorkerRuntimeState,
+  type WorkerRuntimeStateSnapshot
+} from '../../shared/worker-runtime-client'
 // Resolved lazily at spawn time (function-level cycle — safe): tells the CodeGraph
 // worker where to load its bundled, updated, or dev tree-sitter grammars from.
 import { resolveCodeGraphGrammarsDir } from './codegraph-assets'
@@ -27,10 +34,8 @@ const NATIVE_WORKER_STDERR_MAX_LINE = 2000
 
 const DEFAULT_NATIVE_WORKER_TIMEOUT_MS = 60_000
 /** Explicit request deadline opt-out. Omitted/null timeouts still use the safe default. */
-export const NATIVE_WORKER_NO_TIMEOUT = 0
+export const NATIVE_WORKER_NO_TIMEOUT = WORKER_RUNTIME_NO_TIMEOUT
 const DEFAULT_NATIVE_WORKER_SLOW_REQUEST_MS = 750
-const NATIVE_WORKER_CONNECT_TIMEOUT_MS = 10_000
-const NATIVE_WORKER_CONNECT_RETRY_MS = 35
 const NATIVE_WORKER_RESTART_BASE_MS = 300
 const NATIVE_WORKER_RESTART_MAX_MS = 30_000
 // Consecutive failed supervised restarts before the manager stops burning CPU
@@ -60,7 +65,7 @@ const REQUIRED_NATIVE_WORKER_METHODS = [
   'jobs/result',
   'jobs/cancel',
   'events/subscribe',
-  'events/ack',
+  'events/checkpoint',
   'events/replay',
   'settings/read',
   'settings/get',
@@ -71,7 +76,18 @@ const REQUIRED_NATIVE_WORKER_METHODS = [
   'souls/builtin-list',
   'sync/files-capture',
   'sync/files-apply',
-  'sync/files-delete'
+  'sync/files-delete',
+  // The agent loop. Without these a backend can satisfy every route above and
+  // still leave the app unable to answer a single message, which is a worse
+  // outcome than not being selected: the boot infrastructure looks healthy while
+  // interactive chat, cron and hosted sessions all fail on dispatch.
+  'agent/run',
+  'agent/cancel',
+  'agent/request-stop',
+  'agent/append-messages',
+  'agent/session-open',
+  'agent/session-send',
+  'agent/session-close'
 ]
 
 // Per-worker configuration. The two supervised sidecars (the eager main worker
@@ -92,11 +108,13 @@ export interface NativeWorkerConfig {
   heartbeatIntervalMs: number
   heartbeatTimeoutMs: number
   heartbeatMaxMisses: number
-  /** Creates the per-spawn IPC endpoint (unix socket path / Windows named pipe). */
-  createEndpoint: () => string
   /** Builds the child-process environment. */
   createEnv: () => NodeJS.ProcessEnv
-  /** Removes orphaned endpoint files left by previous, now-dead main processes. */
+  /**
+   * Removes socket files left behind by pre-HTTP builds of the app. The current
+   * transport creates no filesystem endpoints; this only keeps an upgraded
+   * install from accumulating dead sockets in temp.
+   */
   sweepStaleEndpoints: () => void
 }
 
@@ -109,14 +127,13 @@ const NATIVE_CONFIG: NativeWorkerConfig = {
   heartbeatIntervalMs: NATIVE_WORKER_HEARTBEAT_INTERVAL_MS,
   heartbeatTimeoutMs: NATIVE_WORKER_HEARTBEAT_TIMEOUT_MS,
   heartbeatMaxMisses: NATIVE_WORKER_HEARTBEAT_MAX_MISSES,
-  createEndpoint: createNativeWorkerEndpoint,
   createEnv: createNativeWorkerEnv,
   sweepStaleEndpoints: sweepStaleNativeWorkerEndpoints
 }
 
-// The opt-in CodeGraph sidecar: never gates boot (requiredMethods empty), runs a
-// looser heartbeat so a heavy index cannot trip a strict ping, and uses a distinct
-// endpoint prefix + sweep so it never collides with the main worker's sockets.
+// The opt-in CodeGraph sidecar: never gates boot (requiredMethods empty) and runs
+// a looser heartbeat so a heavy index cannot trip a strict ping. It binds its own
+// HTTP port, so it can never collide with the main worker.
 const CODEGRAPH_CONFIG: NativeWorkerConfig = {
   id: 'codegraph',
   resolveBinaryPath: resolveCodeGraphWorkerPath,
@@ -126,7 +143,6 @@ const CODEGRAPH_CONFIG: NativeWorkerConfig = {
   heartbeatIntervalMs: 30_000,
   heartbeatTimeoutMs: 10_000,
   heartbeatMaxMisses: 3,
-  createEndpoint: createCodeGraphWorkerEndpoint,
   createEnv: createCodeGraphWorkerEnv,
   sweepStaleEndpoints: sweepStaleCodeGraphWorkerEndpoints
 }
@@ -189,60 +205,13 @@ type NativeWorkerResponse = {
 
 type NativeWorkerHelloResult = Partial<WorkerHelloResult>
 
-export type NativeWorkerState = 'stopped' | 'starting' | 'ready' | 'restarting' | 'fatal'
-
-export type NativeWorkerStartupPhase =
-  | 'idle'
-  | 'resolving-binary'
-  | 'spawning'
-  | 'connecting-ipc'
-  | 'handshaking'
-  | 'verifying-routes'
-  | 'ready'
-  | 'restart-backoff'
-  | 'stopping'
-  | 'fatal'
-
-export type NativeWorkerStateSnapshot = {
-  id: 'native' | 'codegraph'
-  state: NativeWorkerState
-  phase: NativeWorkerStartupPhase
-  pid: number | null
-  restartAttempts: number
-  lastError: string | null
-  workerPath: string | null
-  lastStartAttemptAt: number | null
-  readyAt: number | null
-}
-
-export type NativeWorkerDiagnosticsSnapshot = NativeWorkerStateSnapshot & {
-  transport: 'named-pipe' | 'unix-domain-socket'
-  endpoint: string | null
-  eventEndpoint: string | null
-  eventConnected: boolean
-  lastFrameReceivedAt: number | null
-  lastAgentStreamAt: number | null
-  lastAgentStreamRunId: string | null
-  stderrTail: string[]
-  pendingRequests: Array<{ method: string; elapsedMs: number }>
-  lastExit: {
-    code: number | null
-    signal: NodeJS.Signals | null
-    at: number
-  } | null
-  lastDisconnect: {
-    at: number
-    error: string
-    pendingRequests: Array<{ method: string; elapsedMs: number }>
-  } | null
-  binaryCandidates: Array<{
-    path: string
-    exists: boolean
-    ready: boolean
-    missingDependencies: string[]
-  }>
-  logDirectory: string
-}
+// The state/diagnostics vocabulary now lives in the shared runtime-client
+// contract so both backends describe themselves identically. These aliases keep
+// the historical import names working for existing call sites.
+export type NativeWorkerState = WorkerRuntimeState
+export type NativeWorkerStartupPhase = WorkerRuntimeStartupPhase
+export type NativeWorkerStateSnapshot = WorkerRuntimeStateSnapshot
+export type NativeWorkerDiagnosticsSnapshot = WorkerRuntimeDiagnosticsSnapshot
 
 type NativeWorkerEventFrame = {
   event?: string
@@ -291,24 +260,50 @@ type NativeJobStatus = {
   errorCode?: string
 }
 
-export type NativeWorkerRawEventFrame = NativeMessagePackRoute & {
-  bytes: Buffer
-  byteLength: number
+export type NativeWorkerRawEventFrame = WorkerRawEventFrame
+
+/**
+ * Reads the routing metadata off a parsed worker frame.
+ *
+ * This replaced a hand-written partial MessagePack scanner whose whole purpose
+ * was reading these fields without paying for a full decode. Frames arrive parsed
+ * now, so the fields are simply there.
+ */
+function readWorkerStreamRoute(frame: unknown): WorkerStreamRoute | null {
+  if (!isRecord(frame)) return null
+  const event = frame.event
+  if (typeof event !== 'string' || !event) return null
+  return {
+    event,
+    runId: typeof frame.runId === 'string' ? frame.runId : undefined,
+    sessionId: typeof frame.sessionId === 'string' ? frame.sessionId : undefined,
+    seq: typeof frame.seq === 'number' ? frame.seq : undefined,
+    v: typeof frame.v === 'number' ? frame.v : undefined,
+    hasTerminalEvent: readHasTerminalEvent(frame),
+    live: frame.live === true
+  }
 }
 
-class NativeWorkerManager {
+/**
+ * Terminal detection used to come from the route scanner. The worker does not
+ * put a flag on the envelope, so it is derived from the events themselves.
+ */
+function readHasTerminalEvent(frame: Record<string, unknown>): boolean {
+  if (frame.hasTerminalEvent === true) return true
+  const events = frame.events
+  if (!Array.isArray(events)) return false
+  return events.some(
+    (event) => isRecord(event) && (event.type === 'loop_end' || event.type === 'error')
+  )
+}
+
+class NativeWorkerManager implements WorkerRuntimeClient {
   private child: ChildProcess | null = null
-  private socket: net.Socket | null = null
-  private eventSocket: net.Socket | null = null
-  private endpoint: string | null = null
-  private eventEndpoint: string | null = null
+  private channel: WorkerHttpChannel | null = null
   private events = new EventEmitter()
   private rawEvents = new EventEmitter()
   private pending = new Map<number, PendingRequest>()
   private replayQueue: PendingRequest[] = []
-  private frameDecoder = new WorkerFrameDecoder()
-  private eventFrameDecoder = new WorkerFrameDecoder()
-  private eventReconnectTimer: ReturnType<typeof setTimeout> | null = null
   private nextId = 1
   private startPromise: Promise<void> | null = null
   private stopping = false
@@ -344,13 +339,22 @@ class NativeWorkerManager {
       this.child !== null &&
       !this.child.killed &&
       this.child.exitCode === null &&
-      this.socket !== null &&
-      !this.socket.destroyed
+      this.channel?.endpoint != null
     )
   }
 
   get processId(): number | null {
     return this.child?.pid ?? null
+  }
+
+  /**
+   * Loopback endpoint and bearer token for the running worker, so the renderer
+   * can issue its own commands and open its own event stream rather than
+   * relaying everything through this process.
+   */
+  get connection(): { baseUrl: string; token: string } | null {
+    if (!this.isRunning) return null
+    return this.channel?.connection ?? null
   }
 
   async ensureStarted(): Promise<void> {
@@ -423,6 +427,7 @@ class NativeWorkerManager {
   getStateSnapshot(): NativeWorkerStateSnapshot {
     return {
       id: this.config.id,
+      backend: 'csharp',
       state: this.state,
       phase: this.phase,
       pid: this.processId,
@@ -438,10 +443,10 @@ class NativeWorkerManager {
     const now = Date.now()
     return {
       ...this.getStateSnapshot(),
-      transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
-      endpoint: this.endpoint,
-      eventEndpoint: this.eventEndpoint,
-      eventConnected: Boolean(this.eventSocket && !this.eventSocket.destroyed),
+      transport: 'http',
+      endpoint: this.channel?.endpoint ?? null,
+      eventEndpoint: this.channel ? `${this.channel.endpoint ?? ''}/events` : null,
+      eventConnected: this.channel?.isEventStreamConnected === true,
       lastFrameReceivedAt: this.lastFrameReceivedAt || null,
       lastAgentStreamAt: this.lastAgentStreamAt || null,
       lastAgentStreamRunId: this.lastAgentStreamRunId,
@@ -508,7 +513,7 @@ class NativeWorkerManager {
     if (signal?.aborted) {
       throw createAbortError(method)
     }
-    if (!this.socket || !this.isRunning) {
+    if (!this.isRunning) {
       throw new Error('Native worker is not running')
     }
 
@@ -663,17 +668,15 @@ class NativeWorkerManager {
   // requests and again (with a fresh id) when a queued idempotent request is
   // replayed onto the respawned worker.
   private dispatchPending(pending: PendingRequest): void {
-    const socket = this.socket
-    if (!socket || !this.isRunning) {
+    const channel = this.channel
+    if (!channel || !this.isRunning) {
       pending.reject(new Error('Native worker is not running'))
       return
     }
 
     const id = this.nextId++
-    const payload = encode({ id, method: pending.method, params: pending.params })
-    const frame = createFrame(payload)
     pending.startedAt = Date.now()
-    pending.payloadBytes = payload.byteLength
+    pending.payloadBytes = 0
 
     logNativeWorkerDebug('request start', {
       id,
@@ -717,14 +720,16 @@ class NativeWorkerManager {
 
     this.pending.set(id, pending)
 
-    try {
-      socket.write(frame, (error) => {
-        if (!error) return
-        this.rejectPendingRequest(id, error)
-      })
-    } catch (error) {
-      this.rejectPendingRequest(id, asError(error))
-    }
+    // The response arrives as a frame through the same ingress the event stream
+    // uses, so correlation stays in handleResponseFrame for every transport.
+    channel.send(id, pending.method, pending.params).then(
+      (payloadBytes) => {
+        pending.payloadBytes = payloadBytes
+      },
+      (error) => {
+        this.rejectPendingRequest(id, asError(error))
+      }
+    )
   }
 
   async stop(): Promise<void> {
@@ -756,35 +761,58 @@ class NativeWorkerManager {
     }
     this.workerPath = workerPath
 
+    // Older builds spoke a dual-socket protocol; sweeping keeps their orphaned
+    // socket files from accumulating in temp after an upgrade.
     this.config.sweepStaleEndpoints()
-    const endpoint = this.config.createEndpoint()
-    const eventEndpoint = this.config.createEndpoint()
-    cleanupNativeWorkerEndpoint(endpoint)
-    cleanupNativeWorkerEndpoint(eventEndpoint)
     const childEnv = this.config.createEnv()
     console.log('[NativeWorker] starting', {
       workerPath,
-      transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
+      transport: 'http',
       debug: isNativeWorkerDebugEnabled(),
       slowRequestMs: getNativeWorkerSlowRequestMs()
     })
 
     this.setPhase('spawning')
     const hostId = this.config.id === 'native' ? 'desktop' : 'desktop-codegraph'
-    const child = spawn(
-      workerPath,
-      ['--control-ipc', endpoint, '--event-ipc', eventEndpoint, '--host-id', hostId],
-      {
-        cwd: path.dirname(workerPath),
-        env: childEnv,
-        stdio: ['ignore', 'ignore', 'pipe'],
-        windowsHide: true
+    // Assigned immediately after spawn. The channel's guards close over this
+    // binding rather than `this.child` so a slow-dying predecessor's late event
+    // can never be mistaken for its replacement's.
+    let ownChild: ChildProcess | null = null
+    const ownsWorker = (): boolean => ownChild !== null && this.child === ownChild && !this.stopping
+    const channel = new WorkerHttpChannel({
+      // Matches the id this host subscribes and acknowledges with, so the worker
+      // routes this host's durable backlog to this host's stream.
+      consumerId: DESKTOP_EVENT_CONSUMER_ID,
+      isActive: () => ownsWorker() && this.isRunning,
+      hooks: {
+        onFrame: (frame, source, byteLength) => this.handleResponseFrame(frame, source, byteLength),
+        onControlFailure: (error) => {
+          if (ownsWorker()) this.closeWorker(error)
+        },
+        onEventDisconnected: (error) => {
+          if (!ownsWorker()) return
+          console.warn('[NativeWorker] event stream disconnected; jobs remain healthy', {
+            error: error.message
+          })
+        },
+        onEventReconnected: () => {
+          if (!ownsWorker()) return
+          console.log('[NativeWorker] event stream reconnected')
+          this.lifecycle.emit('event-reconnected')
+        }
       }
-    )
+    })
+    // stdout is piped because the worker publishes its chosen HTTP port there.
+    const child = spawn(workerPath, channel.spawnArgs(hostId), {
+      cwd: path.dirname(workerPath),
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    })
+    ownChild = child
 
     this.child = child
-    this.endpoint = endpoint
-    this.eventEndpoint = eventEndpoint
+    this.channel = channel
     this.stderrTail = []
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
@@ -838,29 +866,17 @@ class NativeWorkerManager {
 
     try {
       this.setPhase('connecting-ipc')
-      this.socket = await connectNativeWorker(endpoint, child)
-      this.socket.on('data', (chunk) => this.handleSocketData(chunk))
-      this.socket.on('error', (error) => {
-        if (!this.stopping) this.closeWorker(error)
-      })
-      this.socket.on('close', () => {
-        if (!this.stopping && this.child) {
-          this.closeWorker(new Error('Native worker IPC closed'))
-        }
-      })
-
-      this.eventSocket = await connectNativeWorker(eventEndpoint, child)
-      this.installEventSocket(this.eventSocket)
+      await channel.connect(child)
 
       this.setPhase('handshaking')
       await this.performHandshake(workerPath)
       this.setPhase('verifying-routes')
       await this.verifyRequiredMethods(workerPath)
-      console.log('[NativeWorker] IPC connected', {
+      console.log('[NativeWorker] HTTP transport connected', {
         pid: child.pid ?? null,
         workerPath,
-        transport: process.platform === 'win32' ? 'named-pipe' : 'unix-domain-socket',
-        eventTransport: 'connected'
+        endpoint: channel.endpoint,
+        eventStream: channel.isEventStreamConnected ? 'connected' : 'attaching'
       })
 
       const reconnected = this.hasStartedOnce
@@ -882,7 +898,7 @@ class NativeWorkerManager {
       writeCrashLog('native_worker_start_failed', {
         phase: this.phase,
         workerPath: this.workerPath,
-        endpoint: this.endpoint,
+        endpoint: channel.endpoint,
         error: failure,
         stderrTail: this.stderrTail.slice(-NATIVE_WORKER_STDERR_TAIL_LINES)
       })
@@ -980,96 +996,14 @@ class NativeWorkerManager {
     })
   }
 
-  private installEventSocket(socket: net.Socket): void {
-    socket.on('data', (chunk) => this.handleEventSocketData(chunk))
-    socket.on('error', (error) => {
-      if (this.eventSocket === socket && !this.stopping) this.resetEventConnection(error)
-    })
-    socket.on('close', () => {
-      if (this.eventSocket === socket && !this.stopping) {
-        this.resetEventConnection(new Error('Native worker Event IPC closed'))
-      }
-    })
-  }
-
-  private resetEventConnection(error: Error): void {
-    const socket = this.eventSocket
-    if (!socket) return
-    this.eventSocket = null
-    socket.removeAllListeners()
-    socket.destroy()
-    this.eventFrameDecoder.reset()
-    console.warn('[NativeWorker] Event IPC disconnected; jobs remain healthy', {
-      error: error.message
-    })
-    this.scheduleEventReconnect()
-  }
-
-  private scheduleEventReconnect(): void {
-    if (
-      this.eventReconnectTimer ||
-      this.stopping ||
-      !this.child ||
-      !this.eventEndpoint ||
-      !this.isRunning
-    ) {
-      return
-    }
-
-    this.eventReconnectTimer = setTimeout(() => {
-      this.eventReconnectTimer = null
-      void this.reconnectEventSocket()
-    }, 250)
-    this.eventReconnectTimer.unref?.()
-  }
-
-  private async reconnectEventSocket(): Promise<void> {
-    const child = this.child
-    const endpoint = this.eventEndpoint
-    if (!child || !endpoint || this.stopping || !this.isRunning || this.eventSocket) return
-
-    try {
-      const socket = await connectNativeWorker(endpoint, child)
-      if (this.child !== child || this.stopping || !this.isRunning) {
-        socket.destroy()
-        return
-      }
-      this.eventSocket = socket
-      this.installEventSocket(socket)
-      console.log('[NativeWorker] Event IPC reconnected')
-      this.lifecycle.emit('event-reconnected')
-    } catch (error) {
-      if (this.child === child && !this.stopping && this.isRunning) {
-        console.warn('[NativeWorker] Event IPC reconnect failed', {
-          error: asError(error).message
-        })
-        this.scheduleEventReconnect()
-      }
-    }
-  }
-
-  private handleSocketData(chunk: Buffer): void {
-    try {
-      this.frameDecoder.push(chunk, (payload) => this.handleResponseFrame(payload, 'control'))
-    } catch (error) {
-      this.closeWorker(asError(error))
-    }
-  }
-
-  private handleEventSocketData(chunk: Buffer): void {
-    try {
-      this.eventFrameDecoder.push(chunk, (payload) => this.handleResponseFrame(payload, 'event'))
-    } catch (error) {
-      this.resetEventConnection(
-        new Error(`Native worker Event IPC framing error: ${asError(error).message}`)
-      )
-    }
-  }
-
-  private handleResponseFrame(payload: Buffer, source: 'control' | 'event'): void {
+  private handleResponseFrame(
+    frame: unknown,
+    source: 'control' | 'event',
+    byteLength: number
+  ): void {
     if (source === 'control') this.lastFrameReceivedAt = Date.now()
     const routeStartedAt = performance.now()
-    const route = readNativeMessagePackRoute(payload)
+    const route = readWorkerStreamRoute(frame)
     if (
       route?.event === 'agent/stream' &&
       typeof route.runId === 'string' &&
@@ -1081,35 +1015,18 @@ class NativeWorkerManager {
         runId: route.runId,
         sessionId: route.sessionId,
         seq: route.seq,
-        bytes: payload.byteLength,
+        bytes: byteLength,
         elapsedMs: Math.round((performance.now() - routeStartedAt) * 100) / 100
       })
       this.rawEvents.emit(route.event, {
         ...route,
-        bytes: Buffer.from(payload),
-        byteLength: payload.byteLength
+        envelope: frame,
+        byteLength
       } satisfies NativeWorkerRawEventFrame)
       return
     }
 
-    const decodeStartedAt = performance.now()
-    let decoded: unknown
-    try {
-      decoded = decode(payload)
-    } catch (error) {
-      console.warn(
-        `[NativeWorker] invalid MessagePack response: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      )
-      return
-    }
-    logMessagePackTrace('decoded frame', {
-      bytes: payload.byteLength,
-      elapsedMs: Math.round((performance.now() - decodeStartedAt) * 100) / 100,
-      rawRoute: route?.event === 'agent/stream'
-    })
-
+    const decoded = frame
     if (!isRecord(decoded)) return
     const eventFrame = decoded as NativeWorkerEventFrame
     if (typeof eventFrame.event === 'string' && eventFrame.event) {
@@ -1133,7 +1050,7 @@ class NativeWorkerManager {
         method: pending.method,
         elapsedMs,
         payloadBytes: pending.payloadBytes,
-        responseBytes: payload.byteLength,
+        responseBytes: byteLength,
         pending: this.pending.size,
         error: response.error
       })
@@ -1144,7 +1061,7 @@ class NativeWorkerManager {
         method: pending.method,
         elapsedMs,
         payloadBytes: pending.payloadBytes,
-        responseBytes: payload.byteLength,
+        responseBytes: byteLength,
         pending: this.pending.size
       })
       pending.resolve(response.result)
@@ -1171,11 +1088,8 @@ class NativeWorkerManager {
   private closeWorker(error: Error): void {
     this.stopHeartbeat()
     const child = this.child
-    const socket = this.socket
-    const eventSocket = this.eventSocket
-    const endpoint = this.endpoint
-    const eventEndpoint = this.eventEndpoint
-    const hadWorkerActivity = Boolean(child || socket || this.pending.size > 0)
+    const channel = this.channel
+    const hadWorkerActivity = Boolean(child || channel || this.pending.size > 0)
 
     if (!this.stopping && hadWorkerActivity) {
       const disconnectedAt = Date.now()
@@ -1190,13 +1104,9 @@ class NativeWorkerManager {
     }
 
     this.child = null
-    this.socket = null
-    this.eventSocket = null
-    this.endpoint = null
-    this.eventEndpoint = null
-    this.frameDecoder.reset()
+    this.channel = null
 
-    if (child || socket || this.pending.size > 0) {
+    if (child || channel || this.pending.size > 0) {
       const level = this.stopping ? console.log : console.warn
       level('[NativeWorker] closing', {
         pid: child?.pid ?? null,
@@ -1205,15 +1115,7 @@ class NativeWorkerManager {
       })
     }
 
-    socket?.removeAllListeners()
-    socket?.destroy()
-    eventSocket?.removeAllListeners()
-    eventSocket?.destroy()
-    if (this.eventReconnectTimer) {
-      clearTimeout(this.eventReconnectTimer)
-      this.eventReconnectTimer = null
-    }
-    this.eventFrameDecoder.reset()
+    channel?.dispose()
     if (child && !child.killed && child.exitCode === null) {
       child.kill()
       // SIGTERM is advisory: a worker wedged in native code (the usual reason a
@@ -1232,12 +1134,6 @@ class NativeWorkerManager {
       }, NATIVE_WORKER_KILL_ESCALATION_MS)
       killTimer.unref?.()
       child.once('exit', () => clearTimeout(killTimer))
-    }
-    if (endpoint) {
-      cleanupNativeWorkerEndpoint(endpoint)
-    }
-    if (eventEndpoint) {
-      cleanupNativeWorkerEndpoint(eventEndpoint)
     }
 
     for (const pending of this.pending.values()) {
@@ -1464,31 +1360,15 @@ class NativeWorkerManager {
   }
 
   private sendCancelRequest(requestId: number): void {
-    const socket = this.socket
-    if (!socket || socket.destroyed || !this.isRunning) return
-
-    try {
-      const payload = encode({ method: 'worker/cancel', params: { requestId } })
-      socket.write(createFrame(payload), (error) => {
-        if (error) {
-          logNativeWorkerDebug('cancel frame write failed', {
-            requestId,
-            message: error.message
-          })
-        }
-      })
-    } catch (error) {
-      logNativeWorkerDebug('cancel frame encode failed', {
-        requestId,
-        message: asError(error).message
-      })
-    }
+    if (!this.channel || !this.isRunning) return
+    this.channel.cancel(requestId)
   }
 }
 
-let nativeWorker: NativeWorkerManager | null = null
+let nativeWorker: WorkerRuntimeClient | null = null
 
-export function getNativeWorker(): NativeWorkerManager {
+/** The main agent-runtime slot, always served by the .NET Native Worker. */
+export function getNativeWorker(): WorkerRuntimeClient {
   nativeWorker ??= new NativeWorkerManager(NATIVE_CONFIG)
   return nativeWorker
 }
@@ -1501,9 +1381,14 @@ export async function stopNativeWorker(): Promise<void> {
 // this getter constructs the manager, yet nothing calls ensureStarted() at boot.
 // The first `codegraph/*` request (routed only when the feature is enabled) is
 // what spawns the process; disabling the feature calls stopCodeGraphWorker().
-let codeGraphWorker: NativeWorkerManager | null = null
+//
+// This slot is always the .NET binary: the CodeGraph engine is ~60k lines of
+// tree-sitter interop that the Node runtime does not reimplement. Both backends
+// reach it the same way, through the `codegraph/` prefix router in
+// sidecar-manager.ts and the `codegraph_*` reverse-request bridge.
+let codeGraphWorker: WorkerRuntimeClient | null = null
 
-export function getCodeGraphWorker(): NativeWorkerManager {
+export function getCodeGraphWorker(): WorkerRuntimeClient {
   codeGraphWorker ??= new NativeWorkerManager(CODEGRAPH_CONFIG)
   return codeGraphWorker
 }
@@ -1554,74 +1439,6 @@ function createProtocolMismatchError(detail: string): Error {
   return error
 }
 
-async function connectNativeWorker(endpoint: string, child: ChildProcess): Promise<net.Socket> {
-  const deadline = Date.now() + NATIVE_WORKER_CONNECT_TIMEOUT_MS
-  let lastError: Error | null = null
-
-  while (Date.now() < deadline) {
-    if (child.exitCode !== null) {
-      throw new Error(`Native worker exited before IPC connection: code=${child.exitCode}`)
-    }
-
-    try {
-      return await connectOnce(endpoint)
-    } catch (error) {
-      lastError = asError(error)
-      await delay(NATIVE_WORKER_CONNECT_RETRY_MS)
-    }
-  }
-
-  throw new Error(
-    `Native worker IPC connection timed out: ${lastError ? lastError.message : endpoint}`
-  )
-}
-
-function connectOnce(endpoint: string): Promise<net.Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = net.createConnection(endpoint)
-    const timer = setTimeout(() => {
-      socket.destroy()
-      reject(new Error(`Native worker IPC connect timeout: ${endpoint}`))
-    }, 1_000)
-
-    const cleanup = (): void => {
-      clearTimeout(timer)
-      socket.off('connect', onConnect)
-      socket.off('error', onError)
-    }
-    const onConnect = (): void => {
-      cleanup()
-      resolve(socket)
-    }
-    const onError = (error: Error): void => {
-      cleanup()
-      socket.destroy()
-      reject(error)
-    }
-
-    socket.once('connect', onConnect)
-    socket.once('error', onError)
-  })
-}
-
-function createNativeWorkerEndpoint(): string {
-  const id = `${process.pid}-${Date.now().toString(36)}-${randomUUID()}`
-  if (process.platform === 'win32') {
-    return `\\\\.\\pipe\\open-cowork-native-${id}`
-  }
-
-  return path.join('/tmp', `open-cowork-native-${id}.sock`)
-}
-
-function cleanupNativeWorkerEndpoint(endpoint: string): void {
-  if (process.platform === 'win32') return
-  try {
-    fs.rmSync(endpoint, { force: true })
-  } catch {
-    // The worker also removes the Unix socket path on orderly shutdown.
-  }
-}
-
 let staleEndpointSweepDone = false
 
 // Endpoint filenames embed the owning Electron main PID. A hard-killed main
@@ -1663,10 +1480,6 @@ function isProcessAlive(pid: number): boolean {
     // EPERM means the pid exists but belongs to another user.
     return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function createNativeWorkerEnv(): NodeJS.ProcessEnv {
@@ -2000,15 +1813,6 @@ function findNewestCodeGraphWorkerCandidate(candidates: string[]): string | null
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
 
   return ready[0]?.candidate ?? null
-}
-
-function createCodeGraphWorkerEndpoint(): string {
-  const id = `${process.pid}-${Date.now().toString(36)}-${randomUUID()}`
-  if (process.platform === 'win32') {
-    return `\\\\.\\pipe\\open-cowork-codegraph-${id}`
-  }
-
-  return path.join('/tmp', `open-cowork-codegraph-${id}.sock`)
 }
 
 function createCodeGraphWorkerEnv(): NodeJS.ProcessEnv {

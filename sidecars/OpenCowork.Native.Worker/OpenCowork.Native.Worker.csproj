@@ -21,6 +21,13 @@
     <EventSourceSupport>false</EventSourceSupport>
     <MetricsSupport>false</MetricsSupport>
   </PropertyGroup>
+  <!-- Kestrel + Minimal APIs serve the worker's HTTP transport. Every endpoint takes
+       HttpContext and writes bytes itself, so no parameter binding or reflective JSON
+       is involved and the request-delegate generator has nothing to do — which is what
+       keeps this AOT-safe under JsonSerializerIsReflectionEnabledByDefault=false. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
   <!-- Shared worker runtime + transport + host, SOURCE-LINKED from the CodeGraph
        submodule (sidecars/codegraph, github.com/AIDotNet/CodeGraph). The single
        source of truth for the IPC/dispatch/host contract lives THERE, in

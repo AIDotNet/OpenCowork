@@ -2,7 +2,7 @@ import * as React from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, MonitorSmartphone, Terminal } from 'lucide-react'
+import { Loader2, MonitorSmartphone, PanelRight, Plus, Terminal } from 'lucide-react'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { useUIStore, type RightPanelTabInstance } from '@renderer/stores/ui-store'
@@ -13,6 +13,7 @@ import { useSshStore } from '@renderer/stores/ssh-store'
 import { useTerminalStore } from '@renderer/stores/terminal-store'
 import { BROWSER_PLUGIN_ID } from '@renderer/lib/app-plugin/types'
 import { cn } from '@renderer/lib/utils'
+import { AuxiliaryDrawerHost } from '@renderer/components/workbench/AuxiliaryDrawerHost'
 import { RightPanelHeader } from './RightPanelHeader'
 import { BrowserPanel } from './BrowserPanel'
 import { PreviewPanel } from './PreviewPanel'
@@ -122,6 +123,11 @@ function ProjectTerminalTabContent({
   onMoveToBottom: () => void
 }): React.JSX.Element {
   const { t } = useTranslation('layout')
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const localTabs = useTerminalStore((state) => state.tabs)
+  const sshOpenTabs = useSshStore((state) => state.openTabs)
+  const ensureProjectTerminal = useUIStore((state) => state.ensureProjectTerminalRightPanelTab)
+
   const localTab = useTerminalStore((state) =>
     tab.terminalSource === 'local' && tab.localTabId
       ? (state.tabs.find((item) => item.id === tab.localTabId) ?? null)
@@ -136,85 +142,197 @@ function ProjectTerminalTabContent({
     sshTab?.sessionId ? (state.sessions[sshTab.sessionId] ?? null) : null
   )
 
-  if (tab.terminalSource === 'local') {
-    if (!localTab) {
-      return (
-        <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-          <Terminal className="mb-3 size-8 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">{t('detailPanel.terminalNotFound')}</p>
-        </div>
-      )
+  const handleCreateNewTerminal = async (): Promise<void> => {
+    const newTabId = await useTerminalStore
+      .getState()
+      .createTab(undefined, undefined, undefined, tab.projectId ?? undefined)
+    if (newTabId) {
+      ensureProjectTerminal({
+        terminalSource: 'local',
+        localTabId: newTabId,
+        title: 'Terminal',
+        projectId: tab.projectId
+      })
     }
+  }
 
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2 text-xs">
-          <div className="min-w-0">
-            <div className="truncate font-medium">{localTab.title}</div>
-            <div className="truncate text-[11px] text-muted-foreground">
-              {localTab.cwd || localTab.shell || '-'}
-            </div>
-          </div>
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onMoveToBottom}>
+  const handleSelectLocalTerminal = (targetLocalTabId: string, title: string): void => {
+    ensureProjectTerminal({
+      terminalSource: 'local',
+      localTabId: targetLocalTabId,
+      title,
+      projectId: tab.projectId
+    })
+  }
+
+  const handleSelectSshTerminal = (targetSshTabId: string, title: string): void => {
+    ensureProjectTerminal({
+      terminalSource: 'ssh',
+      sshTabId: targetSshTabId,
+      title,
+      projectId: tab.projectId
+    })
+  }
+
+  const activeTitle =
+    tab.terminalSource === 'local'
+      ? localTab?.title || 'Terminal'
+      : sshTab?.title || sshTab?.connectionName || 'SSH Terminal'
+  const activeSubtitle =
+    tab.terminalSource === 'local'
+      ? localTab?.cwd || localTab?.shell || '-'
+      : sshTab?.connectionName || '-'
+
+  const totalTerminals = localTabs.length + sshOpenTabs.length
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      {/* Tier 2 Context Sub-Header */}
+      <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/50 bg-background/80 px-3 text-xs backdrop-blur-sm">
+        <div className="flex min-w-0 items-center gap-2">
+          <Terminal className="size-3.5 text-emerald-400" />
+          <span className="truncate font-medium text-foreground">{activeTitle}</span>
+          <span className="hidden truncate text-[11px] text-muted-foreground sm:inline">
+            {activeSubtitle}
+          </span>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={onMoveToBottom}
+          >
             {t('terminalDock.moveToBottomDock')}
           </Button>
+
+          <Button
+            variant={drawerOpen ? 'secondary' : 'ghost'}
+            size="icon"
+            className="size-6 rounded text-muted-foreground hover:text-foreground"
+            onClick={() => setDrawerOpen((prev) => !prev)}
+            title="Toggle Terminals List"
+          >
+            <PanelRight className="size-3.5" />
+          </Button>
         </div>
+      </div>
+
+      {/* Main Terminal View & Auxiliary Drawer */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-h-0 flex-1 overflow-hidden">
-          {localTab.status === 'running' ? (
+          {tab.terminalSource === 'local' ? (
+            !localTab ? (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                <Terminal className="mb-3 size-8 text-muted-foreground/40" />
+                <p className="text-sm text-muted-foreground">{t('detailPanel.terminalNotFound')}</p>
+              </div>
+            ) : localTab.status === 'running' ? (
+              <React.Suspense fallback={null}>
+                <LocalTerminal terminalId={localTab.id} />
+              </React.Suspense>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Terminal className="size-8 text-muted-foreground/40" />
+                <div>
+                  {localTab.status === 'error'
+                    ? t('terminalDock.terminalExitedWithError')
+                    : t('terminalDock.terminalExited')}
+                </div>
+                {localTab.exitCode !== undefined ? (
+                  <div>{t('terminalDock.exitCode', { code: localTab.exitCode })}</div>
+                ) : null}
+              </div>
+            )
+          ) : !sshTab ? (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <MonitorSmartphone className="mb-3 size-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">{t('detailPanel.terminalNotFound')}</p>
+            </div>
+          ) : sshTab.sessionId && sshSession?.status === 'connected' ? (
             <React.Suspense fallback={null}>
-              <LocalTerminal terminalId={localTab.id} />
+              <SshTerminal sessionId={sshTab.sessionId} connectionName={sshTab.connectionName} />
             </React.Suspense>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-              <Terminal className="size-8 text-muted-foreground/40" />
+              <Loader2 className={cn('size-4', sshTab.sessionId ? '' : 'animate-spin')} />
               <div>
-                {localTab.status === 'error'
-                  ? t('terminalDock.terminalExitedWithError')
-                  : t('terminalDock.terminalExited')}
+                {sshTab.sessionId ? t('terminalDock.terminalExited') : t('terminalDock.connecting')}
               </div>
-              {localTab.exitCode !== undefined ? (
-                <div>{t('terminalDock.exitCode', { code: localTab.exitCode })}</div>
-              ) : null}
             </div>
           )}
         </div>
-      </div>
-    )
-  }
 
-  if (!sshTab) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-        <MonitorSmartphone className="mb-3 size-8 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">{t('detailPanel.terminalNotFound')}</p>
-      </div>
-    )
-  }
+        <AuxiliaryDrawerHost
+          open={drawerOpen}
+          title={`${totalTerminals} Terminal${totalTerminals > 1 ? 's' : ''}`}
+          width={200}
+          onClose={() => setDrawerOpen(false)}
+          actions={
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-5 rounded p-0 text-muted-foreground hover:text-foreground"
+              onClick={handleCreateNewTerminal}
+              title="New Terminal"
+            >
+              <Plus className="size-3" />
+            </Button>
+          }
+        >
+          <div className="space-y-0.5 p-1.5">
+            {localTabs.map((lTab) => {
+              const isSelected = tab.terminalSource === 'local' && tab.localTabId === lTab.id
+              const isRunning = lTab.status === 'running'
+              return (
+                <div
+                  key={lTab.id}
+                  onClick={() => handleSelectLocalTerminal(lTab.id, lTab.title)}
+                  className={cn(
+                    'group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors',
+                    isSelected
+                      ? 'bg-primary/10 font-medium text-primary'
+                      : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        'size-1.5 shrink-0 rounded-full',
+                        isRunning ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                      )}
+                    />
+                    <span className="truncate">{lTab.title}</span>
+                  </div>
+                </div>
+              )
+            })}
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b px-3 py-2 text-xs">
-        <div className="min-w-0">
-          <div className="truncate font-medium">{sshTab.title || sshTab.connectionName}</div>
-          <div className="truncate text-[11px] text-muted-foreground">{sshTab.connectionName}</div>
-        </div>
-        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onMoveToBottom}>
-          {t('terminalDock.moveToBottomDock')}
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {sshTab.sessionId && sshSession?.status === 'connected' ? (
-          <React.Suspense fallback={null}>
-            <SshTerminal sessionId={sshTab.sessionId} connectionName={sshTab.connectionName} />
-          </React.Suspense>
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className={cn('size-4', sshTab.sessionId ? '' : 'animate-spin')} />
-            <div>
-              {sshTab.sessionId ? t('terminalDock.terminalExited') : t('terminalDock.connecting')}
-            </div>
+            {sshOpenTabs.map((sTab) => {
+              const isSelected = tab.terminalSource === 'ssh' && tab.sshTabId === sTab.id
+              return (
+                <div
+                  key={sTab.id}
+                  onClick={() =>
+                    handleSelectSshTerminal(sTab.id, sTab.title || sTab.connectionName)
+                  }
+                  className={cn(
+                    'group flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-xs transition-colors',
+                    isSelected
+                      ? 'bg-primary/10 font-medium text-primary'
+                      : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <MonitorSmartphone className="size-3 text-sky-400" />
+                    <span className="truncate">{sTab.title || sTab.connectionName}</span>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        )}
+        </AuxiliaryDrawerHost>
       </div>
     </div>
   )
@@ -376,9 +494,25 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
     }
   }
 
+  const closeProjectTerminalSession = (tab: RightPanelTabInstance | undefined): void => {
+    if (tab?.kind !== 'terminal' || !tab.terminalSource) return
+    if (tab.terminalSource === 'local' && tab.localTabId) {
+      void useTerminalStore.getState().closeTab(tab.localTabId)
+      return
+    }
+    if (tab.terminalSource === 'ssh' && tab.sshTabId) {
+      const sshTab = useSshStore.getState().openTabs.find((item) => item.id === tab.sshTabId)
+      if (sshTab?.sessionId) {
+        void useSshStore.getState().disconnect(sshTab.sessionId)
+      } else {
+        useSshStore.getState().closeTab(tab.sshTabId)
+      }
+    }
+  }
+
   const handleCloseRightPanelTab = (tabId: string): void => {
     const tab = rightPanelTabs.find((item) => item.id === tabId)
-    restoreProjectTerminalToBottom(tab)
+    closeProjectTerminalSession(tab)
     closeRightPanelTab(tabId)
   }
 

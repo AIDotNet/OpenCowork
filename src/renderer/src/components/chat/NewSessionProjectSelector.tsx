@@ -3,7 +3,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  FolderOpen,
   FolderPlus,
   Monitor,
   Search,
@@ -15,10 +14,11 @@ import { Input } from '@renderer/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { cn } from '@renderer/lib/utils'
 import type { Project } from '@renderer/stores/chat-store'
+import { ProjectIcon } from './ProjectIcon'
 
 export type NewSessionProjectOption = Pick<
   Project,
-  'id' | 'name' | 'pluginId' | 'workingFolder' | 'sshConnectionId'
+  'id' | 'name' | 'icon' | 'pluginId' | 'workingFolder' | 'sshConnectionId'
 >
 
 interface NewSessionProjectSelectorProps {
@@ -57,7 +57,6 @@ export function NewSessionProjectSelector({
       ? t('input.sshMode', { defaultValue: 'SSH mode' })
       : t('input.localMode', { defaultValue: 'Local mode' })
     : t('input.globalSession', { defaultValue: 'Global session' })
-  const SelectedProjectIcon = selectedProject?.sshConnectionId ? Server : FolderOpen
 
   const selectProject = React.useCallback(
     (projectId: string | null): void => {
@@ -88,7 +87,12 @@ export function NewSessionProjectSelector({
             className="inline-flex h-7 max-w-[220px] min-w-0 items-center gap-1.5 rounded-full bg-background/55 px-2.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
             aria-label={t('input.selectProject', { defaultValue: 'Select project' })}
           >
-            <SelectedProjectIcon className="size-3.5 shrink-0" />
+            <ProjectIcon
+              icon={selectedProject?.icon}
+              sshConnectionId={selectedProject?.sshConnectionId}
+              expanded
+              className="size-3.5"
+            />
             <span className="min-w-0 truncate">{projectLabel}</span>
             <ChevronDown className="size-3 shrink-0 opacity-70" />
           </button>
@@ -127,11 +131,12 @@ export function NewSessionProjectSelector({
                     onClick={() => selectProject(project.id)}
                     title={project.workingFolder ?? project.name}
                   >
-                    {project.sshConnectionId ? (
-                      <Server className="size-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-                    )}
+                    <ProjectIcon
+                      icon={project.icon}
+                      sshConnectionId={project.sshConnectionId}
+                      expanded
+                      className="size-3.5 text-muted-foreground"
+                    />
                     <span className="min-w-0 flex-1 truncate">{project.name}</span>
                     {selected ? <Check className="size-3.5 shrink-0" /> : null}
                   </button>

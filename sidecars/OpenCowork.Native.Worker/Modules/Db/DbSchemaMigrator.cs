@@ -540,6 +540,7 @@ internal static class DbSchemaMigrator
             CREATE TABLE IF NOT EXISTS projects (
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
+              icon TEXT,
               working_folder TEXT,
               ssh_connection_id TEXT,
               plugin_id TEXT,
@@ -909,6 +910,7 @@ internal static class DbSchemaMigrator
         EnsureColumn(connection, "draw_runs", "mode", "TEXT NOT NULL DEFAULT 'image'");
         EnsureColumn(connection, "draw_runs", "meta_json", "TEXT");
         EnsureColumn(connection, "projects", "pinned", "INTEGER DEFAULT 0");
+        EnsureColumn(connection, "projects", "icon", "TEXT");
 
         EnsureColumn(connection, "cron_jobs", "plugin_id", "TEXT");
         EnsureColumn(connection, "cron_jobs", "plugin_chat_id", "TEXT");

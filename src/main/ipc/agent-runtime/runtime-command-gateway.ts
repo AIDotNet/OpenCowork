@@ -50,11 +50,6 @@ export type RuntimeCommandGatewayDeps = {
   activeRuns: Map<string, TrackedRun>
   recoverPump: (runId?: string) => Promise<{ published: number; jobState: string | null }>
   flushStreamBatches: () => void
-  sendAgentStreamBytes: (
-    targetWindow: BrowserWindow,
-    bytes: Uint8Array | Buffer,
-    details: Record<string, unknown>
-  ) => boolean
 }
 
 function registerMessagePackInvokeHandler<TArgs>(
@@ -459,28 +454,15 @@ export function registerRuntimeCommandGateway(deps: RuntimeCommandGatewayDeps): 
       ? await deps.recoverPump(runId)
       : { published: 0, jobState: null as string | null }
 
-    deps.flushStreamBatches()
-
-    let journalFrames = 0
-    if (runId && isUsableRendererWindow(sourceWindow)) {
-      const frames = getRuntimeRegistry().getFramesSince(runId, -1)
-      journalFrames = frames.length
-      for (const bytes of frames) {
-        deps.sendAgentStreamBytes(sourceWindow, bytes, {
-          source: 'recover-stream-journal',
-          runId,
-          frames: frames.length
-        })
-      }
-    }
-
+    // No frame replay from this process any more. The window subscribes to the
+    // worker's durable outbox itself, so recovery is unsticking the pump here and
+    // letting the window resume from its own cursor.
     const tracked = runId ? deps.activeRuns.get(runId) : undefined
     return {
       recovered: true,
       runId: runId ?? null,
       published: recovery.published,
       jobState: recovery.jobState ?? tracked?.jobState ?? null,
-      journalFrames,
       lastEventAt: tracked?.lastEventAt ?? null,
       acceptedAt: tracked?.acceptedAt ?? null
     }
@@ -500,40 +482,25 @@ export function registerRuntimeCommandGateway(deps: RuntimeCommandGatewayDeps): 
     if (!runId) {
       return { attached: false, frames: 0 }
     }
-    const sinceSeq = typeof record.sinceSeq === 'number' ? record.sinceSeq : -1
-
     const sourceWindow = BrowserWindow.fromWebContents(event.sender)
     if (!isUsableRendererWindow(sourceWindow)) {
       return { attached: false, frames: 0 }
     }
 
     deps.windows.attachObserver(runId, sourceWindow.id)
-    deps.flushStreamBatches()
 
-    const frames = getRuntimeRegistry().getFramesSince(runId, sinceSeq)
-    for (const bytes of frames) {
-      deps.sendAgentStreamBytes(sourceWindow, bytes, { source: 'journal-replay', runId })
-    }
-
+    // Frames are not replayed from this process. The window resumes the run from
+    // the worker's durable outbox using its own cursor; attaching here only routes
+    // reverse requests and re-posts approvals that are still outstanding.
     const sessionId = readNonEmptyString(record.sessionId)
     const repostedApprovals = deps.uiCapabilities.repostApprovals(sourceWindow, runId, sessionId)
 
-    return { attached: true, frames: frames.length, repostedApprovals }
+    return { attached: true, frames: 0, repostedApprovals }
   })
 
-  registerMessagePackInvokeHandler<unknown>('agent:request-stop', async (_event, params) => {
-    if (!deps.isRunning()) {
-      return { stopped: false }
-    }
-    return await deps.request('agent/request-stop', params, 10_000)
-  })
-
-  registerMessagePackInvokeHandler<unknown>('agent:append-messages', async (_event, params) => {
-    if (!deps.isRunning()) {
-      return { appended: false, count: 0 }
-    }
-    return await deps.request('agent/append-messages', params, 10_000)
-  })
+  // agent/request-stop and agent/append-messages are not relayed here: the
+  // renderer calls the worker's HTTP API directly, because this process
+  // contributed nothing to those calls beyond a liveness guard.
 
   registerMessagePackInvokeHandler<unknown>('agent:compress-context', async (event, params) => {
     const ready = await deps.ensureStarted()

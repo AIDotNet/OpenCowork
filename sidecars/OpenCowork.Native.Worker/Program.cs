@@ -33,10 +33,14 @@ internal static class Program
             // a missing grammar disables one language, never boot.
             CodeGraphNativeLibraryResolver.Install();
 
-            var endpoint = WorkerEndpoint.Parse(args);
-            RuntimeJobCoordinator.Configure(endpoint);
             Environment.SetEnvironmentVariable("OPEN_COWORK_RUNTIME_JOBS", "1");
-            await WorkerHost.CreateDefault(endpoint).RunAsync();
+
+            // HTTP is the only transport. --http-token is required: the worker binds
+            // a loopback port and publishes it on stdout, and every caller (desktop,
+            // CLI, verification harnesses) reaches it over that port.
+            var httpEndpoint = HttpWorkerEndpoint.Parse(args);
+            RuntimeJobCoordinator.Configure(httpEndpoint.HostId);
+            await HttpWorkerHost.CreateDefault(httpEndpoint).RunAsync();
             return 0;
         }
         catch (Exception ex)

@@ -1,13 +1,17 @@
 import type { NativeWorkerRawEventFrame } from '../../lib/native-worker'
+import { DESKTOP_EVENT_CONSUMER_ID } from '../../../shared/worker-event-consumers'
 import type { RuntimeEventEnvelope } from '../../../shared/runtime-contracts/generated/contracts'
 
-export const DESKTOP_EVENT_CONSUMER_ID = 'desktop'
+// Re-exported so existing importers keep resolving it from here.
+export { DESKTOP_EVENT_CONSUMER_ID }
 
 export type WorkerEventConsumerDiagnostics = {
   pendingAckCount: number
   pendingAckBytes: number
   ackedCount: number
   droppedUiFanouts: number
+  withheldBatches: number
+  forcedAcks: number
   lastAckAt: number | null
   lastError: string | null
 }
@@ -18,6 +22,17 @@ export type ConsumeFrameResult = {
   acked: boolean
   publishedUi: boolean
 }
+
+/**
+ * How many consecutive undelivered batches one run may withhold before its cursor
+ * is advanced anyway.
+ *
+ * The worker's unacknowledged window is shared across every run on this consumer,
+ * so a run whose window never comes back would otherwise hold the whole window and
+ * stall streaming for every other run. Staying well under that window keeps one
+ * abandoned run from starving the rest.
+ */
+const MAX_WITHHELD_BATCHES_PER_RUN = 8
 
 export type WorkerEventConsumerDeps = {
   recordFrame: (frame: NativeWorkerRawEventFrame) => void
@@ -40,8 +55,11 @@ export class WorkerEventConsumer {
   private pendingAckBytes = 0
   private ackedCount = 0
   private droppedUiFanouts = 0
+  private withheldBatches = 0
+  private forcedAcks = 0
   private lastAckAt: number | null = null
   private lastError: string | null = null
+  private readonly withheldByRun = new Map<string, number>()
 
   private readonly deps: WorkerEventConsumerDeps
 
@@ -55,6 +73,8 @@ export class WorkerEventConsumer {
       pendingAckBytes: this.pendingAckBytes,
       ackedCount: this.ackedCount,
       droppedUiFanouts: this.droppedUiFanouts,
+      withheldBatches: this.withheldBatches,
+      forcedAcks: this.forcedAcks,
       lastAckAt: this.lastAckAt,
       lastError: this.lastError
     }
@@ -99,22 +119,85 @@ export class WorkerEventConsumer {
       return result
     }
 
-    result.acked = this.acknowledge(frame)
     this.releasePending(byteLength)
 
     try {
       this.deps.publishPatches(envelopes)
       result.publishedUi = envelopes.length > 0
     } catch (error) {
+      // The projection patch channel is a shadow overlay today; the authoritative
+      // render path is the batched agent stream, and that is what gates the ACK.
+      // Failing here therefore costs overlay fidelity, not transcript content.
       this.droppedUiFanouts += 1
       this.lastError = error instanceof Error ? error.message : String(error)
-      console.warn('[worker-event-consumer] dropped UI patch after ACK', {
+      console.warn('[worker-event-consumer] dropped UI patch', {
         runId: frame.runId ?? null,
         error: this.lastError
       })
     }
 
+    // Deliberately not acknowledged here. The durable cursor may only advance once
+    // the frame has actually reached a renderer, which happens later when the
+    // batch this frame joined is flushed — see acknowledgeDelivered.
     return result
+  }
+
+  /**
+   * Advances the durable cursor for a batch that reached a renderer.
+   *
+   * Splitting this from {@link consumeFrame} is the point: acknowledging on receipt
+   * told the worker it could forget events the UI had not seen, which left an
+   * in-memory journal bounded at 8 MiB per run as the only way to recover them.
+   */
+  acknowledgeDelivered(runId: string, throughSeq: number): boolean {
+    if (!runId || !Number.isFinite(throughSeq) || throughSeq <= 0) return false
+    this.withheldByRun.delete(runId)
+    this.deps.ack(runId, throughSeq)
+    this.ackedCount += 1
+    this.lastAckAt = Date.now()
+    return true
+  }
+
+  /**
+   * Records a batch no renderer received.
+   *
+   * Withholding keeps the events replayable from the worker's durable outbox, but
+   * only up to {@link MAX_WITHHELD_BATCHES_PER_RUN}: the unacknowledged window is
+   * shared across runs, so a run whose renderer never returns must eventually give
+   * its slots back rather than stall streaming for everything else.
+   */
+  acknowledgeUndelivered(runId: string, throughSeq: number, reason: string): boolean {
+    if (!runId || !Number.isFinite(throughSeq) || throughSeq <= 0) return false
+
+    const withheld = (this.withheldByRun.get(runId) ?? 0) + 1
+    if (withheld <= MAX_WITHHELD_BATCHES_PER_RUN) {
+      this.withheldByRun.set(runId, withheld)
+      this.withheldBatches += 1
+      console.warn('[worker-event-consumer] withholding ACK; frames stay replayable', {
+        runId,
+        throughSeq,
+        reason,
+        withheld
+      })
+      return false
+    }
+
+    this.withheldByRun.delete(runId)
+    this.forcedAcks += 1
+    console.warn('[worker-event-consumer] forcing ACK to free the shared window', {
+      runId,
+      throughSeq,
+      reason,
+      withheld
+    })
+    this.deps.ack(runId, throughSeq)
+    this.ackedCount += 1
+    this.lastAckAt = Date.now()
+    return true
+  }
+
+  forgetRun(runId: string): void {
+    this.withheldByRun.delete(runId)
   }
 
   async recoverPump(runId?: string): Promise<{ published: number; jobState: string | null }> {
@@ -190,16 +273,6 @@ export class WorkerEventConsumer {
       published += recovered.published
     }
     return published
-  }
-
-  private acknowledge(frame: NativeWorkerRawEventFrame): boolean {
-    const runId = typeof frame.runId === 'string' ? frame.runId : ''
-    const throughSeq = typeof frame.seq === 'number' ? frame.seq : 0
-    if (!runId || !Number.isFinite(throughSeq) || throughSeq <= 0) return false
-    this.deps.ack(runId, throughSeq)
-    this.ackedCount += 1
-    this.lastAckAt = Date.now()
-    return true
   }
 
   private releasePending(byteLength: number): void {

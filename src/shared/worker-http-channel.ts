@@ -1,0 +1,520 @@
+import type { ChildProcess } from 'child_process'
+import { randomBytes } from 'crypto'
+
+/**
+ * HTTP transport channel for the Native Worker, shared by every host process
+ * (Electron main and the standalone CLI).
+ *
+ * Replaces the length-prefixed MessagePack dual-socket protocol with four loopback
+ * endpoints served by the worker's Kestrel host: `POST /rpc`, `POST /cancel`,
+ * `GET /events` (SSE) and `GET /health`.
+ *
+ * This module owns only the wire: port discovery, the two request verbs, and the
+ * event stream with its reconnect. Supervision (spawn, restart, heartbeat, job
+ * indirection, idempotent replay) stays with each host's client.
+ *
+ * The CLI package cannot import outside its tsconfig rootDir, so this file is
+ * vendored into cli/src/vendor/ by cli/scripts/sync-shared.mjs. Edit this copy,
+ * then re-run the sync (it also runs automatically before CLI typecheck/build).
+ *
+ * Node-only module (uses Buffer); do not import from renderer code.
+ *
+ * ## Why frames come back out as MessagePack
+ *
+ * The worker answers JSON, but everything above this channel — the run-frame
+ * journal, the partial route reader, the renderer's stream decoder — is written
+ * against MessagePack frames, and the journal replays them byte-for-byte to
+ * Frames are handed up already parsed. They used to be re-encoded as MessagePack
+ * here, because the host journalled those bytes and replayed them verbatim to
+ * late-attaching windows. That journal is gone — windows subscribe to the worker's
+ * durable outbox themselves — so the JSON the worker sent is the JSON callers get,
+ * with no round trip through a second encoding.
+ */
+
+/** Line the worker prints on stdout once Kestrel has bound a port. */
+const READY_LINE_PREFIX = '__OPEN_COWORK_WORKER_HTTP__'
+const READY_TIMEOUT_MS = 30_000
+const EVENT_RECONNECT_DELAY_MS = 250
+/** SSE is quiet between runs; the worker sends `:keepalive` every 15s. */
+const EVENT_IDLE_TIMEOUT_MS = 45_000
+
+export interface WorkerHttpChannelHooks {
+  /**
+   * One worker frame, already parsed. `byteLength` is the encoded size on the
+   * wire, which callers report in diagnostics.
+   */
+  onFrame: (frame: unknown, source: 'control' | 'event', byteLength: number) => void
+  /** The worker is unusable; the supervisor should tear it down. */
+  onControlFailure: (error: Error) => void
+  /** The event stream dropped. Requests still work; the channel retries. */
+  onEventDisconnected: (error: Error) => void
+  onEventReconnected: () => void
+}
+
+export interface WorkerHttpChannelOptions {
+  hooks: WorkerHttpChannelHooks
+  /** Guards reconnect attempts against a worker the supervisor is retiring. */
+  isActive: () => boolean
+  /**
+   * Durable event consumer this channel subscribes as. The worker keeps a separate
+   * cursor and unacknowledged window per consumer, so two clients of one worker
+   * must not share an id or one of them would see the other's acknowledgements
+   * discard frames it never received.
+   */
+  consumerId: string
+}
+
+interface WorkerReadyLine {
+  port: number
+  pid: number
+  protocolVersion: number
+}
+
+/**
+ * The worker's two SSE lanes. `/events` carries droppable streamed output whose
+ * durable outbox is authoritative; `/reverse` carries reverse RPC the host must
+ * answer, on its own connection so a stalled output consumer cannot block it.
+ */
+const STREAM_PATHS = ['/events', '/reverse'] as const
+type StreamPath = (typeof STREAM_PATHS)[number]
+
+const STREAM_ATTACH_TIMEOUT_MS = 10_000
+
+function withTimeout(promise: Promise<void>, timeoutMs: number, message: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    timer.unref?.()
+    promise.then(
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      }
+    )
+  })
+}
+
+interface StreamState {
+  connected: boolean
+  abort: AbortController | null
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  /** Resolves the first time the stream is established. */
+  ready: Promise<void>
+  markReady: () => void
+}
+
+function createStreamState(): StreamState {
+  let markReady = (): void => {}
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve
+  })
+  return { connected: false, abort: null, reconnectTimer: null, ready, markReady }
+}
+
+/** Per-spawn shared secret. The worker rejects anything else with 401. */
+export function createWorkerHttpToken(): string {
+  return randomBytes(32).toString('hex')
+}
+
+export class WorkerHttpChannel {
+  private readonly options: WorkerHttpChannelOptions
+  private baseUrl: string | null = null
+  private token: string | null = null
+  private authorization: string | null = null
+  private readonly streams = new Map<StreamPath, StreamState>()
+  private disposed = false
+  private readonly inFlight = new Set<AbortController>()
+
+  // Assigned explicitly rather than via a parameter property: the test harness
+  // loads this module with Node's strip-only TypeScript mode, which rejects them.
+  constructor(options: WorkerHttpChannelOptions) {
+    this.options = options
+  }
+
+  get endpoint(): string | null {
+    return this.baseUrl
+  }
+
+  /**
+   * Credentials for another process in this app to call the worker directly.
+   *
+   * Handing the token out is deliberate: the renderer talks to the worker over
+   * the same loopback API instead of relaying every command through the host.
+   * Null until the worker has published its port.
+   */
+  get connection(): { baseUrl: string; token: string } | null {
+    if (!this.baseUrl || !this.token) return null
+    return { baseUrl: this.baseUrl, token: this.token }
+  }
+
+  get isEventStreamConnected(): boolean {
+    return this.streams.get('/events')?.connected === true
+  }
+
+  get isReverseStreamConnected(): boolean {
+    return this.streams.get('/reverse')?.connected === true
+  }
+
+  /**
+   * CLI arguments for the spawn. Called before the child exists, so the token is
+   * minted here; the worker chooses the port and reports it back.
+   */
+  spawnArgs(hostId: string): string[] {
+    this.token = createWorkerHttpToken()
+    this.authorization = `Bearer ${this.token}`
+    return ['--http-token', this.token, '--host-id', hostId]
+  }
+
+  /**
+   * Waits for the worker's ready line, then attaches the event stream.
+   *
+   * Requires the child to be spawned with a piped stdout. The worker writes
+   * nothing else there — diagnostics go to stderr — so a single line is enough.
+   */
+  async connect(child: ChildProcess): Promise<void> {
+    const ready = await readReadyLine(child)
+    this.baseUrl = `http://127.0.0.1:${ready.port}`
+    this.disposed = false
+    // Two connections, not one: reverse RPC must keep flowing even when the
+    // consumer stops draining streamed output. Sharing a stream would silently
+    // drop the property the dual-socket protocol guaranteed by putting reverse
+    // RPC on the control socket.
+    for (const path of STREAM_PATHS) {
+      this.streams.set(path, createStreamState())
+      this.runStream(path, { announceReattach: false })
+    }
+
+    // Connecting is not done until both streams are established. The worker only
+    // starts buffering live-only events for a consumer once that consumer's stream
+    // exists, so returning early would silently drop whatever the first request
+    // produced before the stream landed.
+    await Promise.all(
+      STREAM_PATHS.map((path) =>
+        withTimeout(
+          this.streams.get(path)!.ready,
+          STREAM_ATTACH_TIMEOUT_MS,
+          `Native worker ${path} stream did not attach within ${STREAM_ATTACH_TIMEOUT_MS}ms`
+        )
+      )
+    )
+  }
+
+  /**
+   * Posts one request. Resolves when the response has been handed to `onFrame`;
+   * transport faults reject so the supervisor can fail the pending request.
+   */
+  async send(id: number, method: string, params: unknown): Promise<number> {
+    const baseUrl = this.baseUrl
+    const authorization = this.authorization
+    if (!baseUrl || !authorization) {
+      throw new Error('Native worker HTTP channel is not connected')
+    }
+
+    const body = JSON.stringify({ id, method, params })
+    const abort = new AbortController()
+    this.inFlight.add(abort)
+    try {
+      const response = await fetch(`${baseUrl}/rpc`, {
+        method: 'POST',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body,
+        signal: abort.signal
+      })
+
+      if (!response.ok) {
+        throw new Error(
+          `Native worker HTTP ${response.status} for ${method}: ${await readErrorText(response)}`
+        )
+      }
+
+      const text = await response.text()
+      this.options.hooks.onFrame(JSON.parse(text), 'control', Buffer.byteLength(text))
+      return Buffer.byteLength(body)
+    } finally {
+      this.inFlight.delete(abort)
+    }
+  }
+
+  /**
+   * Best-effort out-of-band cancel, replacing the `worker/cancel` control frame.
+   * Aborting the HTTP request alone would only drop our side of it.
+   */
+  cancel(requestId: number): void {
+    const baseUrl = this.baseUrl
+    const authorization = this.authorization
+    if (!baseUrl || !authorization) return
+
+    void fetch(`${baseUrl}/cancel`, {
+      method: 'POST',
+      headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId })
+    }).catch(() => {
+      // The worker is already gone or the request already finished; the
+      // supervisor has rejected the pending entry either way.
+    })
+  }
+
+  dispose(): void {
+    this.disposed = true
+    for (const state of this.streams.values()) {
+      state.connected = false
+      if (state.reconnectTimer) clearTimeout(state.reconnectTimer)
+      state.reconnectTimer = null
+      state.abort?.abort()
+      state.abort = null
+    }
+    this.streams.clear()
+    for (const abort of this.inFlight) abort.abort()
+    this.inFlight.clear()
+    this.baseUrl = null
+    this.token = null
+    this.authorization = null
+  }
+
+  /**
+   * Holds one SSE lane open for as long as the worker lives, reconnecting on its
+   * own. `announceReattach` is false for the initial attach because the supervisor
+   * already reports startup; only a genuine re-attach is news.
+   */
+  private runStream(path: StreamPath, { announceReattach }: { announceReattach: boolean }): void {
+    void this.pumpStream(path, announceReattach)
+  }
+
+  private async pumpStream(path: StreamPath, announceReattach: boolean): Promise<void> {
+    const baseUrl = this.baseUrl
+    const authorization = this.authorization
+    const state = this.streams.get(path)
+    if (!baseUrl || !authorization || !state || this.disposed) return
+
+    const abort = new AbortController()
+    state.abort = abort
+
+    const url =
+      path === '/events'
+        ? `${baseUrl}/events?consumerId=${encodeURIComponent(this.options.consumerId)}`
+        : `${baseUrl}${path}`
+
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: authorization, Accept: 'text/event-stream' },
+        signal: abort.signal
+      })
+      if (!response.ok || !response.body) {
+        throw new Error(`Native worker ${path} stream returned HTTP ${response.status}`)
+      }
+
+      state.connected = true
+      state.markReady()
+      if (announceReattach) this.options.hooks.onEventReconnected()
+
+      await this.readEventStream(response.body, abort)
+      throw new Error(`Native worker ${path} stream ended`)
+    } catch (error) {
+      if (this.disposed || abort.signal.aborted) return
+      state.connected = false
+      this.options.hooks.onEventDisconnected(asError(error))
+      this.scheduleStreamReconnect(path)
+    }
+  }
+
+  private async readEventStream(
+    body: ReadableStream<Uint8Array>,
+    abort: AbortController
+  ): Promise<void> {
+    const reader = body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffered = ''
+
+    try {
+      for (;;) {
+        const chunk = await readWithIdleDeadline(reader, abort)
+        if (chunk.done || chunk.value === undefined) return
+
+        buffered += decoder.decode(chunk.value, { stream: true })
+        let newlineAt = buffered.indexOf('\n')
+        while (newlineAt >= 0) {
+          const line = buffered.slice(0, newlineAt).replace(/\r$/u, '')
+          buffered = buffered.slice(newlineAt + 1)
+          this.consumeEventLine(line)
+          newlineAt = buffered.indexOf('\n')
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+    }
+  }
+
+  /**
+   * SSE framing. The worker emits one `data:` line per event and never splits an
+   * envelope across lines, so a blank-line accumulator would buy nothing;
+   * comments (`:keepalive`) and `id:` lines are liveness only.
+   */
+  private consumeEventLine(line: string): void {
+    if (!line.startsWith('data:')) return
+    const data = line.slice(5).trimStart()
+    if (!data) return
+
+    let envelope: unknown
+    try {
+      envelope = JSON.parse(data)
+    } catch (error) {
+      console.warn('[NativeWorker] unparsable event payload', { error: asError(error).message })
+      return
+    }
+
+    try {
+      this.options.hooks.onFrame(envelope, 'event', Buffer.byteLength(data))
+    } catch (error) {
+      console.warn('[NativeWorker] worker event handler threw', {
+        error: asError(error).message
+      })
+    }
+  }
+
+  private scheduleStreamReconnect(path: StreamPath): void {
+    const state = this.streams.get(path)
+    if (!state || state.reconnectTimer || this.disposed || !this.options.isActive()) return
+    state.reconnectTimer = setTimeout(() => {
+      state.reconnectTimer = null
+      if (this.disposed || !this.options.isActive()) return
+      this.runStream(path, { announceReattach: true })
+    }, EVENT_RECONNECT_DELAY_MS)
+    state.reconnectTimer.unref?.()
+  }
+}
+
+/**
+ * Reads the worker's stdout until the ready line arrives.
+ *
+ * The port is not knowable in advance: letting the worker bind an ephemeral port
+ * means a lingering previous process can never make a fresh one fail to bind.
+ */
+function readReadyLine(child: ChildProcess): Promise<WorkerReadyLine> {
+  const stdout = child.stdout
+  if (!stdout) {
+    return Promise.reject(
+      new Error('Native worker was spawned without a piped stdout; cannot discover its HTTP port')
+    )
+  }
+
+  return new Promise<WorkerReadyLine>((resolve, reject) => {
+    let buffered = ''
+    let settled = false
+
+    const finish = (error: Error | null, ready?: WorkerReadyLine): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      stdout.off('data', onData)
+      child.off('exit', onExit)
+      child.off('error', onError)
+      if (error) reject(error)
+      else resolve(ready as WorkerReadyLine)
+    }
+
+    const timer = setTimeout(() => {
+      finish(new Error('Native worker did not publish an HTTP port before the deadline'))
+    }, READY_TIMEOUT_MS)
+    timer.unref?.()
+
+    const onData = (chunk: Buffer): void => {
+      buffered += chunk.toString('utf8')
+      let newlineAt = buffered.indexOf('\n')
+      while (newlineAt >= 0) {
+        const line = buffered.slice(0, newlineAt).trim()
+        buffered = buffered.slice(newlineAt + 1)
+        if (line.startsWith(READY_LINE_PREFIX)) {
+          try {
+            finish(null, parseReadyLine(line))
+          } catch (error) {
+            finish(asError(error))
+          }
+          return
+        }
+        newlineAt = buffered.indexOf('\n')
+      }
+    }
+
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      finish(
+        new Error(
+          `Native worker exited before publishing its HTTP port: code=${code ?? 'null'} signal=${
+            signal ?? 'null'
+          }`
+        )
+      )
+    }
+    const onError = (error: Error): void => finish(error)
+
+    stdout.on('data', onData)
+    child.once('exit', onExit)
+    child.once('error', onError)
+  })
+}
+
+function parseReadyLine(line: string): WorkerReadyLine {
+  const json = line.slice(READY_LINE_PREFIX.length).trim()
+  const parsed: unknown = JSON.parse(json)
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`Malformed native worker ready line: ${line}`)
+  }
+  const record = parsed as Record<string, unknown>
+  const port = typeof record.port === 'number' ? record.port : 0
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`Native worker published an invalid HTTP port: ${String(record.port)}`)
+  }
+  return {
+    port,
+    pid: typeof record.pid === 'number' ? record.pid : 0,
+    protocolVersion: typeof record.protocolVersion === 'number' ? record.protocolVersion : 0
+  }
+}
+
+/**
+ * Reads one stream chunk under an idle deadline.
+ *
+ * A half-open socket looks identical to a quiet stream from `read()`, so without
+ * this a dead connection would never be noticed and the event stream would never
+ * reconnect. The worker's keepalive comments keep a healthy idle stream well
+ * inside the deadline.
+ */
+async function readWithIdleDeadline(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abort: AbortController
+): Promise<{ done: boolean; value?: Uint8Array }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const idle = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      abort.abort()
+      reject(
+        new Error(
+          `Native worker event stream produced nothing for ${Math.round(
+            EVENT_IDLE_TIMEOUT_MS / 1000
+          )}s`
+        )
+      )
+    }, EVENT_IDLE_TIMEOUT_MS)
+    timer.unref?.()
+  })
+
+  try {
+    return await Promise.race([reader.read(), idle])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function readErrorText(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 500)
+  } catch {
+    return ''
+  }
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
+}

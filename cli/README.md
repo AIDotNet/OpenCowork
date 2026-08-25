@@ -1,8 +1,8 @@
-﻿# @aidotnet/opencowork
+# @aidotnet/opencowork
 
-OpenCowork 的终端 UI。默认模式直接连接 `OpenCowork.Native.Worker`；模型请求、Agent loop、
-工具执行、权限策略和上下文压缩仍由 OpenCowork 原生 worker 完成。CLI 不维护第二套 Runtime
-或第二份 provider credentials。
+OpenCowork 的终端 UI。Agent loop 由 .NET Native Worker 承担，CLI 自行拉起一个 worker 进程；
+`--worker <path>` 可覆盖二进制路径。模型请求、工具执行、权限策略和上下文压缩都在 worker 里
+完成。CLI 不维护第二套 loop 或第二份 provider credentials。
 
 详细设计、Claude Code 公开资料/黑盒观察的边界以及当前完成度见
 [ARCHITECTURE.md](./ARCHITECTURE.md)。
@@ -19,7 +19,7 @@ cowork
 `opencowork` 与 `cowork` 都可启动 CLI；推荐使用较短的 `cowork`。
 
 安装包已内置各平台的 Native Worker。安装脚本会自动识别当前平台和 CPU 架构，并复制对应的
-Worker 到本地，无需在安装过程中从 GitHub Release 下载。支持 macOS 14 或更高版本
+Worker 到本地，无需在安装过程中从 GitHub Release 下载。支持 macOS 13 或更高版本
 (`osx-arm64` / `osx-x64`)、Windows (`win-arm64` / `win-x64`) 和 Linux
 (`linux-arm64` / `linux-x64`)。
 
@@ -188,8 +188,8 @@ cowork [prompt]
 
 ## 已接入的 worker 能力
 
-- Unix domain socket / Windows named pipe。
-- 4-byte big-endian length framing + MessagePack。
+- 回环 HTTP API（`POST /rpc`、`POST /cancel`、`GET /events?consumerId=…` SSE、`GET /reverse` SSE、`GET /health`）。
+- `--http-token` 鉴权；端口由 worker 选定并在 stdout 上公布。
 - `worker/hello`、`worker/routes`、`initialize` 握手与 heartbeat。
 - Agent Runtime protocol v2 与 Capability Snapshot v2 安全门。
 - `agent/run`、`agent/cancel`、`agent/reverse-response`。

@@ -8,6 +8,9 @@ internal sealed class ProjectRow
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
 
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
     [JsonPropertyName("working_folder")]
     public string? WorkingFolder { get; set; }
 

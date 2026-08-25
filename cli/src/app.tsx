@@ -371,11 +371,13 @@ export function CliApp({
     ...windowArgs,
     budgetLines: transcriptBudget
   })
-  // Classic live truncation shows a one-line hint inside the same budget; recompute so the
-  // hint cannot push the frame one row past the terminal and reintroduce flicker.
+  // Truncation shows a one-line hint inside the same budget; recompute so the hint cannot
+  // push the frame one row past the terminal and reintroduce flicker. Fullscreen scrolls,
+  // so it only annotates lines clipped from inside a message, never whole hidden messages.
   const classicNeedsTruncationHint =
     !fullscreen && firstMutableMessage >= 0 && preliminaryWindow.hiddenAbove > 0
-  const transcriptWindow = classicNeedsTruncationHint
+  const needsHint = classicNeedsTruncationHint || preliminaryWindow.clippedLines > 0
+  const transcriptWindow = needsHint
     ? computeTranscriptWindow({
         ...windowArgs,
         budgetLines: Math.max(2, transcriptBudget - 1)
@@ -385,6 +387,17 @@ export function CliApp({
   const dynamicMessages = fullscreen || firstMutableMessage >= 0 ? transcriptWindow.messages : []
   const assistantThinking = dynamicMessages.some(isActiveThinkingMessage)
   const hiddenAboveDynamic = classicNeedsTruncationHint ? transcriptWindow.hiddenAbove : 0
+  const clippedLinesDynamic = transcriptWindow.clippedLines
+  // Ink hard-clears the screen and replays its whole static buffer whenever the dynamic
+  // frame reaches stdout.rows, so the transcript gets an explicit height as soon as the
+  // window fills its budget. Below that a fixed height would only leave a blank gap, so
+  // this tracks the same condition the transcript body renders under.
+  const dynamicLines =
+    dynamicMessages.length > 0
+      ? transcriptWindow.heights.reduce((total, height) => total + height, 0) +
+        (hiddenAboveDynamic > 0 || clippedLinesDynamic > 0 ? 1 : 0)
+      : 0
+  const clampTranscript = fullscreen || (!agentPanelOpen && dynamicLines >= transcriptBudget)
 
   useEffect(() => {
     return () => {
@@ -2169,11 +2182,11 @@ export function CliApp({
         <Box
           flexDirection="column"
           flexGrow={fullscreen ? 1 : 0}
-          // Fullscreen always owns a fixed alt-screen band. Classic only clamps when the
-          // live tail was truncated; otherwise a fixed height leaves a blank gap above
-          // the prompt on short turns.
-          height={fullscreen || hiddenAboveDynamic > 0 ? transcriptBudget : undefined}
-          overflow={fullscreen || hiddenAboveDynamic > 0 ? 'hidden' : undefined}
+          // Fullscreen always owns a fixed alt-screen band. Classic clamps once the live
+          // tail fills its budget; below that a fixed height leaves a blank gap above the
+          // prompt on short turns.
+          height={clampTranscript ? transcriptBudget : undefined}
+          overflow={clampTranscript ? 'hidden' : undefined}
         >
           {agentPanelOpen ? null : !hasTranscript ? (
             <WelcomeCard
@@ -2184,11 +2197,19 @@ export function CliApp({
             />
           ) : dynamicMessages.length > 0 ? (
             <>
-              {hiddenAboveDynamic > 0 ? (
+              {clippedLinesDynamic > 0 ? (
+                <Text color={theme.dim}>
+                  {t(
+                    'cli.statuses.replyClipped',
+                    '… {{count}} earlier lines hidden · the full reply lands in scrollback when it finishes',
+                    { count: clippedLinesDynamic }
+                  )}
+                </Text>
+              ) : hiddenAboveDynamic > 0 ? (
                 <Text color={theme.dim}>
                   {t(
                     'cli.statuses.transcriptTruncated',
-                    '? {{count}} earlier live lines hidden to fit the terminal',
+                    '… {{count}} earlier live lines hidden to fit the terminal',
                     { count: hiddenAboveDynamic }
                   )}
                 </Text>

@@ -2,8 +2,8 @@ import type { BuiltinProviderPreset } from './types'
 
 export const azureOpenaiPreset: BuiltinProviderPreset = {
   builtinId: 'azure-openai',
-  // v2: GPT models default to the 272K short-context tier with an opt-in 1M window
-  version: 2,
+  // v3: add gpt-5.4-pro; GPT-5.6 context/effort aligned with Azure Foundry catalog
+  version: 3,
   name: 'Azure OpenAI',
   type: 'openai-chat',
   defaultBaseUrl: '',
@@ -307,6 +307,29 @@ export const azureOpenaiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
+      id: 'gpt-5.4-pro',
+      name: 'GPT 5.4 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 30,
+      outputPrice: 180,
+      cacheHitPrice: 30,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
       id: 'gpt-5.5',
       name: 'GPT 5.5',
       icon: 'openai',
@@ -337,7 +360,7 @@ export const azureOpenaiPreset: BuiltinProviderPreset = {
       icon: 'openai',
       enabled: true,
       serviceTier: 'priority',
-      contextLength: 400_000,
+      contextLength: 1_050_000,
       maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: false,
@@ -373,7 +396,7 @@ export const azureOpenaiPreset: BuiltinProviderPreset = {
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         defaultReasoningEffort: 'medium'
       },
       responseSummary: 'detailed',
@@ -399,7 +422,7 @@ export const azureOpenaiPreset: BuiltinProviderPreset = {
       supportsComputerUse: true,
       thinkingConfig: {
         bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         defaultReasoningEffort: 'medium'
       },
       responseSummary: 'detailed',

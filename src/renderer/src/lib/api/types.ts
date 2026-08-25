@@ -737,6 +737,8 @@ export interface AIProvider {
   enabled: boolean
   models: AIModelConfig[]
   builtinId?: string
+  /** Stable key from OpenCowork Import Protocol v2 custom channels. */
+  importKey?: string
   /** Built-in preset version most recently applied to this persisted provider. */
   presetVersion?: number
   createdAt: number

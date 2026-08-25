@@ -1,17 +1,22 @@
+import {
+  buildCopilotClientHeaders,
+  buildCopilotUserAgent
+} from '../../../../shared/oauth-client-identity'
 import type { BuiltinProviderPreset } from './types'
 
 export const copilotOAuthPreset: BuiltinProviderPreset = {
   builtinId: 'copilot-oauth',
-  version: 1,
+  // v4: refresh forwarded VS Code / Copilot Chat client versions (1.134 / 0.55)
+  version: 4,
   name: 'GitHub Copilot (OAuth)',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.githubcopilot.com',
   homepage: 'https://github.com/features/copilot',
   requiresApiKey: false,
   authMode: 'oauth',
-  defaultModel: 'gpt-5-mini',
+  defaultModel: 'gpt-5.6-sol',
   useSystemProxy: true,
-  userAgent: 'GitHubCopilotChat/0.26.7',
+  userAgent: buildCopilotUserAgent(),
   oauthConfig: {
     authorizeUrl: 'https://github.com/login/oauth/authorize',
     tokenUrl: 'https://github.com/login/oauth/access_token',
@@ -36,11 +41,7 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
     usePkce: false
   },
   requestOverrides: {
-    headers: {
-      'Copilot-Integration-Id': 'vscode-chat',
-      'editor-version': 'vscode/1.105.0',
-      'editor-plugin-version': 'copilot-chat/0.26.7'
-    }
+    headers: buildCopilotClientHeaders()
   },
   deprecatedModelIds: [
     'gpt-5-codex',
@@ -49,50 +50,104 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
     'gpt-4.1',
     'gpt-4o',
     'gpt-5',
-    'gemini-2.5-flash'
+    'gpt-5.2',
+    'gpt-5.2-codex',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-3-flash-preview'
   ],
   ui: { hideOAuthSettings: false },
   defaultModels: [
     {
-      id: 'gpt-5-mini',
-      name: 'GPT-5 Mini',
-      icon: 'openai',
-      enabled: true,
-      contextLength: 1_048_576,
-      maxOutputTokens: 16_384,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.25,
-      outputPrice: 2,
-      cacheCreationPrice: 0.25,
-      cacheHitPrice: 0.025,
-      premiumRequestMultiplier: 0,
-      availablePlans: ['free', 'pro', 'pro+', 'business', 'enterprise'],
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' },
-        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
-        defaultReasoningEffort: 'medium'
-      }
-    },
-    {
-      id: 'gpt-5.3-codex',
-      name: 'GPT-5.3 Codex',
+      id: 'gpt-5.6-sol',
+      name: 'GPT-5.6 Sol',
       icon: 'openai',
       enabled: true,
       type: 'openai-responses',
-      contextLength: 400_000,
-      maxOutputTokens: 64_384,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: false,
-      inputPrice: 1.75,
-      outputPrice: 14,
-      cacheCreationPrice: 1.75,
-      cacheHitPrice: 0.175,
+      // Copilot promo 50% off through 2026-09-03 (≤272K default tier).
+      inputPrice: 2,
+      outputPrice: 10,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 0.2,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: {},
-        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true
+    },
+    {
+      id: 'gpt-5.6-terra',
+      name: 'GPT-5.6 Terra',
+      icon: 'openai',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 2,
+      outputPrice: 12,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true
+    },
+    {
+      id: 'gpt-5.6-luna',
+      name: 'GPT-5.6 Luna',
+      icon: 'openai',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 0.2,
+      outputPrice: 1.2,
+      cacheCreationPrice: 0.25,
+      cacheHitPrice: 0.02,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true
+    },
+    {
+      id: 'gpt-5.5',
+      name: 'GPT-5.5',
+      icon: 'openai',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 5,
+      outputPrice: 30,
+      cacheHitPrice: 0.5,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
         defaultReasoningEffort: 'medium'
       },
       responseSummary: 'detailed',
@@ -169,99 +224,50 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       enableSystemPromptCache: true
     },
     {
-      id: 'gpt-5.5',
-      name: 'GPT-5.5',
-      icon: 'openai',
-      enabled: true,
-      type: 'openai-responses',
-      contextLength: 1_050_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 5,
-      outputPrice: 30,
-      cacheHitPrice: 0.5,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true
-    },
-    {
-      id: 'gpt-5.6-luna',
-      name: 'GPT-5.6 Luna',
+      id: 'gpt-5.3-codex',
+      name: 'GPT-5.3 Codex',
       icon: 'openai',
       enabled: true,
       type: 'openai-responses',
       contextLength: 400_000,
-      maxOutputTokens: 128_000,
+      maxOutputTokens: 64_384,
       supportsVision: true,
       supportsFunctionCall: false,
-      inputPrice: 0.2,
-      outputPrice: 1.2,
+      inputPrice: 1.75,
+      outputPrice: 14,
+      cacheCreationPrice: 1.75,
+      cacheHitPrice: 0.175,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true
+    },
+    {
+      id: 'gpt-5-mini',
+      name: 'GPT-5 Mini',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 16_384,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.25,
+      outputPrice: 2,
       cacheCreationPrice: 0.25,
-      cacheHitPrice: 0.02,
+      cacheHitPrice: 0.025,
+      premiumRequestMultiplier: 0,
+      availablePlans: ['free', 'pro', 'pro+', 'business', 'enterprise'],
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
         defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true
-    },
-    {
-      id: 'gpt-5.6-terra',
-      name: 'GPT-5.6 Terra',
-      icon: 'openai',
-      enabled: true,
-      type: 'openai-responses',
-      contextLength: 1_050_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 2,
-      outputPrice: 12,
-      cacheCreationPrice: 2.5,
-      cacheHitPrice: 0.2,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true
-    },
-    {
-      id: 'gpt-5.6-sol',
-      name: 'GPT-5.6 Sol',
-      icon: 'openai',
-      enabled: true,
-      type: 'openai-responses',
-      contextLength: 1_050_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 5,
-      outputPrice: 30,
-      cacheCreationPrice: 6.25,
-      cacheHitPrice: 0.5,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true
+      }
     },
     {
       id: 'claude-fable-5',
@@ -286,8 +292,8 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       }
     },
     {
-      id: 'claude-opus-4-8',
-      name: 'Claude Opus 4.8',
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
       icon: 'claude',
       enabled: true,
       contextLength: 1_000_000,
@@ -300,28 +306,6 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       cacheHitPrice: 0.5,
       premiumRequestMultiplier: 3,
       availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'adaptive' } },
-        forceTemperature: 1,
-        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'high'
-      }
-    },
-    {
-      id: 'claude-opus-4-7',
-      name: 'Claude Opus 4.7',
-      icon: 'claude',
-      enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 5,
-      outputPrice: 25,
-      cacheCreationPrice: 6.25,
-      cacheHitPrice: 0.5,
-      availablePlans: ['pro+', 'business', 'enterprise'],
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'adaptive' } },
@@ -350,6 +334,73 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
         bodyParams: { thinking: { type: 'adaptive' } },
         forceTemperature: 1,
         reasoningEffortLevels: ['low', 'medium', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'claude-opus-4-8',
+      name: 'Claude Opus 4.8',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 5,
+      outputPrice: 25,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5,
+      premiumRequestMultiplier: 3,
+      availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'claude-opus-4-8-fast',
+      name: 'Claude Opus 4.8 Fast',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 1,
+      availablePlans: ['pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'claude-opus-4-7',
+      name: 'Claude Opus 4.7',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 5,
+      outputPrice: 25,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5,
+      availablePlans: ['pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
         defaultReasoningEffort: 'high'
       }
     },
@@ -424,8 +475,8 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       name: 'Claude Opus 4.6',
       icon: 'claude',
       enabled: true,
-      contextLength: 200_000,
-      maxOutputTokens: 64_000,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: true,
       inputPrice: 5,
@@ -443,57 +494,45 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       }
     },
     {
-      id: 'gemini-2.5-pro',
-      name: 'Gemini 2.5 Pro',
+      id: 'gemini-3.7-flash',
+      name: 'Gemini 3.7 Flash',
       icon: 'gemini',
       enabled: true,
       contextLength: 1_048_576,
       maxOutputTokens: 65_536,
       supportsVision: true,
       supportsFunctionCall: true,
-      inputPrice: 1.25,
-      outputPrice: 10,
-      premiumRequestMultiplier: 1,
-      availablePlans: ['pro+', 'business', 'enterprise'],
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' }
-      }
-    },
-    {
-      id: 'gemini-3.1-pro-preview',
-      name: 'Gemini 3.1 Pro Preview',
-      icon: 'gemini',
-      enabled: true,
-      contextLength: 1_048_576,
-      maxOutputTokens: 65_536,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 2,
-      outputPrice: 12,
-      cacheHitPrice: 0.2,
-      availablePlans: ['pro+', 'business', 'enterprise'],
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' }
-      }
-    },
-    {
-      id: 'gemini-3-flash-preview',
-      name: 'Gemini 3 Flash Preview',
-      icon: 'gemini',
-      enabled: true,
-      contextLength: 1_048_576,
-      maxOutputTokens: 65_536,
-      supportsVision: true,
-      supportsFunctionCall: true,
-      inputPrice: 0.5,
-      outputPrice: 3,
-      cacheHitPrice: 0.05,
+      inputPrice: 0.75,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.075,
+      premiumRequestMultiplier: 0.25,
       availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' }
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'gemini-3.6-flash',
+      name: 'Gemini 3.6 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.75,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.075,
+      premiumRequestMultiplier: 0.25,
+      availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
       }
     },
     {
@@ -512,21 +551,90 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
       availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
       supportsThinking: true,
       thinkingConfig: {
-        bodyParams: { reasoning_effort: 'medium' }
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
       }
     },
     {
-      id: 'mai-code-1-flash',
-      name: 'MAI-Code-1-Flash',
+      id: 'gemini-3.1-pro-preview',
+      name: 'Gemini 3.1 Pro Preview',
+      icon: 'gemini',
       enabled: true,
-      contextLength: 256_000,
-      maxOutputTokens: 32_768,
-      supportsVision: false,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
       supportsFunctionCall: true,
-      inputPrice: 0.75,
-      outputPrice: 4.5,
-      cacheHitPrice: 0.075,
-      availablePlans: ['free', 'pro', 'pro+', 'business', 'enterprise']
+      inputPrice: 2,
+      outputPrice: 12,
+      cacheHitPrice: 0.2,
+      availablePlans: ['pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-4.6',
+      name: 'Grok 4.6',
+      icon: 'grok',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'grok-4.5',
+      name: 'Grok 4.5',
+      icon: 'grok',
+      enabled: true,
+      type: 'openai-responses',
+      contextLength: 500_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5,
+      availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'kimi-k3',
+      name: 'Kimi K3',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 3,
+      outputPrice: 15,
+      cacheHitPrice: 0.3,
+      availablePlans: ['pro', 'pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['max'],
+        defaultReasoningEffort: 'max'
+      }
     },
     {
       id: 'kimi-k2.7-code',
@@ -546,6 +654,32 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
         disabledBodyParams: { thinking: { type: 'disabled' } },
         forceTemperature: 1
       }
+    },
+    {
+      id: 'mai-code-1.1-flash',
+      name: 'MAI-Code-1.1-Flash',
+      enabled: true,
+      contextLength: 256_000,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.2,
+      outputPrice: 1.2,
+      cacheHitPrice: 0.02,
+      availablePlans: ['free', 'pro', 'pro+', 'business', 'enterprise']
+    },
+    {
+      id: 'mai-code-1-flash',
+      name: 'MAI-Code-1-Flash',
+      enabled: true,
+      contextLength: 256_000,
+      maxOutputTokens: 32_768,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.75,
+      outputPrice: 4.5,
+      cacheHitPrice: 0.075,
+      availablePlans: ['free', 'pro', 'pro+', 'business', 'enterprise']
     },
     {
       id: 'raptor-mini',

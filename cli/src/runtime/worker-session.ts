@@ -1,6 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { platform } from 'node:os'
+import { arch, platform, release } from 'node:os'
 import { join } from 'node:path'
+import {
+  applyOauthClientIdentityHeaders,
+  resolveOauthForwardUserAgent
+} from '../vendor/oauth-client-identity.js'
 import type { ModelSelection, PermissionMode } from '../types.js'
 import {
   isRecord,
@@ -728,6 +732,10 @@ function normalizeBaseUrl(value: string, providerType: string): string | undefin
   return trimmed
 }
 
+function currentOauthClientPlatform(): { platform: string; arch: string; release: string } {
+  return { platform: platform(), arch: arch(), release: release() }
+}
+
 function buildRequestOverrides(
   provider: JsonRecord,
   model: JsonRecord,
@@ -759,7 +767,12 @@ function buildRequestOverrides(
       omitBodyKeys.add(key)
     }
   }
-  const headers = { ...providerHeaders, ...modelHeaders }
+  const headers =
+    applyOauthClientIdentityHeaders(
+      stringValue(provider.builtinId),
+      { ...providerHeaders, ...modelHeaders } as Record<string, string>,
+      currentOauthClientPlatform()
+    ) ?? {}
   const body = { ...providerBody, ...modelBody }
   if (
     Object.keys(headers).length === 0 &&
@@ -943,7 +956,12 @@ function buildProvider(
           ? stringValue(model.websocketMode) || stringValue(provider.websocketMode) || 'disabled'
           : 'disabled'
         : undefined,
-    userAgent: stringValue(provider.userAgent) || `OpenCowork-CLI/${options.appVersion}`
+    userAgent:
+      resolveOauthForwardUserAgent(
+        stringValue(provider.builtinId),
+        stringValue(provider.userAgent),
+        currentOauthClientPlatform()
+      ) || `OpenCowork-CLI/${options.appVersion}`
   }
 
   if (providerType === 'openai-responses') {
@@ -981,13 +999,19 @@ function buildConfiguredCompressionProvider(
 function resolveCopilotModelId(modelId: string): string {
   const bare = modelId.split('/').pop()?.trim() || modelId
   const normalized = bare.toLowerCase()
-  if (normalized === 'gpt-5-codex' || normalized === 'gpt-5.1-codex' || normalized === 'gpt-5') {
-    return 'gpt-5.4'
+  if (normalized === 'gpt-5-codex' || normalized === 'gpt-5.1-codex') {
+    return 'gpt-5.3-codex'
+  }
+  if (normalized === 'gpt-5' || normalized === 'gpt-5.2') {
+    return 'gpt-5.6-sol'
   }
   if (normalized === 'gpt-5.1-codex-mini' || normalized === 'gpt-4.1' || normalized === 'gpt-4o') {
     return 'gpt-5-mini'
   }
-  return bare || 'gpt-5-mini'
+  if (normalized === 'gemini-2.5-pro' || normalized === 'gemini-3-flash-preview') {
+    return 'gemini-3.7-flash'
+  }
+  return bare || 'gpt-5.6-sol'
 }
 
 function stripUndefined(record: JsonRecord): JsonRecord {

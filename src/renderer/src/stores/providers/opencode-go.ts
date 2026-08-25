@@ -43,7 +43,7 @@ const chatModels: OpenCodeGoModel[] = [
     id: 'grok-4.5',
     name: 'Grok 4.5',
     icon: 'grok',
-    type: 'openai-chat',
+    type: 'openai-responses',
     contextLength: 256_000,
     maxOutputTokens: 32_768,
     inputPrice: 2,
@@ -67,6 +67,21 @@ const chatModels: OpenCodeGoModel[] = [
     inputPrice: 1.4,
     outputPrice: 4.4,
     cacheHitPrice: 0.26
+  },
+  {
+    id: 'glm-5.3',
+    name: 'GLM-5.3',
+    icon: 'chatglm',
+    type: 'openai-chat',
+    ...shared,
+    inputPrice: 1.4,
+    outputPrice: 4.4,
+    cacheHitPrice: 0.26,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'max'
+    }
   },
   {
     id: 'glm-5.1',
@@ -120,6 +135,24 @@ const chatModels: OpenCodeGoModel[] = [
     supportsVision: true
   },
   {
+    id: 'longcat-2.0',
+    name: 'LongCat-2.0',
+    icon: 'longcat',
+    type: 'openai-chat',
+    contextLength: 1_048_576,
+    maxOutputTokens: 131_072,
+    inputPrice: 0.3,
+    outputPrice: 1.2,
+    cacheHitPrice: 0.006,
+    supportsVision: false,
+    supportsFunctionCall: true,
+    supportsThinking: true,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      disabledBodyParams: { thinking: { type: 'disabled' } }
+    }
+  },
+  {
     id: 'mimo-v2.5',
     name: 'MiMo-V2.5',
     icon: 'mimo',
@@ -171,6 +204,25 @@ const chatModels: OpenCodeGoModel[] = [
     outputPrice: 1.2,
     cacheHitPrice: 0.06,
     cacheCreationPrice: 0.375
+  },
+  {
+    id: 'muse-spark-1.2-contributor',
+    name: 'Muse Spark 1.2 Contributor',
+    icon: 'meta',
+    type: 'openai-responses',
+    contextLength: 1_048_576,
+    maxOutputTokens: 32_768,
+    inputPrice: 0.1,
+    outputPrice: 0.2,
+    cacheHitPrice: 0.002,
+    supportsVision: true,
+    supportsFunctionCall: true,
+    supportsThinking: true,
+    thinkingConfig: {
+      bodyParams: {},
+      reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+      defaultReasoningEffort: 'medium'
+    }
   },
   {
     id: 'qwen3.8-max',
@@ -231,9 +283,9 @@ const chatModels: OpenCodeGoModel[] = [
     icon: 'deepseek',
     type: 'openai-chat',
     ...shared,
-    inputPrice: 0.435,
-    outputPrice: 0.87,
-    cacheHitPrice: 0.003625,
+    inputPrice: 0.66,
+    outputPrice: 1.98,
+    cacheHitPrice: 0.022,
     thinkingConfig: {
       bodyParams: { thinking: { type: 'enabled' } },
       disabledBodyParams: { thinking: { type: 'disabled' } },
@@ -247,14 +299,45 @@ const chatModels: OpenCodeGoModel[] = [
     icon: 'deepseek',
     type: 'openai-chat',
     ...shared,
-    inputPrice: 0.14,
-    outputPrice: 0.28,
-    cacheHitPrice: 0.0028,
+    inputPrice: 0.22,
+    outputPrice: 0.66,
+    cacheHitPrice: 0.007,
     thinkingConfig: {
       bodyParams: { thinking: { type: 'enabled' } },
       disabledBodyParams: { thinking: { type: 'disabled' } },
       reasoningEffortLevels: ['low', 'high', 'max'],
       defaultReasoningEffort: 'high'
+    }
+  },
+  {
+    id: 'deepseek-v4-flash-vision-exp',
+    name: 'DeepSeek V4 Flash Vision Exp',
+    icon: 'deepseek',
+    type: 'openai-chat',
+    ...shared,
+    inputPrice: 0.22,
+    outputPrice: 0.66,
+    cacheHitPrice: 0.007,
+    supportsVision: true,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      disabledBodyParams: { thinking: { type: 'disabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'high'
+    }
+  },
+  {
+    id: 'ox-alpha-free',
+    name: 'Ox Alpha Free',
+    type: 'openai-chat',
+    ...shared,
+    inputPrice: 0,
+    outputPrice: 0,
+    cacheHitPrice: 0,
+    thinkingConfig: {
+      bodyParams: { thinking: { type: 'enabled' } },
+      reasoningEffortLevels: ['low', 'high', 'max'],
+      defaultReasoningEffort: 'max'
     }
   },
   {
@@ -281,7 +364,7 @@ const chatModels: OpenCodeGoModel[] = [
 
 export const opencodeGoPreset: BuiltinProviderPreset = {
   builtinId: 'opencode-go',
-  version: 4,
+  version: 5,
   name: 'OpenCode Go',
   type: 'openai-chat',
   defaultBaseUrl: OPENCODE_GO_BASE_URL,

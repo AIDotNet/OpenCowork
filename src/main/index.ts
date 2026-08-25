@@ -1394,22 +1394,29 @@ function registerOpenCoworkProtocolClient(): void {
 }
 
 function handleOpenCoworkImportUrl(rawUrl: string): boolean {
-  try {
-    const result = applyOpenCoworkImportUrl(rawUrl)
-    if (!result) return false
-    console.log(
-      `[OpenCoworkImport] Imported ${result.providerName} (${result.builtinId}) as active provider`
-    )
-    showMainWindow()
-    return true
-  } catch (error) {
-    console.warn(
-      `[OpenCoworkImport] Failed to import deep link: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    )
-    return false
-  }
+  if (!rawUrl.startsWith('opencowork:')) return false
+  void applyOpenCoworkImportUrl(rawUrl)
+    .then((result) => {
+      if (result) {
+        console.log(
+          `[OpenCoworkImport] Imported ${result.providerName}` +
+            (result.builtinId ? ` (${result.builtinId})` : '') +
+            ' as active provider'
+        )
+      } else {
+        console.warn('[OpenCoworkImport] Deep link was not a usable import payload')
+      }
+      showMainWindow()
+    })
+    .catch((error) => {
+      console.warn(
+        `[OpenCoworkImport] Failed to import deep link: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+      showMainWindow()
+    })
+  return true
 }
 
 function consumeOpenCoworkImportCandidate(rawUrl: string | null | undefined): boolean {

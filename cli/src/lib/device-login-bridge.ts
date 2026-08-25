@@ -1,6 +1,11 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { OPENCOWORK_DEVICE_LOGIN_URL } from '../vendor/routin-credential.js'
+import {
+  buildOpenCoworkDeviceLoginUrl,
+  OPENCOWORK_IMPORT_MAX_PAYLOAD_BYTES,
+  parseOpenCoworkImportCallbackBody,
+  type OpenCoworkImportCallbackParse
+} from '../vendor/opencowork-import-protocol.js'
 
 const CALLBACK_PATH = '/opencowork-device-login'
 const DEFAULT_TIMEOUT_MS = 5 * 60_000
@@ -16,7 +21,9 @@ function readBody(req: IncomingMessage): Promise<string> {
     const chunks: Buffer[] = []
     req.on('data', (chunk) => {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-      if (chunks.reduce((sum, part) => sum + part.length, 0) > 64_000) {
+      if (
+        chunks.reduce((sum, part) => sum + part.length, 0) > OPENCOWORK_IMPORT_MAX_PAYLOAD_BYTES
+      ) {
         reject(new Error('Request body too large'))
         req.destroy()
       }
@@ -38,21 +45,12 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload)
 }
 
-function parseCredential(raw: unknown): { apiKey: string; kind?: string } | null {
-  if (!raw || typeof raw !== 'object') return null
-  const record = raw as Record<string, unknown>
-  const apiKey = typeof record.apiKey === 'string' ? record.apiKey.trim() : ''
-  if (!apiKey) return null
-  const kind = typeof record.kind === 'string' ? record.kind : undefined
-  return kind ? { apiKey, kind } : { apiKey }
-}
-
 /**
  * Start a one-shot 127.0.0.1 HTTP callback so the Routin device-login page can POST the
- * chosen API key back to a CLI-only install (which cannot receive `opencowork://` deep links).
+ * chosen credential (v1) or Import Protocol v2 document back to a CLI-only install.
  */
 export async function startDeviceLoginBridge(options: {
-  onCredential(apiKey: string, kind?: string): void
+  onImport(parsed: OpenCoworkImportCallbackParse): void | Promise<void>
   timeoutMs?: number
 }): Promise<DeviceLoginBridge> {
   const state = randomUUID()
@@ -72,15 +70,12 @@ export async function startDeviceLoginBridge(options: {
     }
   }
 
-  const finish = (apiKey: string, kind?: string): void => {
+  const finish = (parsed: OpenCoworkImportCallbackParse): void => {
     if (settled) return
     settled = true
-    try {
-      options.onCredential(apiKey, kind)
-    } finally {
-      // Close on next tick so the HTTP response can flush first.
+    void Promise.resolve(options.onImport(parsed)).finally(() => {
       setTimeout(close, 25)
-    }
+    })
   }
 
   const server = createServer((req, res) => {
@@ -107,18 +102,19 @@ export async function startDeviceLoginBridge(options: {
           sendJson(res, 400, { ok: false, error: 'invalid_json' })
           return
         }
-        const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+        const record =
+          parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
         if (!record || record.state !== state) {
           sendJson(res, 403, { ok: false, error: 'invalid_state' })
           return
         }
-        const credential = parseCredential(parsed)
-        if (!credential) {
+        const imported = parseOpenCoworkImportCallbackBody(parsed)
+        if (!imported) {
           sendJson(res, 400, { ok: false, error: 'missing_api_key' })
           return
         }
         sendJson(res, 200, { ok: true })
-        finish(credential.apiKey, credential.kind)
+        finish(imported)
       })
       .catch(() => {
         sendJson(res, 400, { ok: false, error: 'bad_request' })
@@ -144,10 +140,12 @@ export async function startDeviceLoginBridge(options: {
     close()
   }, timeoutMs)
 
-  const loginUrl = new URL(OPENCOWORK_DEVICE_LOGIN_URL)
-  loginUrl.searchParams.set('callback', `http://127.0.0.1:${address.port}${CALLBACK_PATH}`)
-  loginUrl.searchParams.set('state', state)
-  loginUrl.searchParams.set('client', 'cli')
-
-  return { loginUrl: loginUrl.toString(), close }
+  return {
+    loginUrl: buildOpenCoworkDeviceLoginUrl({
+      client: 'cli',
+      callback: `http://127.0.0.1:${address.port}${CALLBACK_PATH}`,
+      state
+    }),
+    close
+  }
 }

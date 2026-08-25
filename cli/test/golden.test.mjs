@@ -239,6 +239,81 @@ test('fullscreen resize redraw does not hard-clear the alternate screen', async 
   }
 })
 
+test('a long streaming reply never hard-clears the classic screen', async () => {
+  const session = new CliSession({ cols: 100, rows: ROWS, tui: 'classic' })
+  try {
+    await session.waitFor((screen) => screen.includes('❯'), 'prompt to appear')
+    session.write('long reply please')
+    await session.waitFor((screen) => screen.includes('long reply please'), 'typed prompt to echo')
+    session.clearOutput()
+    session.write('\r')
+    await session.waitFor((screen) => screen.includes('Long reply ends here'), 'long reply to land')
+    await session.waitForStableScreen()
+    // Ink hard-clears (CSI 2J / 3J) whenever its dynamic frame reaches stdout.rows, which
+    // wipes scrollback and makes the scrollbar jump. The live tail must stay windowed.
+    assert.ok(
+      !session.output.includes('\u001B[2J'),
+      'a long reply must not erase the classic screen'
+    )
+    assert.ok(
+      !session.output.includes('\u001B[3J'),
+      'a long reply must not clear classic scrollback'
+    )
+    // The finished reply is committed to <Static>, so scrollback keeps the whole answer.
+    assert.ok(session.output.includes('Long reply begins here'), 'full reply reaches scrollback')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a long streaming reply keeps its newest lines on screen', async () => {
+  const session = new CliSession({ cols: 100, rows: ROWS, tui: 'fullscreen' })
+  try {
+    await session.waitFor((screen) => screen.includes('❯'), 'prompt to appear')
+    session.write('long reply please')
+    await session.waitFor((screen) => screen.includes('long reply please'), 'typed prompt to echo')
+    session.write('\r')
+    await session.waitFor((screen) => screen.includes('Long reply ends here'), 'long reply to land')
+    const screen = await session.waitForStableScreen()
+    assert.ok(!screen.includes('Paragraph 0:'), 'the head of an oversized reply is clipped')
+    assert.ok(screen.includes('earlier lines hidden'), 'clipping is announced')
+  } finally {
+    session.dispose()
+  }
+})
+
+async function runMarkdownFlow({ cols, tui }) {
+  const session = new CliSession({ cols, rows: 40, tui })
+  try {
+    await session.waitFor((screen) => screen.includes('❯'), 'prompt to appear')
+    session.write('markdown reply please')
+    await session.waitFor((screen) => screen.includes('markdown reply please'), 'typed prompt')
+    session.write('\r')
+    await session.waitFor((screen) => screen.includes('router.pick'), 'markdown reply to land')
+    await session.waitForStableScreen()
+    return session.snapshot()
+  } finally {
+    session.dispose()
+  }
+}
+
+for (const cols of [80, 120]) {
+  test(`assistant markdown renders tables and lists at ${cols} columns`, async () => {
+    const snapshot = await runMarkdownFlow({ cols, tui: 'classic' })
+    // A GFM table becomes a bordered grid rather than raw pipe rows.
+    assert.ok(snapshot.includes('┌'), `expected a bordered table:\n${snapshot}`)
+    assert.ok(snapshot.includes('├'))
+    assert.ok(snapshot.includes('└'))
+    assert.ok(!snapshot.includes('| --- |'), 'the separator row must not be printed literally')
+    assert.ok(!snapshot.includes('## Routing'), 'heading markers must be consumed')
+    assert.ok(snapshot.includes('Routing summary'))
+    // Right-aligned numeric column keeps its alignment.
+    assert.match(snapshot, /\s200000 │/u)
+    assert.ok(snapshot.includes('1. Probe each provider'))
+    compareGolden(`markdown-${cols}x40`, snapshot)
+  })
+}
+
 test('bracketed paste inserts multi-line text as one literal block', async () => {
   const session = new CliSession({ cols: 100, rows: ROWS, tui: 'classic' })
   try {

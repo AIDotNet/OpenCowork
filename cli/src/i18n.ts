@@ -198,7 +198,9 @@ const englishResources = {
       acceptEditsOn: 'Accept edits mode on · Shift+Tab to cycle',
       manualOn: 'Manual approval mode · Shift+Tab to cycle',
       scrollLocked: '↑ {{count}} newer · PgDn / wheel down to follow, click a tool row to expand',
-      transcriptTruncated: '… {{count}} earlier live lines hidden to fit the terminal'
+      transcriptTruncated: '… {{count}} earlier live lines hidden to fit the terminal',
+      replyClipped:
+        '… {{count}} earlier lines hidden · the full reply lands in scrollback when it finishes'
     },
     effort: {
       none: 'Ask the provider for no extra reasoning on the next turns.',
@@ -414,7 +416,8 @@ const chineseResources = {
       acceptEditsOn: '接受编辑模式已开启 · Shift+Tab 切换',
       manualOn: '手动确认模式 · Shift+Tab 切换',
       scrollLocked: '↑ 还有 {{count}} 条更新 · PgDn / 滚轮向下跟随，点击工具行可展开',
-      transcriptTruncated: '… 已隐藏上方 {{count}} 条实时输出以适应终端高度'
+      transcriptTruncated: '… 已隐藏上方 {{count}} 条实时输出以适应终端高度',
+      replyClipped: '… 已隐藏上方 {{count}} 行 · 回复结束后完整内容会写入终端回滚区'
     },
     shortcuts: {
       commands: '命令',

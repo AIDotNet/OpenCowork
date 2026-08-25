@@ -2,12 +2,13 @@ import type { BuiltinProviderPreset } from './types'
 
 export const openrouterPreset: BuiltinProviderPreset = {
   builtinId: 'openrouter',
-  version: 2,
+  version: 4,
   name: 'OpenRouter',
   type: 'openai-chat',
   defaultBaseUrl: 'https://openrouter.ai/api/v1',
   homepage: 'https://openrouter.ai',
   apiKeyUrl: 'https://openrouter.ai/keys',
+  defaultModel: 'openai/gpt-5.6-sol',
   deprecatedModelIds: [
     'openai/gpt-5.2',
     'openai/gpt-5.2-codex',
@@ -20,6 +21,34 @@ export const openrouterPreset: BuiltinProviderPreset = {
   ],
   defaultModels: [
     // ── Anthropic ──
+    {
+      id: 'anthropic/claude-fable-5',
+      name: 'Claude Fable 5',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 1
+    },
+    {
+      id: 'anthropic/claude-opus-5',
+      name: 'Claude Opus 5',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 5,
+      outputPrice: 25,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5
+    },
     {
       id: 'anthropic/claude-opus-4.8',
       name: 'Claude Opus 4.8',
@@ -54,7 +83,7 @@ export const openrouterPreset: BuiltinProviderPreset = {
       icon: 'claude',
       enabled: true,
       contextLength: 1_000_000,
-      maxOutputTokens: 16_384,
+      maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: true,
       inputPrice: 2,
@@ -105,6 +134,67 @@ export const openrouterPreset: BuiltinProviderPreset = {
       cacheHitPrice: 0.5
     },
 
+    // ── OpenAI — GPT-5.6 family ──
+    {
+      id: 'openai/gpt-5.6-sol',
+      name: 'GPT-5.6 Sol',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 10,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'openai/gpt-5.6-terra',
+      name: 'GPT-5.6 Terra',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 12,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'openai/gpt-5.6-luna',
+      name: 'GPT-5.6 Luna',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.2,
+      outputPrice: 1.2,
+      cacheCreationPrice: 0.25,
+      cacheHitPrice: 0.02,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
     // ── OpenAI — GPT-5 family ──
     {
       id: 'openai/gpt-5.1',
@@ -243,6 +333,42 @@ export const openrouterPreset: BuiltinProviderPreset = {
         defaultReasoningEffort: 'medium'
       }
     },
+    {
+      id: 'openai/gpt-5.5-pro',
+      name: 'GPT-5.5 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 30,
+      outputPrice: 180,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'high' },
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'openai/gpt-5.4-pro',
+      name: 'GPT-5.4 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 30,
+      outputPrice: 180,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'high' },
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      }
+    },
     // ── OpenAI — O-series ──
     {
       id: 'openai/o3',
@@ -379,6 +505,36 @@ export const openrouterPreset: BuiltinProviderPreset = {
 
     // ── Google Gemini ──
     {
+      id: 'google/gemini-3.7-flash',
+      name: 'Gemini 3.7 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.375,
+      outputPrice: 1.875,
+      cacheHitPrice: 0.0375,
+      supportsThinking: true,
+      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' } }
+    },
+    {
+      id: 'google/gemini-3.6-flash',
+      name: 'Gemini 3.6 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.75,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.075,
+      supportsThinking: true,
+      thinkingConfig: { bodyParams: { reasoning_effort: 'medium' } }
+    },
+    {
       id: 'google/gemini-3.1-pro-preview',
       name: 'Gemini 3.1 Pro Preview',
       icon: 'gemini',
@@ -478,6 +634,44 @@ export const openrouterPreset: BuiltinProviderPreset = {
 
     // ── DeepSeek ──
     {
+      id: 'deepseek/deepseek-v4-flash',
+      name: 'DeepSeek V4 Flash',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 384_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.14,
+      outputPrice: 0.28,
+      cacheHitPrice: 0.028,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'deepseek/deepseek-v4-flash-vision-exp',
+      name: 'DeepSeek V4 Flash Vision Exp',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 384_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.44,
+      outputPrice: 1.32,
+      cacheHitPrice: 0.014,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { enable_thinking: true },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
       id: 'deepseek/deepseek-v4-pro',
       name: 'DeepSeek V4 Pro',
       icon: 'deepseek',
@@ -539,6 +733,44 @@ export const openrouterPreset: BuiltinProviderPreset = {
 
     // ── Moonshot / Kimi ──
     {
+      id: 'moonshotai/kimi-k3',
+      name: 'Kimi K3',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 3,
+      outputPrice: 15,
+      cacheHitPrice: 0.3,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['max'],
+        defaultReasoningEffort: 'max'
+      }
+    },
+    {
+      id: 'moonshotai/kimi-k2.7-code',
+      name: 'Kimi K2.7 Code',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.67,
+      outputPrice: 3.4,
+      cacheHitPrice: 0.19,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        forceTemperature: 1
+      }
+    },
+    {
       id: 'moonshotai/kimi-k2.6',
       name: 'Kimi K2.6',
       icon: 'kimi',
@@ -589,6 +821,19 @@ export const openrouterPreset: BuiltinProviderPreset = {
       outputPrice: 1.2
     },
     {
+      id: 'minimax/minimax-m2.7',
+      name: 'MiniMax M2.7',
+      icon: 'minimax',
+      enabled: true,
+      contextLength: 204_800,
+      maxOutputTokens: 16_384,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.3,
+      outputPrice: 1.2,
+      cacheHitPrice: 0.06
+    },
+    {
       id: 'minimax/minimax-m2.1',
       name: 'MiniMax M2.1',
       icon: 'minimax',
@@ -628,6 +873,32 @@ export const openrouterPreset: BuiltinProviderPreset = {
 
     // ── xAI Grok ──
     {
+      id: 'x-ai/grok-4.6',
+      name: 'Grok 4.6',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 500_000,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.5
+    },
+    {
+      id: 'x-ai/grok-4.5',
+      name: 'Grok 4.5',
+      icon: 'grok',
+      enabled: true,
+      contextLength: 500_000,
+      maxOutputTokens: 32_768,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.3
+    },
+    {
       id: 'x-ai/grok-4.3',
       name: 'Grok 4.3',
       icon: 'grok',
@@ -665,6 +936,32 @@ export const openrouterPreset: BuiltinProviderPreset = {
     },
 
     // ── Z.AI / GLM (智谱) ──
+    {
+      id: 'z-ai/glm-5.3',
+      name: 'GLM-5.3',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.4,
+      outputPrice: 4.4,
+      cacheHitPrice: 0.26
+    },
+    {
+      id: 'z-ai/glm-5.1',
+      name: 'GLM-5.1',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 204_800,
+      maxOutputTokens: 128_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.966,
+      outputPrice: 3.036,
+      cacheHitPrice: 0.1794
+    },
     {
       id: 'z-ai/glm-5.2',
       name: 'GLM-5.2',
@@ -716,6 +1013,32 @@ export const openrouterPreset: BuiltinProviderPreset = {
 
     // ── Qwen ──
     {
+      id: 'qwen/qwen3.8-max',
+      name: 'Qwen3.8 Max',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.25
+    },
+    {
+      id: 'qwen/qwen3.8-27b',
+      name: 'Qwen3.8 27B',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.4,
+      outputPrice: 3,
+      cacheHitPrice: 0.05
+    },
+    {
       id: 'qwen/qwen3.7-max',
       name: 'Qwen3.7 Max',
       icon: 'qwen',
@@ -738,6 +1061,21 @@ export const openrouterPreset: BuiltinProviderPreset = {
       supportsFunctionCall: true,
       inputPrice: 0.455,
       outputPrice: 1.82,
+      supportsThinking: true,
+      thinkingConfig: { bodyParams: { enable_thinking: true } }
+    },
+    {
+      id: 'qwen/qwen3.7-plus',
+      name: 'Qwen3.7 Plus',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.32,
+      outputPrice: 1.28,
+      cacheHitPrice: 0.064,
       supportsThinking: true,
       thinkingConfig: { bodyParams: { enable_thinking: true } }
     },
@@ -824,6 +1162,19 @@ export const openrouterPreset: BuiltinProviderPreset = {
       outputPrice: 2.24
     },
     {
+      id: 'tencent/hy3',
+      name: 'Hy3',
+      icon: 'hunyuan',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 128_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.132,
+      outputPrice: 0.528,
+      cacheHitPrice: 0.033
+    },
+    {
       id: 'tencent/hunyuan-a13b-instruct',
       name: 'Hunyuan A13B',
       icon: 'hunyuan',
@@ -835,8 +1186,84 @@ export const openrouterPreset: BuiltinProviderPreset = {
       inputPrice: 0.14,
       outputPrice: 0.57
     },
+    {
+      id: 'meta/muse-spark-1.2',
+      name: 'Muse Spark 1.2',
+      icon: 'meta',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.25,
+      outputPrice: 4.25,
+      cacheHitPrice: 0.15,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
 
+    {
+      id: 'xiaomi/mimo-v2.5',
+      name: 'MiMo V2.5',
+      icon: 'mimo',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.14,
+      outputPrice: 0.28,
+      cacheHitPrice: 0.0028
+    },
+    {
+      id: 'xiaomi/mimo-v2.5-pro',
+      name: 'MiMo V2.5 Pro',
+      icon: 'mimo',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.435,
+      outputPrice: 0.87,
+      cacheHitPrice: 0.0036
+    },
+    {
+      id: 'meituan/longcat-2.0',
+      name: 'LongCat 2.0',
+      icon: 'longcat',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 262_144,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.3,
+      outputPrice: 1.2,
+      cacheHitPrice: 0.006
+    },
     // ── Free models ──
+    {
+      id: 'stealth/ox-alpha',
+      name: 'Ox Alpha',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0,
+      outputPrice: 0,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'max'
+      }
+    },
     {
       id: 'xiaomi/mimo-v2-flash',
       name: 'MiMo V2 Flash',

@@ -18,6 +18,11 @@ import {
   normalizeResponsesImageGenerationConfig
 } from '../lib/api/responses-image-generation'
 import { resolveProviderUserAgent } from '../lib/api/api-user-agent'
+import { getOauthClientPlatform } from '../lib/auth/oauth-client-platform'
+import {
+  applyOauthClientIdentityHeaders,
+  resolveOauthForwardUserAgent
+} from '../../../shared/oauth-client-identity'
 import { aiProviderStorage } from '../lib/ipc/ai-provider-storage'
 import { useSettingsStore, clampApiRequestTimeoutSeconds } from './settings-store'
 
@@ -630,18 +635,41 @@ function paramCarryOmitOverrides(
   return omitBodyKeys.length > 0 ? { omitBodyKeys } : undefined
 }
 
+function resolveForwardUserAgent(provider?: Pick<AIProvider, 'builtinId' | 'userAgent'>): string {
+  return (
+    resolveOauthForwardUserAgent(
+      provider?.builtinId,
+      provider?.userAgent,
+      getOauthClientPlatform()
+    ) ?? resolveProviderUserAgent(provider?.userAgent)
+  )
+}
+
 function buildRequestOverrides(
   providerOverrides: RequestOverrides | undefined,
   modelOverrides: RequestOverrides | undefined,
   modelId?: string,
-  paramCarry?: Pick<AIProvider, 'sendTemperature' | 'sendMaxOutputTokens'>
+  paramCarry?: Pick<AIProvider, 'sendTemperature' | 'sendMaxOutputTokens'>,
+  builtinId?: string
 ): RequestOverrides | undefined {
   const merged = mergeRequestOverrides(
     providerOverrides,
     modelOverrides,
     paramCarryOmitOverrides(paramCarry)
   )
-  return ensureTemperatureOmit(merged, modelId)
+  const headers = applyOauthClientIdentityHeaders(
+    builtinId,
+    merged?.headers,
+    getOauthClientPlatform()
+  )
+  const withIdentity =
+    headers === merged?.headers
+      ? merged
+      : {
+          ...(merged ?? {}),
+          ...(headers ? { headers } : {})
+        }
+  return ensureTemperatureOmit(withIdentity, modelId)
 }
 
 function resolveServiceTier(
@@ -1482,7 +1510,8 @@ export const useProviderStore = create<ProviderStore>()(
           provider.requestOverrides,
           activeModel?.requestOverrides,
           activeModel?.id ?? activeModelId,
-          provider
+          provider,
+          provider.builtinId
         )
         const { websocketUrl, websocketMode } = resolveResponsesWebsocket(
           activeModel,
@@ -1520,7 +1549,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: activeModel?.enablePromptCache,
           enableSystemPromptCache: activeModel?.enableSystemPromptCache,
           cacheTtl: activeModel?.cacheTtl ?? provider.cacheTtl,
-          userAgent: resolveProviderUserAgent(provider.userAgent),
+          userAgent: resolveForwardUserAgent(provider),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
@@ -1609,7 +1638,8 @@ export const useProviderStore = create<ProviderStore>()(
           provider.requestOverrides,
           model?.requestOverrides,
           model?.id ?? resolvedModelId,
-          provider
+          provider,
+          provider.builtinId
         )
         const { websocketUrl, websocketMode } = resolveResponsesWebsocket(
           model,
@@ -1644,7 +1674,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: model?.enablePromptCache,
           enableSystemPromptCache: model?.enableSystemPromptCache,
           cacheTtl: model?.cacheTtl ?? provider.cacheTtl,
-          userAgent: resolveProviderUserAgent(provider.userAgent),
+          userAgent: resolveForwardUserAgent(provider),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }
@@ -1714,7 +1744,9 @@ export const useProviderStore = create<ProviderStore>()(
         const requestOverrides = buildRequestOverrides(
           provider.requestOverrides,
           fastModel?.requestOverrides,
-          fastModel?.id ?? model
+          fastModel?.id ?? model,
+          provider,
+          provider.builtinId
         )
         const { websocketUrl, websocketMode } = resolveResponsesWebsocket(
           fastModel,
@@ -1750,7 +1782,7 @@ export const useProviderStore = create<ProviderStore>()(
           enablePromptCache: fastModel?.enablePromptCache,
           enableSystemPromptCache: fastModel?.enableSystemPromptCache,
           cacheTtl: fastModel?.cacheTtl ?? provider.cacheTtl,
-          userAgent: resolveProviderUserAgent(provider.userAgent),
+          userAgent: resolveForwardUserAgent(provider),
           ...(requestOverrides ? { requestOverrides } : {}),
           ...(provider.instructionsPrompt
             ? { instructionsPrompt: provider.instructionsPrompt }

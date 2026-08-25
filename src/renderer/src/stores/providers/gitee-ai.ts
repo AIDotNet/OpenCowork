@@ -2,17 +2,49 @@ import type { BuiltinProviderPreset } from './types'
 
 export const giteeAiPreset: BuiltinProviderPreset = {
   builtinId: 'gitee-ai',
-  version: 2,
+  version: 3,
   name: 'Gitee AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://ai.gitee.com/v1',
   homepage: 'https://ai.gitee.com',
   apiKeyUrl: 'https://ai.gitee.com',
-  defaultModel: 'Qwen3.5-35B-A3B',
+  defaultModel: 'qwen3.8-max',
   defaultModels: [
     // Official completion-capable models collected from Gitee AI /v1/models
     // Pricing: per-million-token USD rates from public provider metadata (OpenRouter) where available
     // ── Qwen ──
+    {
+      id: 'qwen3.8-max',
+      name: 'Qwen3.8 Max',
+      icon: 'qwen',
+      enabled: true,
+      inputPrice: 2,
+      outputPrice: 6
+    },
+    {
+      id: 'qwen3.8-27b',
+      name: 'Qwen3.8 27B',
+      icon: 'qwen',
+      enabled: true,
+      inputPrice: 0.4,
+      outputPrice: 3
+    },
+    {
+      id: 'Qwen3.7-Max',
+      name: 'Qwen3.7 Max',
+      icon: 'qwen',
+      enabled: true,
+      inputPrice: 2.5,
+      outputPrice: 7.5
+    },
+    {
+      id: 'Qwen3.7-Plus',
+      name: 'Qwen3.7 Plus',
+      icon: 'qwen',
+      enabled: true,
+      inputPrice: 0.4,
+      outputPrice: 1.6
+    },
     {
       id: 'Qwen3.6-35B-A3B',
       name: 'Qwen3.6 35B A3B',
@@ -178,6 +210,36 @@ export const giteeAiPreset: BuiltinProviderPreset = {
 
     // ── DeepSeek ──
     {
+      id: 'DeepSeek-V4-Pro-0813',
+      name: 'DeepSeek V4 Pro 0813',
+      icon: 'deepseek',
+      enabled: true,
+      inputPrice: 1.12,
+      outputPrice: 3.37,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
+      id: 'deepseek-v4-flash-0731',
+      name: 'DeepSeek V4 Flash 0731',
+      icon: 'deepseek',
+      enabled: true,
+      inputPrice: 0.14,
+      outputPrice: 0.28,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    {
       id: 'DeepSeek-V4-Pro',
       name: 'DeepSeek V4 Pro',
       icon: 'deepseek',
@@ -283,6 +345,20 @@ export const giteeAiPreset: BuiltinProviderPreset = {
 
     // ── GLM (智谱) ──
     {
+      id: 'GLM-5.3',
+      name: 'GLM 5.3',
+      icon: 'chatglm',
+      enabled: true,
+      inputPrice: 1.4,
+      outputPrice: 4.4,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        reasoningEffortLevels: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'max'
+      }
+    },
+    {
       id: 'GLM-5.2',
       name: 'GLM 5.2',
       icon: 'chatglm',
@@ -349,6 +425,20 @@ export const giteeAiPreset: BuiltinProviderPreset = {
     { id: 'glm-4-9b-chat', name: 'GLM 4 9B Chat', icon: 'chatglm', enabled: true },
 
     // ── Kimi / MiniMax ──
+    {
+      id: 'kimi-k3',
+      name: 'Kimi K3',
+      icon: 'kimi',
+      enabled: true,
+      inputPrice: 3,
+      outputPrice: 15,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['max'],
+        defaultReasoningEffort: 'max'
+      }
+    },
     {
       id: 'Kimi-K2.7-Code',
       name: 'Kimi K2.7 Code',
@@ -420,6 +510,22 @@ export const giteeAiPreset: BuiltinProviderPreset = {
       enabled: true,
       inputPrice: 0.3,
       outputPrice: 1.2
+    },
+    {
+      id: 'MiniMax-M2.7',
+      name: 'MiniMax M2.7',
+      icon: 'minimax',
+      enabled: true,
+      inputPrice: 0.3,
+      outputPrice: 1.2
+    },
+    {
+      id: 'MiMo-V2.5-Pro',
+      name: 'MiMo V2.5 Pro',
+      icon: 'mimo',
+      enabled: true,
+      inputPrice: 0.435,
+      outputPrice: 0.87
     },
     {
       id: 'MiniMax-M2.5',

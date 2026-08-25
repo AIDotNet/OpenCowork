@@ -486,6 +486,35 @@ This static/mutable split is necessary. Merely omitting alternate-screen mode wh
 entire transcript dynamically causes Ink to clear and repaint the whole terminal when content is
 taller than the viewport, which is not classic behavior.
 
+The mutable suffix must therefore stay shorter than the terminal. Ink writes
+`clearTerminal` — which erases scrollback — plus its entire accumulated static buffer whenever the
+dynamic frame reaches `stdout.rows`, so an unbounded live tail wipes the transcript and throws the
+scrollbar around on every frame. `computeTranscriptWindow` drops whole messages to stay inside the
+row budget and, when a single streaming reply is taller than the budget on its own, clips that
+message's head so only its newest rows are live. The transcript box also carries an explicit height
+once the window fills its budget, which bounds the frame even if a height estimate is short. The
+clipped rows are not lost: the finished message is committed to `<Static>` in full and lands in
+scrollback.
+
+### 9.3 Assistant markdown
+
+Assistant text renders as markdown (`components/markdown.tsx`, GFM via `marked`) beside the bullet
+gutter, live as it streams: GFM tables become bordered grids with per-column width allocation and
+alignment, plus headings, lists, task lists, blockquotes, rules, fenced code, and inline emphasis,
+code, and links. Syntax highlighting is required lazily on the first fenced block with a known
+language, so sessions without code do not pay for highlight.js.
+
+Rendered markdown is much taller than its source — a table adds four border rows, a fenced block two
+rules, and every block a separating row — so the viewport cannot measure it as plain text. Block
+geometry therefore lives once in `lib/markdown-layout.ts`: it owns the lexer cache, the row
+measurement, and head clipping, and both the renderer and `lib/message-height.ts` consume it.
+Clipping cuts at block boundaries so survivors still parse; slicing raw lines could strip a table's
+header and separator and leave the remaining rows lexing as a paragraph.
+
+That mirroring is enforced, not assumed. `test/markdown-layout.test.mjs` renders every sample in a
+PTY and asserts the measured height equals the rows Ink produced, so a renderer change that moves a
+row fails a test instead of silently letting the frame outgrow the terminal.
+
 ### 9.2 Fullscreen
 
 - `TerminalScreen` enters DEC alternate screen `?1049h` before Ink renders and leaves with
@@ -780,7 +809,8 @@ Targets for an interactive local terminal:
 | Resize reflow p95 at 1,000 messages | under 50 ms                                             |
 | Idle CPU                            | effectively 0%; no spinner when nothing is active       |
 | Fullscreen mounted messages         | viewport + bounded overscan                             |
-| Classic repaint area                | mutable suffix only                                     |
+| Classic repaint area                | mutable suffix only, never taller than the terminal     |
+| Transcript layout per frame         | bounded by the row budget, not by reply length          |
 | Worker frame memory                 | bounded by 256 MiB hard gate; normal events far smaller |
 
 High-rate `text_delta`, `thinking_delta`, and `tool_use_args_delta` events should be coalesced per

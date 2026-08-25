@@ -1,14 +1,15 @@
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import type { AIProvider, OAuthConfig, OAuthToken } from '@renderer/lib/api/types'
 import { useQuotaStore, type CopilotQuota } from '@renderer/stores/quota-store'
+import {
+  buildCopilotClientHeaders,
+  buildCopilotUserAgent,
+  isCopilotOAuthClientId
+} from '../../../../shared/oauth-client-identity'
 
 const DEFAULT_COPILOT_HOST = 'https://github.com'
 const DEFAULT_COPILOT_API_HOST = 'https://api.github.com'
 const DEFAULT_COPILOT_API_BASE = 'https://api.githubcopilot.com'
-const DEFAULT_COPILOT_INTEGRATION_ID = 'vscode-chat'
-const DEFAULT_EDITOR_VERSION = 'vscode/1.105.0'
-const DEFAULT_EDITOR_PLUGIN_VERSION = 'copilot-chat/0.26.7'
-const DEFAULT_COPILOT_USER_AGENT = 'GitHubCopilotChat/0.26.7'
 
 export interface CopilotDeviceCodeInfo {
   deviceCode: string
@@ -74,7 +75,7 @@ export function isCopilotProvider(
 ): boolean {
   return (
     (provider as Pick<AIProvider, 'builtinId'> | undefined)?.builtinId === 'copilot-oauth' ||
-    (provider as Pick<OAuthConfig, 'clientId'> | undefined)?.clientId === 'Iv1.b507a08c87ecfe98'
+    isCopilotOAuthClientId((provider as Pick<OAuthConfig, 'clientId'> | undefined)?.clientId)
   )
 }
 
@@ -105,14 +106,16 @@ export function resolveCopilotApiBaseUrl(provider: AIProvider, token?: OAuthToke
 
 export function resolveCopilotModelId(modelId: string | undefined): string {
   const normalized = modelId?.trim()
-  if (!normalized) return 'gpt-5-mini'
+  if (!normalized) return 'gpt-5.6-sol'
 
   const bare = normalized.split('/').pop()?.trim() || normalized
   const lower = bare.toLowerCase()
 
-  if (lower === 'gpt-5-codex' || lower === 'gpt-5.1-codex' || lower === 'gpt-5') return 'gpt-5.4'
+  if (lower === 'gpt-5-codex' || lower === 'gpt-5.1-codex') return 'gpt-5.3-codex'
+  if (lower === 'gpt-5' || lower === 'gpt-5.2') return 'gpt-5.6-sol'
   if (lower === 'gpt-5.1-codex-mini') return 'gpt-5-mini'
   if (lower === 'gpt-4.1' || lower === 'gpt-4o') return 'gpt-5-mini'
+  if (lower === 'gemini-2.5-pro' || lower === 'gemini-3-flash-preview') return 'gemini-3.7-flash'
 
   return bare
 }
@@ -168,10 +171,8 @@ export async function exchangeCopilotToken(
   const headers: Record<string, string> = {
     Authorization: `token ${githubAccessToken}`,
     Accept: 'application/json',
-    'User-Agent': provider.userAgent || DEFAULT_COPILOT_USER_AGENT,
-    'editor-version': DEFAULT_EDITOR_VERSION,
-    'editor-plugin-version': DEFAULT_EDITOR_PLUGIN_VERSION,
-    'Copilot-Integration-Id': DEFAULT_COPILOT_INTEGRATION_ID
+    'User-Agent': buildCopilotUserAgent(),
+    ...buildCopilotClientHeaders()
   }
 
   const result = (await ipcClient.invoke('api:request', {

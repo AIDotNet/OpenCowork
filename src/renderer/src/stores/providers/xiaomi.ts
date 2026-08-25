@@ -92,7 +92,7 @@ export const xiaomiPreset: BuiltinProviderPreset = {
   version: 1,
   name: '小米',
   type: 'openai-chat',
-  defaultBaseUrl: 'https://api.xiaomimimo.com/v1',
+  defaultBaseUrl: 'https://api.xiaomimimo.com/anthropic',
   homepage: 'https://platform.xiaomimimo.com/',
   apiKeyUrl: 'https://platform.xiaomimimo.com/',
   defaultModel: 'mimo-v2.5-pro',

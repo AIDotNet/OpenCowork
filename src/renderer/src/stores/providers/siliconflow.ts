@@ -1,13 +1,33 @@
+import type { ThinkingConfig } from '../../lib/api/types'
 import type { BuiltinProviderPreset } from './types'
+
+const deepseekV4ThinkingConfig: ThinkingConfig = {
+  bodyParams: { enable_thinking: true },
+  disabledBodyParams: { enable_thinking: false },
+  reasoningEffortLevels: ['high', 'max'],
+  defaultReasoningEffort: 'high'
+}
+
+const enableThinkingConfig: ThinkingConfig = {
+  bodyParams: { enable_thinking: true }
+}
+
+const kimiThinkingConfig: ThinkingConfig = {
+  bodyParams: { thinking: { type: 'enabled' } },
+  disabledBodyParams: { thinking: { type: 'disabled' } },
+  forceTemperature: 1
+}
 
 export const siliconflowPreset: BuiltinProviderPreset = {
   builtinId: 'siliconflow',
-  version: 2,
+  // v3: Kimi K3, GLM-5.1/5, LongCat 2.0, Hy3, DeepSeek V4 Flash-0731, Qwen3.6-27B
+  version: 3,
   name: '硅基流动',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.siliconflow.cn/v1',
   homepage: 'https://siliconflow.cn',
   apiKeyUrl: 'https://cloud.siliconflow.cn/account/ak',
+  defaultModel: 'moonshotai/Kimi-K3',
   defaultModels: [
     // ── DeepSeek ──
     {
@@ -15,38 +35,45 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       name: 'DeepSeek V4 Pro',
       icon: 'deepseek',
       enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 8_192,
+      contextLength: 1_048_576,
+      maxOutputTokens: 393_216,
       supportsVision: false,
       supportsFunctionCall: true,
-      inputPrice: 1.6,
+      inputPrice: 1.5,
       outputPrice: 3.135,
+      cacheHitPrice: 0.135,
       supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false },
-        reasoningEffortLevels: ['high', 'max'],
-        defaultReasoningEffort: 'high'
-      }
+      thinkingConfig: deepseekV4ThinkingConfig
+    },
+    {
+      id: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+      name: 'DeepSeek V4 Flash 0731',
+      icon: 'deepseek',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 393_216,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.13,
+      outputPrice: 0.28,
+      cacheHitPrice: 0.028,
+      supportsThinking: true,
+      thinkingConfig: deepseekV4ThinkingConfig
     },
     {
       id: 'deepseek-ai/DeepSeek-V4-Flash',
       name: 'DeepSeek V4 Flash',
       icon: 'deepseek',
       enabled: true,
-      contextLength: 1_000_000,
-      maxOutputTokens: 8_192,
+      contextLength: 1_048_576,
+      maxOutputTokens: 393_216,
       supportsVision: false,
       supportsFunctionCall: true,
       inputPrice: 0.13,
       outputPrice: 0.28,
+      cacheHitPrice: 0.028,
       supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { enable_thinking: true },
-        disabledBodyParams: { enable_thinking: false },
-        reasoningEffortLevels: ['high', 'max'],
-        defaultReasoningEffort: 'high'
-      }
+      thinkingConfig: deepseekV4ThinkingConfig
     },
     {
       id: 'deepseek-ai/DeepSeek-V3.2',
@@ -60,7 +87,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.27,
       outputPrice: 0.42,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'deepseek-ai/DeepSeek-V3.1',
@@ -74,7 +101,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.27,
       outputPrice: 1.0,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'deepseek-ai/DeepSeek-V3.1-Terminus',
@@ -88,9 +115,23 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.27,
       outputPrice: 1.0,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     // ── Qwen ──
+    {
+      id: 'Qwen/Qwen3.6-27B',
+      name: 'Qwen3.6 27B',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 262_144,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.3,
+      outputPrice: 3.2,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig
+    },
     {
       id: 'Qwen/Qwen3.6-35B-A3B',
       name: 'Qwen3.6 35B-A3B',
@@ -103,7 +144,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.2,
       outputPrice: 1.6,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'Qwen/Qwen3-235B-A22B',
@@ -117,7 +158,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.455,
       outputPrice: 1.82,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'Qwen/Qwen3-30B-A3B',
@@ -131,7 +172,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.08,
       outputPrice: 0.28,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'Qwen/Qwen3-8B',
@@ -145,7 +186,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       inputPrice: 0.05,
       outputPrice: 0.4,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } }
+      thinkingConfig: enableThinkingConfig
     },
     // ── GLM (智谱) ──
     {
@@ -154,11 +195,44 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       icon: 'chatglm',
       enabled: true,
       contextLength: 1_048_576,
-      maxOutputTokens: 8_192,
+      maxOutputTokens: 262_144,
       supportsVision: false,
       supportsFunctionCall: true,
       inputPrice: 1.302,
-      outputPrice: 4.092
+      outputPrice: 4.092,
+      cacheHitPrice: 0.26,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig
+    },
+    {
+      id: 'zai-org/GLM-5.1',
+      name: 'GLM-5.1',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 204_800,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 1.19,
+      outputPrice: 3.74,
+      cacheHitPrice: 0.6,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig
+    },
+    {
+      id: 'zai-org/GLM-5',
+      name: 'GLM-5',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 204_800,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.95,
+      outputPrice: 2.55,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig
     },
     {
       id: 'THUDM/GLM-4.5-Air',
@@ -186,22 +260,34 @@ export const siliconflowPreset: BuiltinProviderPreset = {
     },
     // ── Moonshot / Kimi ──
     {
+      id: 'moonshotai/Kimi-K3',
+      name: 'Kimi K3',
+      icon: 'kimi',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 262_144,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: kimiThinkingConfig,
+      inputPrice: 3,
+      outputPrice: 15,
+      cacheHitPrice: 0.3
+    },
+    {
       id: 'moonshotai/Kimi-K2.7-Code',
       name: 'Kimi K2.7 Code',
       icon: 'kimi',
       enabled: true,
       contextLength: 262_144,
-      maxOutputTokens: 8_192,
+      maxOutputTokens: 262_144,
       supportsVision: true,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      },
-      inputPrice: 0.94,
-      outputPrice: 4.0
+      thinkingConfig: kimiThinkingConfig,
+      inputPrice: 0.86,
+      outputPrice: 3.8,
+      cacheHitPrice: 0.18
     },
     {
       id: 'moonshotai/Kimi-K2.6',
@@ -209,17 +295,14 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       icon: 'kimi',
       enabled: true,
       contextLength: 262_144,
-      maxOutputTokens: 8_192,
+      maxOutputTokens: 262_144,
       supportsVision: true,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      },
-      inputPrice: 0.15,
-      outputPrice: 0.9
+      thinkingConfig: kimiThinkingConfig,
+      inputPrice: 0.77,
+      outputPrice: 3.4,
+      cacheHitPrice: 0.14
     },
     {
       id: 'moonshotai/Kimi-K2.5',
@@ -227,17 +310,14 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       icon: 'kimi',
       enabled: true,
       contextLength: 262_144,
-      maxOutputTokens: 8_192,
+      maxOutputTokens: 262_144,
       supportsVision: true,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } },
-        forceTemperature: 1
-      },
-      inputPrice: 0.23,
-      outputPrice: 3.0
+      thinkingConfig: kimiThinkingConfig,
+      inputPrice: 0.45,
+      outputPrice: 2.25,
+      cacheHitPrice: 0.07
     },
     {
       id: 'moonshotai/Kimi-K2-Instruct',
@@ -270,13 +350,29 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       icon: 'minimax',
       enabled: true,
       contextLength: 1_048_576,
-      maxOutputTokens: 16_384,
+      maxOutputTokens: 131_072,
       supportsVision: true,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } },
+      thinkingConfig: enableThinkingConfig,
       inputPrice: 0.3,
-      outputPrice: 1.2
+      outputPrice: 1.2,
+      cacheHitPrice: 0.06
+    },
+    {
+      id: 'MiniMaxAI/MiniMax-M2.5',
+      name: 'MiniMax M2.5',
+      icon: 'minimax',
+      enabled: true,
+      contextLength: 196_608,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig,
+      inputPrice: 0.3,
+      outputPrice: 1.2,
+      cacheHitPrice: 0.03
     },
     {
       id: 'MiniMaxAI/MiniMax-M2.1',
@@ -288,7 +384,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       supportsVision: false,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } },
+      thinkingConfig: enableThinkingConfig,
       inputPrice: 0.29,
       outputPrice: 1.2
     },
@@ -302,7 +398,7 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       supportsVision: false,
       supportsFunctionCall: true,
       supportsThinking: true,
-      thinkingConfig: { bodyParams: { enable_thinking: true } },
+      thinkingConfig: enableThinkingConfig,
       inputPrice: 0.3,
       outputPrice: 1.2
     },
@@ -344,6 +440,34 @@ export const siliconflowPreset: BuiltinProviderPreset = {
       outputPrice: 0.14
     },
     // ── 其他 ──
+    {
+      id: 'meituan-longcat/LongCat-2.0',
+      name: 'LongCat 2.0',
+      icon: 'longcat',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 131_072,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.75,
+      outputPrice: 2.95,
+      cacheHitPrice: 0.015
+    },
+    {
+      id: 'tencent/Hy3',
+      name: 'Hy3',
+      icon: 'hunyuan',
+      enabled: true,
+      contextLength: 262_144,
+      maxOutputTokens: 262_144,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.132,
+      outputPrice: 0.528,
+      cacheHitPrice: 0.033,
+      supportsThinking: true,
+      thinkingConfig: enableThinkingConfig
+    },
     {
       id: 'baidu/ERNIE-4.5-300B-A47B',
       name: 'ERNIE 4.5 300B',

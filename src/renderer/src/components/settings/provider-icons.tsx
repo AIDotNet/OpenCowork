@@ -36,7 +36,24 @@ const providerIconSlugMap: Record<string, string> = {
   'xiaomi-coding': 'xiaomimimo',
   'bigmodel-coding': 'chatglm',
   bigmodel: 'chatglm',
-  xai: 'xai'
+  xai: 'xai',
+  hunyuan: 'hunyuan',
+  stepfun: 'stepfun',
+  'stepfun-plan': 'stepfun',
+  mistral: 'mistral',
+  meta: 'meta',
+  groq: 'groq',
+  'vertex-ai': 'vertexai',
+  lmstudio: 'lmstudio',
+  nvidia: 'nvidia',
+  cerebras: 'cerebras',
+  together: 'together',
+  fireworks: 'fireworks',
+  modelscope: 'modelscope',
+  ppio: 'ppio',
+  novita: 'novita',
+  infini: 'infiniai',
+  huggingface: 'huggingface'
 }
 
 const modelIconSlugMap: Record<string, string> = {
@@ -67,7 +84,15 @@ const modelIconSlugMap: Record<string, string> = {
   doubao: 'doubao',
   ollama: 'ollama',
   siliconcloud: 'siliconcloud',
-  longcat: 'longcat'
+  longcat: 'longcat',
+  groq: 'groq',
+  cerebras: 'cerebras',
+  together: 'together',
+  fireworks: 'fireworks',
+  modelscope: 'modelscope',
+  huggingface: 'huggingface',
+  muse: 'meta',
+  hy3: 'hunyuan'
 }
 
 const colorIconSlugs = new Set([
@@ -146,6 +171,9 @@ function detectModelIconKey(modelId: string): string | undefined {
   if (/\bnemotron/.test(id) || /\bnvidia/.test(id)) return 'nvidia'
   if (/\bstep[0-9]/.test(id) || /\bstepfun/.test(id)) return 'stepfun'
   if (/\bdoubao/.test(id)) return 'doubao'
+  if (/\bhy3\b/.test(id)) return 'hunyuan'
+  if (/\bmuse[-]?spark/.test(id)) return 'meta'
+  if (/\bgroq/.test(id)) return 'groq'
   return undefined
 }
 

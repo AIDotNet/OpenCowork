@@ -6,6 +6,8 @@ import { groupTranscriptMessages } from '../lib/sub-agent-display.js'
 import { fitText, padText, stripTerminalPreviewControls } from '../lib/text.js'
 import { theme } from '../theme.js'
 import type { AssistantContentSegment, Message, ToolDiff, ToolDiffLine } from '../types.js'
+import { MARKDOWN_GUTTER } from '../lib/markdown-layout.js'
+import { TerminalMarkdown } from './markdown.js'
 import { ShimmerText } from './shimmer-text.js'
 import { Spinner } from './spinner.js'
 import { SubAgentBlock } from './sub-agent-block.js'
@@ -227,8 +229,11 @@ function TranscriptMessage({
             )
           }
 
+          // The bullet/spinner column plus its separating space; the markdown body owns
+          // the rest. lib/markdown-layout.ts measures the body at this same width.
+          const bodyWidth = Math.max(1, width - MARKDOWN_GUTTER)
           return (
-            <Box key={`${message.id}-text-${index}`}>
+            <Box alignItems="flex-start" key={`${message.id}-text-${index}`}>
               {active && !hideStreamingStatus ? (
                 <Spinner />
               ) : (
@@ -236,10 +241,10 @@ function TranscriptMessage({
                   ●
                 </Text>
               )}
-              <Text color={theme.text} wrap="wrap">
-                {' '}
-                {segment.text}
-              </Text>
+              <Text> </Text>
+              <Box flexDirection="column" width={bodyWidth}>
+                <TerminalMarkdown text={segment.text} width={bodyWidth} />
+              </Box>
             </Box>
           )
         })}

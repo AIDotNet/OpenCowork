@@ -2,13 +2,14 @@ import type { BuiltinProviderPreset } from './types'
 
 export const openaiPreset: BuiltinProviderPreset = {
   builtinId: 'openai',
-  // v3: GPT models default to the 272K short-context tier with an opt-in 1M window
-  version: 3,
+  // v4: GPT-5.6 Sol/Terra/Luna first; Sol promo $4/$20 (through 2026-11-21); add 5.4/5.5 Pro
+  version: 4,
   name: 'OpenAI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.openai.com/v1',
   homepage: 'https://openai.com',
   apiKeyUrl: 'https://platform.openai.com/api-keys',
+  defaultModel: 'gpt-5.6-sol',
   deprecatedModelIds: [
     'gpt-5-codex',
     'gpt-5.1-codex',
@@ -19,6 +20,86 @@ export const openaiPreset: BuiltinProviderPreset = {
     'dall-e-3'
   ],
   defaultModels: [
+    // GPT-5.6 family (current flagship). Short-context prices; prompts >272K input are 2x/1.5x.
+    // Sol promo $4/$20 is guaranteed at least through 2026-11-21.
+    {
+      id: 'gpt-5.6-sol',
+      name: 'GPT 5.6 Sol',
+      icon: 'openai',
+      enabled: true,
+      serviceTier: 'priority',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 4,
+      outputPrice: 20,
+      cacheCreationPrice: 5,
+      cacheHitPrice: 0.4,
+      supportsThinking: true,
+      supportsComputerUse: true,
+      thinkingConfig: {
+        bodyParams: {},
+        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
+        // automatic subagent task delegation); Terra and Sol expose it.
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: 'gpt-5.6-terra',
+      name: 'GPT 5.6 Terra',
+      icon: 'openai',
+      enabled: true,
+      serviceTier: 'priority',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 2,
+      outputPrice: 12,
+      cacheCreationPrice: 2.5,
+      cacheHitPrice: 0.2,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
+      id: 'gpt-5.6-luna',
+      name: 'GPT 5.6 Luna',
+      icon: 'openai',
+      enabled: true,
+      serviceTier: 'priority',
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 0.2,
+      outputPrice: 1.2,
+      cacheCreationPrice: 0.25,
+      cacheHitPrice: 0.02,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'medium'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
     // GPT-5 family (cache: 90% off input)
     {
       id: 'gpt-5.2',
@@ -313,6 +394,29 @@ export const openaiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
+      id: 'gpt-5.4-pro',
+      name: 'GPT 5.4 Pro',
+      icon: 'openai',
+      enabled: true,
+      contextLength: 1_050_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: false,
+      inputPrice: 30,
+      outputPrice: 180,
+      cacheHitPrice: 30,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
+      },
+      responseSummary: 'detailed',
+      enablePromptCache: true,
+      enableSystemPromptCache: true,
+      type: 'openai-responses'
+    },
+    {
       id: 'gpt-5.5',
       name: 'GPT 5.5',
       icon: 'openai',
@@ -338,82 +442,22 @@ export const openaiPreset: BuiltinProviderPreset = {
       type: 'openai-responses'
     },
     {
-      id: 'gpt-5.6-luna',
-      name: 'GPT 5.6 Luna',
+      id: 'gpt-5.5-pro',
+      name: 'GPT 5.5 Pro',
       icon: 'openai',
       enabled: true,
-      serviceTier: 'priority',
-      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
-      contextLength: 372_000,
+      contextLength: 1_050_000,
       maxOutputTokens: 128_000,
       supportsVision: true,
       supportsFunctionCall: false,
-      inputPrice: 0.2,
-      outputPrice: 1.2,
-      cacheCreationPrice: 0.25,
-      cacheHitPrice: 0.02,
+      inputPrice: 30,
+      outputPrice: 180,
+      cacheHitPrice: 30,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: {},
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true,
-      type: 'openai-responses'
-    },
-    {
-      id: 'gpt-5.6-terra',
-      name: 'GPT 5.6 Terra',
-      icon: 'openai',
-      enabled: true,
-      serviceTier: 'priority',
-      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
-      contextLength: 372_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 2,
-      outputPrice: 12,
-      cacheCreationPrice: 2.5,
-      cacheHitPrice: 0.2,
-      supportsThinking: true,
-      thinkingConfig: {
-        bodyParams: {},
-        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
-        // automatic subagent task delegation); Terra and Sol expose it.
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'medium'
-      },
-      responseSummary: 'detailed',
-      enablePromptCache: true,
-      enableSystemPromptCache: true,
-      type: 'openai-responses'
-    },
-    {
-      id: 'gpt-5.6-sol',
-      name: 'GPT 5.6 Sol',
-      icon: 'openai',
-      enabled: true,
-      serviceTier: 'priority',
-      // Synced with Codex's model catalog: 400K total window − 128K reserved output.
-      contextLength: 372_000,
-      maxOutputTokens: 128_000,
-      supportsVision: true,
-      supportsFunctionCall: false,
-      inputPrice: 5,
-      outputPrice: 30,
-      cacheCreationPrice: 6.25,
-      cacheHitPrice: 0.5,
-      supportsThinking: true,
-      supportsComputerUse: true,
-      thinkingConfig: {
-        bodyParams: {},
-        // 'ultra' selects the Responses API "pro" reasoning mode (max reasoning +
-        // automatic subagent task delegation); Terra and Sol expose it.
-        reasoningEffortLevels: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
-        defaultReasoningEffort: 'medium'
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'],
+        defaultReasoningEffort: 'high'
       },
       responseSummary: 'detailed',
       enablePromptCache: true,

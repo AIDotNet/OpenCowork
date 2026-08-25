@@ -7,6 +7,15 @@ import type {
   ProviderSetupProtocol
 } from '../types.js'
 import {
+  applyOpenCoworkImportDocument,
+  documentFromV1Credential,
+  documentNeedsConfigRef,
+  fetchOpenCoworkImportConfigRef,
+  providerImportKey,
+  type OpenCoworkImportCallbackParse,
+  type OpenCoworkImportDocument
+} from '../vendor/opencowork-import-protocol.js'
+import {
   OPENCOWORK_DEVICE_LOGIN_URL,
   classifyRoutinCredential
 } from '../vendor/routin-credential.js'
@@ -545,23 +554,120 @@ function routinCredentialsChanged(
 
 /** Persist a Routin key received from the browser device-login localhost callback. */
 export function applyRoutinDeviceLoginCredential(apiKey: string): ModelSelection {
-  const classified = classifyRoutinCredential(apiKey)
-  const catalog = loadProviderSetupCatalog()
-  const option =
-    catalog.options.find((candidate) => candidate.builtinId === classified.builtinId) ??
-    catalog.options.find((candidate) => candidate.key === `builtin:${classified.builtinId}`)
-  if (!option) {
-    throw new Error(`Routin preset “${classified.builtinId}” is unavailable in provider setup.`)
-  }
-  return persistProviderSetup({
-    optionKey: option.key,
-    name: option.name,
-    baseUrl: option.baseUrl || classified.baseUrl,
-    modelId:
-      option.defaultModelId ||
-      (classified.builtinId === 'routin-ai-plan' ? 'gpt-5.5' : 'deepseek-v4-flash'),
-    apiKey: apiKey.trim()
+  return applyOpenCoworkImportDocumentToStore(documentFromV1Credential(apiKey)).selection
+}
+
+export function applyOpenCoworkImportDocumentToStore(document: OpenCoworkImportDocument): {
+  selection: ModelSelection
+  importedCount: number
+  skippedCount: number
+} {
+  const configuration = loadOpenCoworkConfiguration()
+  const applied = applyOpenCoworkImportDocument(configuration.providerStore, document, {
+    createId: () => randomUUID()
   })
+  if (applied.applied.length === 0) {
+    const reason = applied.skipped[0]?.reason || 'import payload did not contain a usable channel'
+    throw new Error(reason)
+  }
+  persistProviderStoreState(applied.state)
+  const first = applied.applied[0]
+  const provider = (Array.isArray(applied.state.providers) ? applied.state.providers : [])
+    .filter(isRecord)
+    .find((item) => stringValue(item.id) === first.providerId)
+  const models = Array.isArray(provider?.models) ? provider.models.filter(isRecord) : []
+  const model = models.find((item) => stringValue(item.id) === first.modelId)
+  return {
+    selection: {
+      providerId: first.providerId,
+      providerName: first.providerName,
+      modelId: first.modelId,
+      modelName: stringValue(model?.name) || first.modelId
+    },
+    importedCount: applied.applied.length,
+    skippedCount: applied.skipped.length
+  }
+}
+
+export async function applyOpenCoworkDeviceLoginImport(
+  parsed: OpenCoworkImportCallbackParse
+): Promise<ModelSelection> {
+  const document =
+    parsed.kind === 'v1-credential' ? documentFromV1Credential(parsed.apiKey) : parsed.document
+  const resolved =
+    documentNeedsConfigRef(document) && document.configRef
+      ? await fetchOpenCoworkImportConfigRef(document.configRef)
+      : document
+  return applyOpenCoworkImportDocumentToStore(resolved).selection
+}
+
+/** Fingerprint of saved provider keys (import key → apiKey) for login-wait change detection. */
+export function snapshotImportCredentials(): Record<string, string> {
+  const configuration = loadOpenCoworkConfiguration()
+  const providers = Array.isArray(configuration.providerStore.providers)
+    ? configuration.providerStore.providers.filter(isRecord)
+    : []
+  const snapshot: Record<string, string> = {}
+  for (const provider of providers) {
+    const key = providerImportKey({
+      builtinId: stringValue(provider.builtinId) || undefined,
+      importKey: stringValue(provider.importKey) || undefined,
+      id: stringValue(provider.id) || undefined
+    })
+    const apiKey = stringValue(provider.apiKey)
+    if (key && apiKey) snapshot[key] = apiKey
+  }
+  return snapshot
+}
+
+function importCredentialsChanged(
+  previous: Record<string, string> | undefined,
+  current: Record<string, string>
+): boolean {
+  if (!previous) return Object.keys(current).length > 0
+  const keys = new Set([...Object.keys(previous), ...Object.keys(current)])
+  for (const key of keys) {
+    if ((previous[key] ?? '') !== (current[key] ?? '')) return true
+  }
+  return false
+}
+
+export function findReadyImportSelection(options?: {
+  previous?: Record<string, string>
+  requireChange?: boolean
+}): ModelSelection | null {
+  const configuration = loadOpenCoworkConfiguration()
+  const providers = Array.isArray(configuration.providerStore.providers)
+    ? configuration.providerStore.providers.filter(isRecord)
+    : []
+  const activeProviderId = stringValue(configuration.providerStore.activeProviderId)
+  const activeModelId = stringValue(configuration.providerStore.activeModelId)
+  const ready = providers.filter((provider) => {
+    if (provider.enabled === false) return false
+    const requiresApiKey = provider.requiresApiKey !== false
+    return !requiresApiKey || Boolean(stringValue(provider.apiKey))
+  })
+  if (ready.length === 0) return null
+
+  const current = snapshotImportCredentials()
+  if (options?.requireChange && !importCredentialsChanged(options.previous, current)) {
+    return null
+  }
+
+  const preferred =
+    ready.find((provider) => stringValue(provider.id) === activeProviderId) ?? ready[0]
+  const model = resolveDefaultModel(
+    preferred,
+    stringValue(preferred.id) === activeProviderId ? activeModelId : ''
+  )
+  const modelId = stringValue(model?.id) || stringValue(preferred.defaultModel)
+  if (!modelId) return null
+  return {
+    providerId: stringValue(preferred.id),
+    providerName: stringValue(preferred.name) || stringValue(preferred.builtinId),
+    modelId,
+    modelName: stringValue(model?.name) || modelId
+  }
 }
 
 /**

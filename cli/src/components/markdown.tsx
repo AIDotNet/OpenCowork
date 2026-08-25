@@ -1,10 +1,39 @@
 ﻿import React from 'react'
-import { highlight, supportsLanguage } from 'cli-highlight'
+import { createRequire } from 'node:module'
 import { Box, Text } from 'ink'
-import { Lexer, type Token, type Tokens } from 'marked'
+import { type Token, type Tokens } from 'marked'
 import stringWidth from 'string-width'
-import { fitText, padText, stripTerminalPreviewControls } from '../lib/text.js'
+import {
+  blockMarginRows,
+  imageLabel,
+  lexMarkdown,
+  linkSuffix,
+  sanitizeMarkdown,
+  stripHtml,
+  tableLayout,
+  visibleMarkdownTokens
+} from '../lib/markdown-layout.js'
+import { fitText, padText } from '../lib/text.js'
 import { theme } from '../theme.js'
+
+type Highlighter = typeof import('cli-highlight')
+
+let highlighter: Highlighter | null | undefined
+
+/**
+ * `cli-highlight` pulls in highlight.js (191 language modules) and parse5. Loading that
+ * eagerly would cost every CLI start, including sessions that never print a fenced code
+ * block, so it is required on first use and a failure degrades to unhighlighted source.
+ */
+function loadHighlighter(): Highlighter | null {
+  if (highlighter !== undefined) return highlighter
+  try {
+    highlighter = createRequire(import.meta.url)('cli-highlight') as Highlighter
+  } catch {
+    highlighter = null
+  }
+  return highlighter
+}
 
 interface TerminalMarkdownProps {
   text: string
@@ -36,10 +65,6 @@ const languageAliases: Record<string, string> = {
 
 const listBullets = ['•', '◦', '▪']
 
-function sanitizeMarkdown(value: string): string {
-  return stripTerminalPreviewControls(value.replace(/\r\n?/gu, '\n'))
-}
-
 function normalizeLanguage(value: string | undefined): string | undefined {
   const info = value?.trim().split(/\s+/u)[0]
   if (!info) return undefined
@@ -53,38 +78,14 @@ function normalizeLanguage(value: string | undefined): string | undefined {
 }
 
 function highlightedCode(value: string, language: string | undefined): string {
-  if (!value || !language || !supportsLanguage(language)) return value
+  if (!value || !language) return value
+  const cli = loadHighlighter()
+  if (!cli?.supportsLanguage(language)) return value
   try {
-    return highlight(value, { ignoreIllegals: true, language })
+    return cli.highlight(value, { ignoreIllegals: true, language })
   } catch {
     return value
   }
-}
-
-function inlinePlainText(tokens: Token[] | undefined): string {
-  if (!tokens) return ''
-
-  return tokens
-    .map((token) => {
-      if (token.type === 'br') return '\n'
-      if (token.type === 'image') {
-        const image = token as Tokens.Image
-        return image.text || image.href
-      }
-      if ('tokens' in token && Array.isArray(token.tokens)) {
-        return inlinePlainText(token.tokens)
-      }
-      if ('text' in token && typeof token.text === 'string') return token.text
-      return ''
-    })
-    .join('')
-}
-
-function stripHtml(value: string): string {
-  return value
-    .replace(/<br\s*\/?\s*>/giu, '\n')
-    .replace(/<[^>]+>/gu, '')
-    .trim()
 }
 
 function InlineMarkdown({
@@ -139,25 +140,21 @@ function InlineMarkdown({
 
         if (token.type === 'link') {
           const link = token as Tokens.Link
-          const label = inlinePlainText(link.tokens).trim()
-          const target = link.href.trim()
-          const showTarget = Boolean(target && label !== target)
+          const suffix = linkSuffix(link)
           return (
             <Text key={key}>
               <Text color={theme.accent} underline>
                 <InlineMarkdown keyPrefix={key} tokens={link.tokens} />
               </Text>
-              {showTarget ? <Text color={theme.dim}> ({target})</Text> : null}
+              {suffix ? <Text color={theme.dim}>{suffix}</Text> : null}
             </Text>
           )
         }
 
         if (token.type === 'image') {
-          const image = token as Tokens.Image
           return (
             <Text color={theme.muted} key={key}>
-              ▣ {image.text || 'image'}
-              {image.href ? <Text color={theme.dim}> ({image.href})</Text> : null}
+              {imageLabel(token as Tokens.Image)}
             </Text>
           )
         }
@@ -278,19 +275,6 @@ function MarkdownList({
   )
 }
 
-function allocateColumnWidths(preferred: number[], available: number): number[] {
-  const widths = preferred.map((value) => Math.max(1, value))
-  while (widths.reduce((sum, value) => sum + value, 0) > available) {
-    let widestIndex = 0
-    for (let index = 1; index < widths.length; index += 1) {
-      if ((widths[index] ?? 0) > (widths[widestIndex] ?? 0)) widestIndex = index
-    }
-    if ((widths[widestIndex] ?? 1) <= 1) break
-    widths[widestIndex] = (widths[widestIndex] ?? 1) - 1
-  }
-  return widths
-}
-
 function alignedCell(value: string, width: number, alignment: Tokens.TableCell['align']): string {
   const fitted = fitText(value, width)
   const padding = Math.max(0, width - stringWidth(fitted))
@@ -303,18 +287,9 @@ function alignedCell(value: string, width: number, alignment: Tokens.TableCell['
 }
 
 function MarkdownTable({ token, width }: { token: Tokens.Table; width: number }): React.JSX.Element {
-  const columnCount = Math.max(token.header.length, ...token.rows.map((row) => row.length))
-  const allRows = [token.header, ...token.rows]
-  const textRows = allRows.map((row) =>
-    Array.from({ length: columnCount }, (_, index) => {
-      const cell = row[index]
-      return cell ? inlinePlainText(cell.tokens).replace(/\s+/gu, ' ').trim() : ''
-    })
-  )
-  const overhead = columnCount * 3 + 1
-  const available = width - overhead
+  const { compact, rows: textRows, widths } = tableLayout(token, width)
 
-  if (columnCount === 0 || available < columnCount) {
+  if (compact) {
     return (
       <Box flexDirection="column" width={width}>
         {textRows.map((row, index) => (
@@ -326,10 +301,6 @@ function MarkdownTable({ token, width }: { token: Tokens.Table; width: number })
     )
   }
 
-  const preferred = Array.from({ length: columnCount }, (_, column) =>
-    Math.max(1, ...textRows.map((row) => stringWidth(row[column] ?? '')))
-  )
-  const widths = allocateColumnWidths(preferred, available)
   const border = (left: string, middle: string, right: string): string =>
     `${left}${widths.map((cellWidth) => '─'.repeat(cellWidth + 2)).join(middle)}${right}`
   const rowText = (row: string[], cells: Tokens.TableCell[]): string =>
@@ -448,21 +419,13 @@ function MarkdownBlock({
   ) : null
 }
 
-function blockMarginTop(token: Token, index: number, compact: boolean): number {
-  if (index === 0) return 0
-  if (compact && (token.type === 'text' || token.type === 'paragraph' || token.type === 'list')) {
-    return 0
-  }
-  return 1
-}
-
 function MarkdownBlocks({
   compact = false,
   depth = 0,
   tokens,
   width
 }: MarkdownBlocksProps): React.JSX.Element {
-  const visibleTokens = tokens.filter((token) => token.type !== 'space' && token.type !== 'def')
+  const visibleTokens = visibleMarkdownTokens(tokens)
 
   return (
     <Box flexDirection="column" width={width}>
@@ -470,7 +433,7 @@ function MarkdownBlocks({
         <Box
           flexDirection="column"
           key={`${index}-${token.type}-${token.raw}`}
-          marginTop={blockMarginTop(token, index, compact)}
+          marginTop={blockMarginRows(token, index, compact)}
           width={width}
         >
           <MarkdownBlock depth={depth} token={token} width={width} />
@@ -480,23 +443,12 @@ function MarkdownBlocks({
   )
 }
 
+/**
+ * Renders markdown at a fixed width. Parsing goes through the shared cache in
+ * `lib/markdown-layout.ts` so the transcript viewport measures exactly the token list
+ * that gets mounted here.
+ */
 export function TerminalMarkdown({ text, width }: TerminalMarkdownProps): React.JSX.Element {
-  const safeText = React.useMemo(() => sanitizeMarkdown(text), [text])
-  const parsed = React.useMemo(() => {
-    try {
-      return { tokens: Lexer.lex(safeText, { breaks: false, gfm: true }) as Token[] }
-    } catch {
-      return { fallback: safeText, tokens: [] as Token[] }
-    }
-  }, [safeText])
-
-  if (parsed.fallback !== undefined) {
-    return (
-      <Text color={theme.text} wrap="wrap">
-        {parsed.fallback}
-      </Text>
-    )
-  }
-
-  return <MarkdownBlocks tokens={parsed.tokens} width={Math.max(1, width)} />
+  const tokens = React.useMemo(() => lexMarkdown(text), [text])
+  return <MarkdownBlocks tokens={tokens} width={Math.max(1, width)} />
 }

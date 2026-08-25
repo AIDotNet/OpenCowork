@@ -44,6 +44,15 @@ const SHARED_FILES = [
   {
     source: 'src/shared/routin-credential.ts',
     target: 'routin-credential.ts'
+  },
+  {
+    source: 'src/shared/opencowork-import-protocol.ts',
+    target: 'opencowork-import-protocol.ts',
+    rewrites: [["'./routin-credential'", "'./routin-credential.js'"]]
+  },
+  {
+    source: 'src/shared/oauth-client-identity.ts',
+    target: 'oauth-client-identity.ts'
   }
 ]
 

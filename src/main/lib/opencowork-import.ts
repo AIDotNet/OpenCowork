@@ -1,9 +1,14 @@
 import { randomUUID } from 'crypto'
 import { BrowserWindow } from 'electron'
 import {
-  parseOpenCoworkImportUrl,
-  type RoutinCredentialClassification
-} from '../../shared/routin-credential'
+  applyOpenCoworkImportDocument,
+  documentNeedsConfigRef,
+  fetchOpenCoworkImportConfigRef,
+  isOpenCoworkImportUrl,
+  parseOpenCoworkImportUrlDocument,
+  type ApplyOpenCoworkImportResult,
+  type OpenCoworkImportDocument
+} from '../../shared/opencowork-import-protocol'
 import { readPersistedProviderStore, writePersistedProviderStore } from './ai-provider-store'
 
 type JsonRecord = Record<string, unknown>
@@ -12,134 +17,50 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
-function defaultModelFor(classification: RoutinCredentialClassification): JsonRecord {
-  if (classification.builtinId === 'routin-ai-plan') {
-    return {
-      id: 'gpt-5.5',
-      name: 'GPT 5.5',
-      enabled: true,
-      contextLength: 400_000,
-      maxOutputTokens: 128_000,
-      supportsFunctionCall: true,
-      supportsVision: true,
-      supportsThinking: true
-    }
-  }
-  return {
-    id: 'deepseek-v4-flash',
-    name: 'DeepSeek V4 Flash',
-    enabled: true,
-    contextLength: 1_000_000,
-    maxOutputTokens: 384_000,
-    supportsFunctionCall: true,
-    supportsThinking: true,
-    thinkingConfig: {
-      bodyParams: { thinking: { type: 'enabled' } },
-      disabledBodyParams: { thinking: { type: 'disabled' } },
-      reasoningEffortLevels: ['low', 'high', 'max'],
-      defaultReasoningEffort: 'high'
-    }
-  }
-}
-
-function broadcastProviderImported(payload: {
-  builtinId: string
-  providerId: string
+export interface OpenCoworkImportApplyResult {
+  builtinId?: string
   modelId: string
-}): void {
+  providerId: string
+  providerName: string
+  importedCount: number
+  skippedCount: number
+}
+
+function broadcastProviderImported(payload: OpenCoworkImportApplyResult): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue
     win.webContents.send('ai-provider:imported', payload)
   }
 }
 
-/**
- * Apply a Routin device-login deep link into the shared ~/.open-cowork/ai-provider store.
- * Returns null when the URL is not an OpenCowork import link.
- */
-export function applyOpenCoworkImportUrl(rawUrl: string): {
-  builtinId: string
-  modelId: string
-  providerId: string
-  providerName: string
-} | null {
-  const parsed = parseOpenCoworkImportUrl(rawUrl)
-  if (!parsed) return null
-
-  const { apiKey, classification } = parsed
+function persistApplyResult(
+  applied: ApplyOpenCoworkImportResult
+): OpenCoworkImportApplyResult | null {
+  if (applied.applied.length === 0) return null
+  const first = applied.applied[0]
   const persisted = readPersistedProviderStore() ?? { state: {}, version: 0 }
-  const state = isRecord(persisted.state) ? { ...persisted.state } : {}
-  const providers = Array.isArray(state.providers)
-    ? state.providers.filter(isRecord).map((provider) => ({ ...provider }))
-    : []
-
-  const existingIndex = providers.findIndex(
-    (provider) => stringValue(provider.builtinId) === classification.builtinId
-  )
-  const model = defaultModelFor(classification)
-  const modelId = stringValue(model.id)
-  let providerId = ''
-
-  if (existingIndex >= 0) {
-    const existing = providers[existingIndex]
-    providerId = stringValue(existing.id) || randomUUID()
-    const models = Array.isArray(existing.models) ? existing.models.filter(isRecord) : []
-    const hasModel = models.some((candidate) => stringValue(candidate.id) === modelId)
-    providers[existingIndex] = {
-      ...existing,
-      id: providerId,
-      name: stringValue(existing.name) || classification.name,
-      type: stringValue(existing.type) || 'openai-chat',
-      apiKey,
-      baseUrl: classification.baseUrl,
-      enabled: true,
-      builtinId: classification.builtinId,
-      requiresApiKey: true,
-      authMode: 'apiKey',
-      defaultModel: modelId,
-      models: hasModel ? models : [...models, model]
-    }
-  } else {
-    providerId = randomUUID()
-    providers.push({
-      id: providerId,
-      name: classification.name,
-      type: 'openai-chat',
-      apiKey,
-      baseUrl: classification.baseUrl,
-      enabled: true,
-      models: [model],
-      builtinId: classification.builtinId,
-      presetVersion: 0,
-      createdAt: Date.now(),
-      requiresApiKey: true,
-      authMode: 'apiKey',
-      defaultModel: modelId
-    })
-  }
-
   writePersistedProviderStore({
-    state: {
-      ...state,
-      providers,
-      activeProviderId: providerId,
-      activeModelId: modelId
-    },
+    state: applied.state,
     version: typeof persisted.version === 'number' ? persisted.version : 0
   })
-
-  const result = {
-    builtinId: classification.builtinId,
-    modelId,
-    providerId,
-    providerName: classification.name
+  const result: OpenCoworkImportApplyResult = {
+    ...(first.builtinId ? { builtinId: first.builtinId } : {}),
+    modelId: first.modelId,
+    providerId: first.providerId,
+    providerName:
+      applied.applied.length === 1 ? first.providerName : `${applied.applied.length} providers`,
+    importedCount: applied.applied.length,
+    skippedCount: applied.skipped.length
   }
   broadcastProviderImported(result)
   return result
+}
+
+async function resolveImportDocument(
+  document: OpenCoworkImportDocument
+): Promise<OpenCoworkImportDocument> {
+  if (!documentNeedsConfigRef(document) || !document.configRef) return document
+  return fetchOpenCoworkImportConfigRef(document.configRef)
 }
 
 export function findOpenCoworkImportUrl(candidates: string[]): string | null {
@@ -148,4 +69,25 @@ export function findOpenCoworkImportUrl(candidates: string[]): string | null {
     if (candidate.startsWith('opencowork:')) return candidate
   }
   return null
+}
+
+export { isOpenCoworkImportUrl }
+
+/**
+ * Apply a device-login deep link into the shared ~/.open-cowork/ai-provider store.
+ * Returns null when the URL is not an OpenCowork import link or nothing could be written.
+ */
+export async function applyOpenCoworkImportUrl(
+  rawUrl: string
+): Promise<OpenCoworkImportApplyResult | null> {
+  const parsed = parseOpenCoworkImportUrlDocument(rawUrl)
+  if (!parsed) return null
+
+  const document = await resolveImportDocument(parsed)
+  const persisted = readPersistedProviderStore() ?? { state: {}, version: 0 }
+  const state = isRecord(persisted.state) ? { ...persisted.state } : {}
+  const applied = applyOpenCoworkImportDocument(state, document, {
+    createId: () => randomUUID()
+  })
+  return persistApplyResult(applied)
 }

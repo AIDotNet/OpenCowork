@@ -2,20 +2,21 @@ import type { BuiltinProviderPreset } from './types'
 
 export const anthropicPreset: BuiltinProviderPreset = {
   builtinId: 'anthropic',
-  // v2: server-tool capability flags (supportsBuiltinSearch)
-  version: 2,
+  // v3: add Claude Opus 5 (official current lineup: Fable 5 / Opus 5 / Sonnet 5 / Haiku 4.5)
+  version: 3,
   name: 'Anthropic',
   type: 'anthropic',
   defaultBaseUrl: 'https://api.anthropic.com',
   homepage: 'https://anthropic.com',
   apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+  defaultModel: 'claude-opus-5',
   deprecatedModelIds: [
     'claude-opus-4-20250514',
     'claude-sonnet-4-20250514',
     'claude-3-5-haiku-20241022'
   ],
   defaultModels: [
-    // Claude Fable 5 (flagship-tier, above Opus 4.8 — always-on adaptive thinking, 1M context)
+    // Claude Fable 5 (highest capability — always-on adaptive thinking, 1M context)
     {
       id: 'claude-fable-5',
       name: 'Claude Fable 5',
@@ -29,6 +30,28 @@ export const anthropicPreset: BuiltinProviderPreset = {
       outputPrice: 50,
       cacheCreationPrice: 12.5,
       cacheHitPrice: 1,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    // Claude Opus 5 (recommended default — adaptive thinking, 1M context)
+    {
+      id: 'claude-opus-5',
+      name: 'Claude Opus 5',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 5,
+      outputPrice: 25,
+      cacheCreationPrice: 6.25,
+      cacheHitPrice: 0.5,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'adaptive' } },

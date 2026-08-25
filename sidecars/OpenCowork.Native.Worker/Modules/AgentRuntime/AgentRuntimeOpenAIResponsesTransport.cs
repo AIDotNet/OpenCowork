@@ -423,8 +423,38 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             return false;
         }
+        var path = uri.AbsolutePath.TrimEnd('/');
         return uri.Host.Equals("chatgpt.com", StringComparison.OrdinalIgnoreCase) &&
-            uri.AbsolutePath.TrimEnd('/').Equals("/backend-api/codex", StringComparison.OrdinalIgnoreCase);
+            (path.Equals("/backend-api/codex", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("/backend-api/codex/", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string WithCodexClientVersion(string url, JsonElement provider)
+    {
+        if (!IsChatGptCodexBackend(url) ||
+            url.Contains("client_version=", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        var userAgent = JsonHelpers.GetString(provider, "userAgent");
+        var version = ExtractCodexClientVersion(userAgent);
+        var separator = url.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{url}{separator}client_version={Uri.EscapeDataString(version)}";
+    }
+
+    private static string ExtractCodexClientVersion(string? userAgent)
+    {
+        if (string.IsNullOrWhiteSpace(userAgent))
+        {
+            return "0.149.1";
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            userAgent,
+            @"codex_cli_rs/(\d+(?:\.\d+)*)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : "0.149.1";
     }
 
 }

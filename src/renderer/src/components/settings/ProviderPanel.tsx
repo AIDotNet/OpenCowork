@@ -65,6 +65,12 @@ import {
 } from '@renderer/stores/provider-store'
 import { GPT_LONG_CONTEXT_LENGTH } from '../../../../shared/gpt-context'
 import {
+  applyOauthClientIdentityHeaders,
+  resolveOauthForwardUserAgent,
+  withCodexClientVersion
+} from '../../../../shared/oauth-client-identity'
+import { getOauthClientPlatform } from '@renderer/lib/auth/oauth-client-platform'
+import {
   useQuotaStore,
   type CodexQuota,
   type CodexQuotaWindow,
@@ -545,13 +551,11 @@ function buildManagedModelProviderSourceIndex(
 
 // --- Fetch models from provider API ---
 
-// The ChatGPT Codex backend requires a client_version query param (the version Codex CLI reports).
-const CODEX_CLIENT_VERSION_FALLBACK = '0.144.5'
-
-function withCodexClientVersion(url: string, userAgent?: string): string {
-  const version =
-    userAgent?.match(/codex_cli_rs\/(\d+(?:\.\d+)*)/i)?.[1] ?? CODEX_CLIENT_VERSION_FALLBACK
-  return `${url}${url.includes('?') ? '&' : '?'}client_version=${encodeURIComponent(version)}`
+function resolveForwardUserAgent(builtinId?: string, userAgent?: string): string {
+  return (
+    resolveOauthForwardUserAgent(builtinId, userAgent, getOauthClientPlatform()) ??
+    resolveProviderUserAgent(userAgent)
+  )
 }
 
 async function fetchModelsFromProvider(
@@ -564,7 +568,7 @@ async function fetchModelsFromProvider(
   oauth?: AIProvider['oauth']
 ): Promise<AIModelConfig[]> {
   const useAnthropicCompatAuth = builtinId === 'longcat'
-  const resolvedUserAgent = resolveProviderUserAgent(userAgent)
+  const resolvedUserAgent = resolveForwardUserAgent(builtinId, userAgent)
 
   if (builtinId === 'openrouter') {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -598,10 +602,11 @@ async function fetchModelsFromProvider(
     if (isMoonshotProviderConfig({ providerBuiltinId: builtinId, baseUrl })) {
       Object.assign(headers, await buildMoonshotCommonHeaders(oauth?.deviceId))
     }
-    if (builtinId === 'copilot-oauth') {
-      headers['Copilot-Integration-Id'] = 'vscode-chat'
-      headers['editor-version'] = 'vscode/1.105.0'
-      headers['editor-plugin-version'] = 'copilot-chat/0.26.7'
+    if (builtinId === 'copilot-oauth' || builtinId === 'codex-oauth') {
+      Object.assign(
+        headers,
+        applyOauthClientIdentityHeaders(builtinId, headers, getOauthClientPlatform())
+      )
     }
     const result = (await ipcClient.invoke('api:request', {
       url,
@@ -832,6 +837,7 @@ function AddProviderDialog({
                   <SelectItem value="openai-responses">{t('provider.openaiResponses')}</SelectItem>
                   <SelectItem value="anthropic">{t('provider.anthropicMessages')}</SelectItem>
                   <SelectItem value="gemini-interactions">Gemini Interactions</SelectItem>
+                  <SelectItem value="vertex-ai">Vertex AI</SelectItem>
                   <SelectItem value="seedance-video">
                     {t('provider.seedanceVideo', { defaultValue: 'Seedance Video (Volcengine)' })}
                   </SelectItem>
@@ -1368,6 +1374,9 @@ function ModelFormDialog({
                 </SelectItem>
                 <SelectItem value="gemini-interactions" className="text-xs">
                   Gemini Interactions
+                </SelectItem>
+                <SelectItem value="vertex-ai" className="text-xs">
+                  Vertex AI
                 </SelectItem>
                 <SelectItem value="openai-images" className="text-xs">
                   OpenAI Images
@@ -2793,7 +2802,10 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         'openai-responses'
       )
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      headers['User-Agent'] = resolveProviderUserAgent(activeProvider.userAgent)
+      headers['User-Agent'] = resolveForwardUserAgent(
+        activeProvider.builtinId,
+        activeProvider.userAgent
+      )
       if (activeProvider.oauth?.accessToken) {
         headers['Authorization'] = `Bearer ${activeProvider.oauth.accessToken}`
       }
@@ -2883,7 +2895,10 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
         requestType
       )
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      headers['User-Agent'] = resolveProviderUserAgent(activeProvider.userAgent)
+      headers['User-Agent'] = resolveForwardUserAgent(
+        activeProvider.builtinId,
+        activeProvider.userAgent
+      )
       if (isMoonshotProviderConfig(activeProvider)) {
         Object.assign(headers, await buildMoonshotCommonHeaders(activeProvider.oauth?.deviceId))
       }
@@ -3059,7 +3074,13 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1 px-2 text-[11px] text-muted-foreground"
-                  onClick={() => void openExternal(apiKeyUrl)}
+                  onClick={() => {
+                    const loginUrl =
+                      provider.builtinId === 'routin-ai' || provider.builtinId === 'routin-ai-plan'
+                        ? `${apiKeyUrl}${apiKeyUrl.includes('?') ? '&' : '?'}protocol=2&client=desktop`
+                        : apiKeyUrl
+                    void openExternal(loginUrl)
+                  }}
                 >
                   <ExternalLink className="size-3" />
                   {provider.builtinId === 'routin-ai' || provider.builtinId === 'routin-ai-plan'
@@ -3892,6 +3913,9 @@ function ProviderConfigPanel({ provider }: { provider: AIProvider }): React.JSX.
                 </SelectItem>
                 <SelectItem value="gemini-interactions" className="text-xs">
                   Gemini Interactions
+                </SelectItem>
+                <SelectItem value="vertex-ai" className="text-xs">
+                  Vertex AI
                 </SelectItem>
                 <SelectItem value="openai-images" className="text-xs">
                   OpenAI Images

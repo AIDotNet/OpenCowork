@@ -1,5 +1,14 @@
+import { platform, arch, release } from 'node:os'
 import { resolveEffectiveModelContextLength } from '../../shared/gpt-context'
+import {
+  applyOauthClientIdentityHeaders,
+  resolveOauthForwardUserAgent
+} from '../../shared/oauth-client-identity'
 import { resolveApiUserAgent } from './api-user-agent'
+
+function currentOauthClientPlatform(): { platform: string; arch: string; release: string } {
+  return { platform: platform(), arch: arch(), release: release() }
+}
 
 export type ProviderType =
   | 'anthropic'
@@ -191,12 +200,17 @@ function buildRequestOverrides(
   providerOverrides: RequestOverrides | undefined,
   modelOverrides: RequestOverrides | undefined,
   modelId?: string,
-  paramCarry?: Pick<AIProviderConfigRecord, 'sendTemperature' | 'sendMaxOutputTokens'>
+  paramCarry?: Pick<AIProviderConfigRecord, 'sendTemperature' | 'sendMaxOutputTokens'>,
+  builtinId?: string
 ): RequestOverrides | undefined {
-  const headers = {
-    ...(providerOverrides?.headers ?? {}),
-    ...(modelOverrides?.headers ?? {})
-  }
+  const headers = applyOauthClientIdentityHeaders(
+    builtinId,
+    {
+      ...(providerOverrides?.headers ?? {}),
+      ...(modelOverrides?.headers ?? {})
+    },
+    currentOauthClientPlatform()
+  )
   const body = {
     ...(providerOverrides?.body ?? {}),
     ...(modelOverrides?.body ?? {})
@@ -213,9 +227,11 @@ function buildRequestOverrides(
   if (paramCarry?.sendMaxOutputTokens === false) {
     omitBodyKeys.push(...MAX_OUTPUT_TOKENS_BODY_KEYS)
   }
-  return Object.keys(headers).length > 0 || Object.keys(body).length > 0 || omitBodyKeys.length > 0
+  return (headers && Object.keys(headers).length > 0) ||
+    Object.keys(body).length > 0 ||
+    omitBodyKeys.length > 0
     ? {
-        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+        ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
         ...(Object.keys(body).length > 0 ? { body } : {}),
         ...(omitBodyKeys.length > 0 ? { omitBodyKeys: Array.from(new Set(omitBodyKeys)) } : {})
       }
@@ -308,7 +324,8 @@ export function buildProviderConfigById(
     provider.requestOverrides,
     model?.requestOverrides,
     modelId,
-    provider
+    provider,
+    provider.builtinId
   )
   const supportsWebsocket = requestType === 'openai-responses' && model?.supportsWebsocket === true
   const websocketUrl = supportsWebsocket
@@ -348,7 +365,13 @@ export function buildProviderConfigById(
       ? { allowInsecureTls: provider.allowInsecureTls }
       : {}),
     requestTimeoutSeconds: getApiRequestTimeoutSeconds(settings),
-    userAgent: resolveApiUserAgent(provider.userAgent),
+    userAgent: resolveApiUserAgent(
+      resolveOauthForwardUserAgent(
+        provider.builtinId,
+        provider.userAgent,
+        currentOauthClientPlatform()
+      )
+    ),
     ...(requestOverrides ? { requestOverrides } : {}),
     ...(provider.instructionsPrompt ? { instructionsPrompt: provider.instructionsPrompt } : {}),
     ...(provider.oauth?.accountId ? { accountId: provider.oauth.accountId } : {}),

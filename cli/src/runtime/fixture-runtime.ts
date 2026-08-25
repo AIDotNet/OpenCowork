@@ -50,6 +50,57 @@ function catalog(): ModelCatalog {
   } as ModelCatalog
 }
 
+/**
+ * A final answer far taller than any test terminal, streamed one paragraph at a time.
+ * This is the shape that used to push Ink's dynamic frame past `stdout.rows` and make it
+ * hard-clear the screen and replay its whole static buffer on every frame.
+ */
+function longReplyScript(assistantId: string): UiEvent[] {
+  const events: UiEvent[] = [
+    { type: 'runtime.activity', activity: 'working' },
+    { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
+    { type: 'assistant.delta', id: assistantId, text: 'Long reply begins here.\n\n' }
+  ]
+  for (let index = 0; index < 60; index += 1) {
+    events.push({
+      type: 'assistant.delta',
+      id: assistantId,
+      text: `Paragraph ${index}: the transcript viewport has to keep this reply inside the terminal even while it is still streaming.\n`
+    })
+  }
+  events.push(
+    { type: 'assistant.delta', id: assistantId, text: '\nLong reply ends here.' },
+    { type: 'assistant.done', id: assistantId },
+    { type: 'runtime.usage', inputTokens: 42, outputTokens: 900, contextTokens: 42 },
+    { type: 'turn.done' }
+  )
+  return events
+}
+
+/**
+ * A reply exercising the block types whose rendered height differs from their source
+ * height: a bordered table, a list, and a fenced block. Streamed in several deltas so the
+ * golden also covers markdown re-parsing mid-stream.
+ */
+function markdownReplyScript(assistantId: string): UiEvent[] {
+  const chunks = [
+    '## Routing summary\n\n',
+    'Picked the **cheapest** model that still supports `vision`:\n\n',
+    '| Provider | Model | Context |\n| --- | --- | ---: |\n',
+    '| Anthropic | claude-opus | 200000 |\n| OpenAI | gpt-5.6-sol | 400000 |\n',
+    '\n1. Probe each provider\n2. Compare price per token\n\n',
+    '```\nrouter.pick({ vision: true })\n```\n'
+  ]
+  return [
+    { type: 'runtime.activity', activity: 'working' },
+    { type: 'assistant.start', id: assistantId, model: FIXTURE_MODEL.modelName },
+    ...chunks.map((text) => ({ type: 'assistant.delta' as const, id: assistantId, text })),
+    { type: 'assistant.done', id: assistantId },
+    { type: 'runtime.usage', inputTokens: 42, outputTokens: 120, contextTokens: 42 },
+    { type: 'turn.done' }
+  ]
+}
+
 export class FixtureAgentRuntime implements AgentRuntime {
   private turn = 0
   private messageCount = 0
@@ -64,7 +115,19 @@ export class FixtureAgentRuntime implements AgentRuntime {
 
     const initRequest = prompt.startsWith('OpenCowork /init workflow:')
     const spawnAgents = /\bspawn agents\b/iu.test(prompt)
+    const longReply = /\blong reply\b/iu.test(prompt)
+    const markdownReply = /\bmarkdown reply\b/iu.test(prompt)
     const startedAt = Date.now() - 150_000
+
+    if (longReply || markdownReply) {
+      const events = longReply ? longReplyScript(assistantId) : markdownReplyScript(assistantId)
+      for (const event of events) {
+        if (signal.aborted) return
+        yield event
+      }
+      return
+    }
+
     const script: UiEvent[] = initRequest
       ? [
           { type: 'runtime.activity', activity: 'working' },

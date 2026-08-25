@@ -2,6 +2,11 @@ import { nanoid } from 'nanoid'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import type { OAuthConfig, OAuthToken } from '@renderer/lib/api/types'
+import {
+  buildCodexCliUserAgent,
+  isCodexOAuthClientId
+} from '../../../../shared/oauth-client-identity'
+import { getOauthClientPlatform } from './oauth-client-platform'
 
 interface OAuthCallbackPayload {
   requestId: string
@@ -267,6 +272,9 @@ async function buildOAuthRequestHeaders(
   deviceId?: string
 ): Promise<Record<string, string>> {
   const headers = buildTokenHeaders(mode, overrides)
+  if (isCodexOAuthClientId(config.clientId) || /auth\.openai\.com/i.test(config.tokenUrl ?? '')) {
+    headers['User-Agent'] = buildCodexCliUserAgent(getOauthClientPlatform())
+  }
   if (!isMoonshotOAuthConfig(config)) return headers
   return {
     ...(await buildMoonshotCommonHeaders(deviceId)),

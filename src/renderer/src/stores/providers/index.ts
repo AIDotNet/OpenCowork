@@ -25,6 +25,22 @@ import { xiaomiCodingPreset, xiaomiPreset } from './xiaomi'
 import { bigmodelCodingPreset, bigmodelPreset } from './bigmodel'
 import { volcenginePreset } from './volcengine'
 import { xaiPreset } from './x-ai'
+import { hunyuanPreset } from './hunyuan'
+import { stepfunPlanPreset, stepfunPreset } from './stepfun'
+import { mistralPreset } from './mistral'
+import { metaPreset } from './meta'
+import { groqPreset } from './groq'
+import { vertexAiPreset } from './vertex-ai'
+import { lmstudioPreset } from './lmstudio'
+import { nvidiaPreset } from './nvidia'
+import { cerebrasPreset } from './cerebras'
+import { togetherPreset } from './together'
+import { fireworksPreset } from './fireworks'
+import { modelscopePreset } from './modelscope'
+import { ppioPreset } from './ppio'
+import { novitaPreset } from './novita'
+import { infiniPreset } from './infini'
+import { huggingfacePreset } from './huggingface'
 import type { BuiltinProviderPreset } from './types'
 
 // Server-tool capabilities are per-model opt-ins that default to false: speaking the
@@ -133,7 +149,24 @@ export const builtinProviderPresets: BuiltinProviderPreset[] = [
   bigmodelCodingPreset,
   bigmodelPreset,
   volcenginePreset,
-  xaiPreset
+  xaiPreset,
+  hunyuanPreset,
+  stepfunPreset,
+  stepfunPlanPreset,
+  mistralPreset,
+  metaPreset,
+  groqPreset,
+  vertexAiPreset,
+  lmstudioPreset,
+  nvidiaPreset,
+  cerebrasPreset,
+  togetherPreset,
+  fireworksPreset,
+  modelscopePreset,
+  ppioPreset,
+  novitaPreset,
+  infiniPreset,
+  huggingfacePreset
 ]
   .map(applyServerToolCapabilityDefaults)
   .map(applyUltraReasoningTierDefault)

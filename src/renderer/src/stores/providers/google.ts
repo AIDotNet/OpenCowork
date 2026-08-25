@@ -5,20 +5,55 @@
 // "supported models and agents" table in the Interactions docs.
 export const googlePreset: BuiltinProviderPreset = {
   builtinId: 'google',
-  version: 4,
+  version: 5,
   name: 'Google Gemini',
   type: 'gemini-interactions',
   defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
   homepage: 'https://ai.google.dev',
   apiKeyUrl: 'https://aistudio.google.com/apikey',
-  // Model IDs absent from the Interactions "supported models and agents" table.
-  deprecatedModelIds: [
-    'gemini-2.0-flash',
-    'gemini-3.6-flash',
-    'gemini-2.5-flash-image',
-    'gemini-3-pro-preview'
-  ],
+  defaultModel: 'gemini-3.7-flash',
+  // Model IDs absent from the current Gemini / Interactions catalog.
+  deprecatedModelIds: ['gemini-2.0-flash', 'gemini-2.5-flash-image', 'gemini-3-pro-preview'],
   defaultModels: [
+    // Gemini 3.7 / 3.6 Flash (2026-08 / 2026-07)
+    {
+      id: 'gemini-3.7-flash',
+      name: 'Gemini 3.7 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.5,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.05,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking_level: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'gemini-3.6-flash',
+      name: 'Gemini 3.6 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.5,
+      outputPrice: 7.5,
+      cacheHitPrice: 0.15,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking_level: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
     // Gemini 3.5 (stable)
     {
       id: 'gemini-3.5-flash',

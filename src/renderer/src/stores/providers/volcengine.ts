@@ -2,8 +2,8 @@ import type { BuiltinProviderPreset } from './types'
 
 export const volcenginePreset: BuiltinProviderPreset = {
   builtinId: 'volcengine',
-  // v2: add the Seedance 2.0 video models (standard / fast / mini).
-  version: 2,
+  // v3: Seed Evolving latest-version alias, Seed 2.0 Lite 260428, Seedance 2.5
+  version: 3,
   name: '火山引擎',
   type: 'openai-chat',
   defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
@@ -43,6 +43,21 @@ export const volcenginePreset: BuiltinProviderPreset = {
       }
     },
     {
+      id: 'doubao-seed-evolving-latest-version',
+      name: 'Doubao Seed Evolving (Latest)',
+      icon: 'doubao',
+      enabled: true,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      contextLength: 256_000,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
       id: 'doubao-seed-evolving',
       name: 'Doubao Seed Evolving',
       icon: 'doubao',
@@ -60,6 +75,21 @@ export const volcenginePreset: BuiltinProviderPreset = {
     {
       id: 'doubao-seed-2-0-pro-260215',
       name: 'Doubao Seed 2.0 Pro (260215)',
+      icon: 'doubao',
+      enabled: true,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      contextLength: 256_000,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: {},
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'doubao-seed-2-0-lite-260428',
+      name: 'Doubao Seed 2.0 Lite (260428)',
       icon: 'doubao',
       enabled: true,
       supportsVision: true,
@@ -129,7 +159,17 @@ export const volcenginePreset: BuiltinProviderPreset = {
       supportsFunctionCall: true,
       contextLength: 256_000
     },
-    // ── Seedance 2.0（Ark 异步任务协议，顶层结构化参数）──
+    // ── Seedance（Ark 异步任务协议，顶层结构化参数）──
+    {
+      id: 'doubao-seedance-2-5-260628',
+      name: 'Seedance 2.5',
+      icon: 'doubao',
+      enabled: true,
+      category: 'video',
+      type: 'seedance-video',
+      supportsVision: true,
+      supportsFunctionCall: false
+    },
     {
       id: 'doubao-seedance-2-0-260128',
       name: 'Seedance 2.0',

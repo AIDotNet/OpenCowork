@@ -5,15 +5,12 @@ import { readClipboardText } from '../lib/clipboard-text.js'
 import { openExternalUrl } from '../lib/open-url.js'
 import { consumeBracketedPaste, sanitizePastedText } from '../lib/paste.js'
 import { fitText, graphemes, hasTerminalInputControl } from '../lib/text.js'
-import {
-  startDeviceLoginBridge,
-  type DeviceLoginBridge
-} from '../lib/device-login-bridge.js'
+import { startDeviceLoginBridge, type DeviceLoginBridge } from '../lib/device-login-bridge.js'
 import {
   OPENCOWORK_DEVICE_LOGIN_URL,
-  applyRoutinDeviceLoginCredential,
-  findReadyRoutinSelection,
-  snapshotRoutinCredentials
+  applyOpenCoworkDeviceLoginImport,
+  findReadyImportSelection,
+  snapshotImportCredentials
 } from '../runtime/provider-setup.js'
 import { containsMouseSequence } from '../terminal/mouse.js'
 import { theme } from '../theme.js'
@@ -219,7 +216,7 @@ export function ProviderSetupPanel({
   const pasteBufferRef = useRef<string | null>(null)
   const editorRef = useRef({ cursor: 0, value: '' })
   const completingFromStoreRef = useRef(false)
-  const credentialBaselineRef = useRef<Record<string, string>>(snapshotRoutinCredentials())
+  const credentialBaselineRef = useRef<Record<string, string>>(snapshotImportCredentials())
   const deviceLoginOpenedRef = useRef(false)
   const deviceLoginBridgeRef = useRef<DeviceLoginBridge | null>(null)
   const [deviceLoginUrl, setDeviceLoginUrl] = useState(OPENCOWORK_DEVICE_LOGIN_URL)
@@ -293,7 +290,7 @@ export function ProviderSetupPanel({
 
   const tryCompleteFromStore = async (options?: { acceptCurrent?: boolean }): Promise<boolean> => {
     if (!onReadyFromStore || completingFromStoreRef.current) return false
-    const selection = findReadyRoutinSelection(
+    const selection = findReadyImportSelection(
       options?.acceptCurrent
         ? undefined
         : { previous: credentialBaselineRef.current, requireChange: true }
@@ -303,7 +300,7 @@ export function ProviderSetupPanel({
   }
 
   const openDeviceLogin = (): void => {
-    credentialBaselineRef.current = snapshotRoutinCredentials()
+    credentialBaselineRef.current = snapshotImportCredentials()
     completingFromStoreRef.current = false
     deviceLoginOpenedRef.current = true
     setStep('waiting')
@@ -314,13 +311,12 @@ export function ProviderSetupPanel({
       deviceLoginBridgeRef.current = null
       try {
         const bridge = await startDeviceLoginBridge({
-          onCredential: (apiKey) => {
-            try {
-              const selection = applyRoutinDeviceLoginCredential(apiKey)
-              void completeWithSelection(selection)
-            } catch (applyError) {
-              setError(applyError instanceof Error ? applyError.message : String(applyError))
-            }
+          onImport: (parsed) => {
+            void applyOpenCoworkDeviceLoginImport(parsed)
+              .then((selection) => completeWithSelection(selection))
+              .catch((applyError: unknown) => {
+                setError(applyError instanceof Error ? applyError.message : String(applyError))
+              })
           }
         })
         deviceLoginBridgeRef.current = bridge
@@ -859,9 +855,7 @@ export function ProviderSetupPanel({
           </Box>
           <Box marginTop={1}>
             <Text color={theme.dim}>{t('cli.provider.deviceLogin', 'Device login')} </Text>
-            <Text color={theme.accent}>
-              {fitText(deviceLoginUrl, contentWidth - 14)}
-            </Text>
+            <Text color={theme.accent}>{fitText(deviceLoginUrl, contentWidth - 14)}</Text>
           </Box>
           {linkNotice ? (
             <Text color={linkNotice.opened ? theme.success : theme.warning} wrap="wrap">

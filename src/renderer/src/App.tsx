@@ -385,12 +385,20 @@ function App(): React.JSX.Element {
   // so the settings UI and active model pick up the imported key without a restart.
   useEffect(() => {
     return ipcClient.on('ai-provider:imported', (payload) => {
-      const data = payload as { providerName?: string; builtinId?: string } | null
+      const data = payload as {
+        providerName?: string
+        importedCount?: number
+        skippedCount?: number
+      } | null
       void Promise.resolve(useProviderStore.persist?.rehydrate?.()).then(() => {
+        const importedCount = data?.importedCount ?? 0
+        const skipped = data?.skippedCount ? ` (${data.skippedCount} skipped)` : ''
         toast.success(
-          data?.providerName
-            ? `Imported ${data.providerName}`
-            : 'Routin credentials imported from browser login'
+          importedCount > 1
+            ? `Imported ${importedCount} providers${skipped}`
+            : data?.providerName
+              ? `Imported ${data.providerName}${skipped}`
+              : 'Credentials imported from browser login'
         )
       })
     })

@@ -41,7 +41,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         var baseUrl = (JsonHelpers.GetString(provider, "baseUrl") ?? "https://api.openai.com/v1")
             .Trim()
             .TrimEnd('/');
-        var httpUrl = $"{baseUrl}/responses";
+        var httpUrl = WithCodexClientVersion($"{baseUrl}/responses", provider);
         var websocketUrl = ResolveWebSocketUrl(provider, baseUrl);
         var useWebSocket = websocketUrl is not null;
         var body = BuildRequestBody(

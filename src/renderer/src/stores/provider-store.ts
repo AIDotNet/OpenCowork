@@ -290,7 +290,7 @@ function reconcileReasoningEffortLevels<T extends AIModelConfig>(
       ...savedThinking,
       bodyParams:
         savedBodyMissing && canonicalBodyPresent
-          ? { ...canonicalThinking.bodyParams }
+          ? { ...canonicalThinking?.bodyParams }
           : (savedThinking?.bodyParams ?? canonicalThinking?.bodyParams ?? {}),
       ...(canonicalThinking?.forceTemperature !== undefined &&
       savedThinking?.forceTemperature === undefined

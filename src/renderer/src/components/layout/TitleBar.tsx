@@ -23,6 +23,7 @@ import {
   getAvailableModeOptions,
   getTitlebarModeOptions
 } from './TitlebarModeSwitch'
+import { DevPerfOverlayReserve } from './DevPerfOverlay'
 import { WindowControls } from './WindowControls'
 
 interface TitleBarUpdateInfo {
@@ -390,6 +391,7 @@ export function TitleBar({
           </TooltipTrigger>
           <TooltipContent>{t('topbar.help')}</TooltipContent>
         </Tooltip>
+        <DevPerfOverlayReserve />
       </div>
 
       {!isMac && (

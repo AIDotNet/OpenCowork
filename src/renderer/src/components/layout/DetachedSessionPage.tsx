@@ -28,6 +28,7 @@ import { useUIStore, type AppMode } from '@renderer/stores/ui-store'
 import { cn } from '@renderer/lib/utils'
 import { SessionConversationPane } from './SessionConversationPane'
 import { TitlebarModeSwitch } from './TitlebarModeSwitch'
+import { DevPerfOverlayReserve } from './DevPerfOverlay'
 import { WindowControls } from './WindowControls'
 import { RightPanel } from './RightPanel'
 import { setSessionForegroundVisibility } from '@renderer/lib/agent/session-runtime-router'
@@ -347,6 +348,7 @@ export function DetachedSessionPage({ sessionId }: DetachedSessionPageProps): Re
               </TooltipTrigger>
               <TooltipContent>{t('topbar.help')}</TooltipContent>
             </Tooltip>
+            <DevPerfOverlayReserve />
           </div>
 
           {!isMac ? (

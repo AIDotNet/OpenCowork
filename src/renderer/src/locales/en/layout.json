@@ -221,6 +221,13 @@
     "openRuntimeStatus": "Show context and progress",
     "help": "Open guide"
   },
+  "perfOverlay": {
+    "fps": "FPS",
+    "cpu": "CPU",
+    "memory": "MEM",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, memory {{memory}}",
+    "memoryDetail": "Memory {{detail}}"
+  },
   "runtimeStatus": {
     "contextTitle": "Environment",
     "progressTitle": "Progress",

@@ -4,6 +4,7 @@ const MESSAGEPACK_INVOKE_CHANNELS = new Set<string>([
   'app:homedir',
   'app:global-memory-home',
   'app:system-info',
+  'diagnostics:perf-sample',
   'window:minimize',
   'window:maximize',
   'window:close',

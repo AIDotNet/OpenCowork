@@ -7,6 +7,7 @@ import { useSettingsStore } from '@renderer/stores/settings-store'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { FadeIn, SlideIn } from '@renderer/components/animate-ui'
+import { DevPerfOverlayReserve } from '@renderer/components/layout/DevPerfOverlay'
 import { WindowControls } from '@renderer/components/layout/WindowControls'
 import { cn } from '@renderer/lib/utils'
 import {
@@ -198,6 +199,7 @@ export function SettingsPage(): React.JSX.Element {
             {t('page.subtitle')}
           </div>
         </div>
+        <DevPerfOverlayReserve />
         {!isMac ? (
           <div className="absolute right-0 top-0 z-10">
             <WindowControls />

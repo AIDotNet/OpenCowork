@@ -22,6 +22,7 @@ import {
 import { cn } from '@renderer/lib/utils'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useSshStore, type SshTab } from '@renderer/stores/ssh-store'
+import { DevPerfOverlayReserve } from '@renderer/components/layout/DevPerfOverlay'
 import { WindowControls } from '@renderer/components/layout/WindowControls'
 import {
   Sheet,
@@ -570,6 +571,7 @@ export function SshPage(): React.JSX.Element {
           </Sheet>
         </div>
 
+        <DevPerfOverlayReserve />
         {!isMac ? (
           <div className="absolute right-0 top-0 z-10">
             <WindowControls />

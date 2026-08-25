@@ -1,4 +1,6 @@
+import { cpus, freemem, totalmem } from 'os'
 import { app, BrowserWindow, type WebContents } from 'electron'
+import type { DiagnosticsPerfSample } from '../../shared/diagnostics-perf'
 import { safeSendMessagePackToWindow } from '../window-ipc'
 import { registerMessagePackHandler } from './messagepack-handler'
 import { getNativeWorker } from '../lib/native-worker'
@@ -151,7 +153,90 @@ function finalizeManagedProcess(
   processes.delete(managed.id)
 }
 
+type CpuTimesSnapshot = {
+  idle: number
+  total: number
+}
+
+function readCpuTimes(): CpuTimesSnapshot {
+  let idle = 0
+  let total = 0
+  for (const cpu of cpus()) {
+    const times = cpu.times
+    idle += times.idle
+    total += times.user + times.nice + times.sys + times.idle + times.irq
+  }
+  return { idle, total }
+}
+
+function roundPercent(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+let previousCpuTimes: CpuTimesSnapshot | null = null
+
+function sampleSystemCpuPercent(): number | null {
+  const current = readCpuTimes()
+  const previous = previousCpuTimes
+  previousCpuTimes = current
+  if (!previous) return null
+  const idleDelta = current.idle - previous.idle
+  const totalDelta = current.total - previous.total
+  if (totalDelta <= 0) return null
+  return roundPercent((1 - idleDelta / totalDelta) * 100)
+}
+
+function sampleSystemMemory(): Pick<
+  DiagnosticsPerfSample,
+  'memoryPercent' | 'memoryUsedBytes' | 'memoryTotalBytes'
+> {
+  const systemMemory = (
+    process as NodeJS.Process & {
+      getSystemMemoryInfo?: () => { total: number; free: number }
+    }
+  ).getSystemMemoryInfo?.()
+
+  const totalKb = systemMemory?.total
+  const freeKb = systemMemory?.free
+  if (typeof totalKb === 'number' && totalKb > 0 && typeof freeKb === 'number') {
+    const usedKb = Math.max(0, totalKb - freeKb)
+    return {
+      memoryPercent: roundPercent((usedKb / totalKb) * 100),
+      memoryUsedBytes: usedKb * 1024,
+      memoryTotalBytes: totalKb * 1024
+    }
+  }
+
+  const totalBytes = totalmem()
+  const freeBytes = freemem()
+  if (!(totalBytes > 0)) {
+    return { memoryPercent: null, memoryUsedBytes: null, memoryTotalBytes: null }
+  }
+
+  const usedBytes = Math.max(0, totalBytes - freeBytes)
+  return {
+    memoryPercent: roundPercent((usedBytes / totalBytes) * 100),
+    memoryUsedBytes: usedBytes,
+    memoryTotalBytes: totalBytes
+  }
+}
+
+function sampleDiagnosticsPerf(): DiagnosticsPerfSample {
+  const memory = sampleSystemMemory()
+  return {
+    sampledAt: Date.now(),
+    cpuPercent: sampleSystemCpuPercent(),
+    memoryPercent: memory.memoryPercent,
+    memoryUsedBytes: memory.memoryUsedBytes,
+    memoryTotalBytes: memory.memoryTotalBytes
+  }
+}
+
 export function registerProcessManagerHandlers(): void {
+  registerMessagePackHandler<void, DiagnosticsPerfSample>('diagnostics:perf-sample', () =>
+    sampleDiagnosticsPerf()
+  )
+
   registerMessagePackHandler<unknown, ProcessMemorySample>(
     'diagnostics:memory-sample',
     async () => {

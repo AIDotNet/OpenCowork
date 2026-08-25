@@ -23,6 +23,10 @@ import { SessionChangeReviewPanel } from '@renderer/components/layout/SessionCha
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
 import {
+  freezeWorkspaceSplitSurfaces,
+  unfreezeWorkspaceSplitSurfaces
+} from '@renderer/lib/layout/workspace-split-resize'
+import {
   RIGHT_PANEL_DEFAULT_WIDTH,
   clampRightPanelWidth,
   getPlanReviewRightPanelWidth
@@ -410,9 +414,13 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
     : undefined
   const browserVisible = rightPanelOpen && activeTab?.kind === 'browser'
 
+  const panelRef = useRef<HTMLDivElement>(null)
   const draggingRef = useRef(false)
   const startXRef = useRef(0)
   const startWidthRef = useRef(rightPanelWidth)
+  const liveWidthRef = useRef(rightPanelWidth)
+  const pendingWidthRef = useRef<number | null>(null)
+  const rafRef = useRef(0)
   const [isDragging, setIsDragging] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === 'undefined' ? 1440 : window.innerWidth
@@ -439,17 +447,47 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
     if (rightPanelWidth === 0) setRightPanelWidth(RIGHT_PANEL_DEFAULT_WIDTH)
   }, [rightPanelWidth, setRightPanelWidth])
 
+  const applyLiveWidth = (width: number): void => {
+    liveWidthRef.current = width
+    const node = panelRef.current
+    if (node) node.style.width = `${width}px`
+  }
+
+  const flushPendingWidth = (): void => {
+    rafRef.current = 0
+    const nextWidth = pendingWidthRef.current
+    if (nextWidth == null) return
+    pendingWidthRef.current = null
+    applyLiveWidth(nextWidth)
+  }
+
   useEffect(() => {
     if (!isDragging) return
 
+    const splitRoot = panelRef.current?.parentElement
+    if (splitRoot) freezeWorkspaceSplitSurfaces(splitRoot)
+
     const handleMouseMove = (event: MouseEvent): void => {
       if (!draggingRef.current) return
-      const delta = startXRef.current - event.clientX
-      setRightPanelWidth(clampRightPanelWidth(startWidthRef.current + delta))
+      pendingWidthRef.current = clampRightPanelWidth(
+        startWidthRef.current + (startXRef.current - event.clientX)
+      )
+      if (rafRef.current) return
+      rafRef.current = window.requestAnimationFrame(flushPendingWidth)
     }
 
     const handleMouseUp = (): void => {
       draggingRef.current = false
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current)
+        rafRef.current = 0
+      }
+      if (pendingWidthRef.current != null) {
+        applyLiveWidth(pendingWidthRef.current)
+        pendingWidthRef.current = null
+      }
+      unfreezeWorkspaceSplitSurfaces()
+      setRightPanelWidth(liveWidthRef.current)
       setIsDragging(false)
     }
 
@@ -458,6 +496,11 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      if (rafRef.current) {
+        window.cancelAnimationFrame(rafRef.current)
+        rafRef.current = 0
+      }
+      unfreezeWorkspaceSplitSurfaces()
     }
   }, [isDragging, setRightPanelWidth])
 
@@ -467,6 +510,9 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
     draggingRef.current = true
     startXRef.current = event.clientX
     startWidthRef.current = targetPanelWidth
+    liveWidthRef.current = targetPanelWidth
+    const splitRoot = panelRef.current?.parentElement
+    if (splitRoot) freezeWorkspaceSplitSurfaces(splitRoot)
     setIsDragging(true)
   }
 
@@ -567,73 +613,87 @@ export function RightPanel({ compact = false, sessionId }: RightPanelProps): Rea
 
   return (
     <div
+      ref={panelRef}
       data-tour="right-panel"
-      className="relative z-40 h-full shrink-0 overflow-hidden transition-[width] duration-300 ease-out"
-      style={{ width: rightPanelOpen ? targetPanelWidth : 0 }}
+      className={cn(
+        'relative z-40 h-full shrink-0 overflow-hidden',
+        !isDragging && 'transition-[width] duration-300 ease-out'
+      )}
+      style={{
+        width: rightPanelOpen ? (isDragging ? liveWidthRef.current : targetPanelWidth) : 0
+      }}
     >
       <aside
         className={cn(
-          'relative flex h-full w-full flex-col border-l border-border/60 bg-background shadow-[-18px_0_42px_rgba(0,0,0,0.16)] transition-[opacity,transform] duration-300 ease-out',
+          'relative flex h-full w-full flex-col border-l border-border/60 bg-background transition-[opacity,transform] duration-300 ease-out',
+          !isDragging && 'shadow-[-18px_0_42px_rgba(0,0,0,0.16)]',
           rightPanelOpen
             ? 'translate-x-0 opacity-100'
             : 'pointer-events-none translate-x-full opacity-0'
         )}
       >
-        {rightPanelOpen ? (
-          <>
-            <RightPanelHeader
-              tabs={tabs}
-              activeTabId={activeTab?.id ?? 'review'}
-              browserEnabled={browserPluginEnabled}
-              onSelectTab={setRightPanelActiveTab}
-              onCloseTab={handleCloseRightPanelTab}
-              onOpenFiles={() => void handleOpenLocalFiles()}
-              onAddBrowser={() => ensureBrowserTab(undefined, panelSessionId)}
-              onClosePanel={() => setRightPanelOpen(false)}
-              t={t}
-            />
+        <div
+          className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          data-resize-freeze
+        >
+          {rightPanelOpen ? (
+            <>
+              <RightPanelHeader
+                tabs={tabs}
+                activeTabId={activeTab?.id ?? 'review'}
+                browserEnabled={browserPluginEnabled}
+                onSelectTab={setRightPanelActiveTab}
+                onCloseTab={handleCloseRightPanelTab}
+                onOpenFiles={() => void handleOpenLocalFiles()}
+                onAddBrowser={() => ensureBrowserTab(undefined, panelSessionId)}
+                onClosePanel={() => setRightPanelOpen(false)}
+                t={t}
+              />
 
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-              <AnimatePresence mode="wait">
-                {activeTab?.kind !== 'browser' ? (
-                  <motion.div
-                    key={activeTab?.id ?? 'empty'}
-                    className="absolute inset-0 min-h-0"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -6 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
-                  >
-                    {renderActivePanel(activeTab)}
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
+              <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+                <AnimatePresence mode="wait">
+                  {activeTab?.kind !== 'browser' ? (
+                    <motion.div
+                      key={activeTab?.id ?? 'empty'}
+                      className="absolute inset-0 min-h-0"
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -6 }}
+                      transition={{ duration: 0.16, ease: 'easeOut' }}
+                    >
+                      {renderActivePanel(activeTab)}
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            </>
+          ) : null}
 
+          {/* Persistent browser layer: mounted whenever a browser tab exists so the
+              webview keeps running even when the panel is closed or another tab is
+              active. `top-10` clears the tab header when visible. When hidden it stays
+              in the DOM (webview connected) but non-interactive and transparent. */}
+          {browserTabAlive ? (
             <div
-              className="absolute left-0 top-0 bottom-0 z-[60] w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
-              onMouseDown={startResize}
-            />
-          </>
-        ) : null}
+              className={cn(
+                'absolute inset-x-0 bottom-0 top-10',
+                browserVisible ? 'z-10 opacity-100' : 'pointer-events-none -z-10 opacity-0'
+              )}
+            >
+              <BrowserPanel
+                key={browserPanelKey}
+                sessionId={browserSessionId}
+                projectId={activeProjectId}
+              />
+            </div>
+          ) : null}
+        </div>
 
-        {/* Persistent browser layer: mounted whenever a browser tab exists so the
-            webview keeps running even when the panel is closed or another tab is
-            active. `top-10` clears the tab header when visible. When hidden it stays
-            in the DOM (webview connected) but non-interactive and transparent. */}
-        {browserTabAlive ? (
+        {rightPanelOpen ? (
           <div
-            className={cn(
-              'absolute inset-x-0 bottom-0 top-10',
-              browserVisible ? 'z-10 opacity-100' : 'pointer-events-none -z-10 opacity-0'
-            )}
-          >
-            <BrowserPanel
-              key={browserPanelKey}
-              sessionId={browserSessionId}
-              projectId={activeProjectId}
-            />
-          </div>
+            className="absolute left-0 top-0 bottom-0 z-[60] w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
+            onMouseDown={startResize}
+          />
         ) : null}
       </aside>
 

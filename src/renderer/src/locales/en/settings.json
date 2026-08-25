@@ -347,7 +347,7 @@
     },
     "autoApproveWarning": "Dangerous: All tool calls will execute automatically without confirmation",
     "devMode": "Developer Mode",
-    "devModeDesc": "Show request debug info in AI responses when errors occur",
+    "devModeDesc": "Show request debug info in AI responses when errors occur, plus a live FPS, CPU, and memory overlay",
     "contextCompression": "Context Memory Compression",
     "contextCompressionDesc": "When conversation approaches context window limit, automatically compress history messages and preserve core information",
     "contextCompressionEnabled": "Enabled: Uses the current model's context length and the global threshold below, preserving a summary and messages after the compression point",

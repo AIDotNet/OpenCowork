@@ -221,6 +221,13 @@
     "openRuntimeStatus": "打开上下文与进度",
     "help": "打开引导"
   },
+  "perfOverlay": {
+    "fps": "FPS",
+    "cpu": "CPU",
+    "memory": "内存",
+    "summary": "{{fps}} FPS，CPU {{cpu}}，内存 {{memory}}",
+    "memoryDetail": "内存 {{detail}}"
+  },
   "runtimeStatus": {
     "contextTitle": "环境信息",
     "progressTitle": "进度",

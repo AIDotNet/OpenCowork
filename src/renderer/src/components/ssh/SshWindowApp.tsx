@@ -1,6 +1,7 @@
 import { ConfirmDialogProvider } from '@renderer/components/ui/confirm-dialog'
 import { ErrorBoundary } from '@renderer/components/error-boundary'
 import { NotifyToastContainer } from '@renderer/components/notify/NotifyWindow'
+import { DevPerfOverlay } from '@renderer/components/layout/DevPerfOverlay'
 import { ThemeProvider } from '@renderer/components/theme-provider'
 import { ThemeRuntimeSync } from '@renderer/components/theme-runtime-sync'
 import { Toaster } from '@renderer/components/ui/sonner'
@@ -20,6 +21,7 @@ export function SshWindowApp(): React.JSX.Element {
       <ThemeProvider defaultTheme={theme}>
         <ThemeRuntimeSync />
         <SshPage />
+        <DevPerfOverlay />
         <Toaster position="bottom-left" theme="system" richColors />
         <ConfirmDialogProvider />
         <NotifyToastContainer />

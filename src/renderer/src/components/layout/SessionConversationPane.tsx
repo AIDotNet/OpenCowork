@@ -45,6 +45,7 @@ import {
 } from '@renderer/hooks/use-chat-actions'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 import { IPC } from '@renderer/lib/ipc/channels'
+import { isWorkspaceSplitResizing } from '@renderer/lib/layout/workspace-split-resize'
 import { presentPlanReviewInRightPanel } from '@renderer/lib/plan-review-panel'
 import { openDetachedSessionWindow } from '@renderer/lib/session-window'
 import { exportSessionMarkdownFromDb } from '@renderer/lib/utils/export-chat'
@@ -145,6 +146,7 @@ export function SessionConversationPane({
     const node = paneRef.current
     if (!node) return
     const observer = new ResizeObserver((entries) => {
+      if (isWorkspaceSplitResizing()) return
       const width = entries[0]?.contentRect.width ?? 0
       setRuntimeStatusDocked(width >= RUNTIME_STATUS_DOCK_MIN_PANE_WIDTH)
     })
@@ -325,8 +327,8 @@ export function SessionConversationPane({
   }
 
   return (
-    <div ref={paneRef} className="relative flex min-w-0 flex-1 bg-background">
-      <div className="flex min-w-0 flex-1 flex-col">
+    <div ref={paneRef} className="relative flex min-w-0 flex-1 overflow-hidden bg-background">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden" data-resize-freeze>
         <div
           className={cn(
             'flex shrink-0 items-center gap-3 px-4 pt-3',

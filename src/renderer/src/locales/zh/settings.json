@@ -347,7 +347,7 @@
     },
     "autoApproveWarning": "危险：所有工具调用将自动执行，无需确认",
     "devMode": "开发者模式",
-    "devModeDesc": "当错误发生时在AI响应中显示请求调试信息",
+    "devModeDesc": "出错时在 AI 回复中显示请求调试信息，并在窗口右上角显示 FPS、CPU 和内存占用",
     "contextCompression": "上下文记忆压缩",
     "contextCompressionDesc": "当对话接近上下文窗口限制时，自动压缩历史消息并保留核心信息",
     "contextCompressionEnabled": "已启用：按当前模型的上下文长度和下方全局阈值自动压缩，保留压缩摘要和压缩点后的消息",

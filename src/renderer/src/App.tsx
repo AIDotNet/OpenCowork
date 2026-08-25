@@ -14,6 +14,7 @@ import {
 } from './components/ui/dialog'
 import { ThemeProvider } from './components/theme-provider'
 import { ThemeRuntimeSync } from './components/theme-runtime-sync'
+import { DevPerfOverlay } from './components/layout/DevPerfOverlay'
 import { ErrorBoundary } from './components/error-boundary'
 import { useSettingsStore } from './stores/settings-store'
 import { initProviderStore, useProviderStore } from './stores/provider-store'
@@ -1007,6 +1008,7 @@ function App(): React.JSX.Element {
           <ConfirmDialogProvider />
           <PlanExecuteDialogProvider />
           <NotifyToastContainer />
+          <DevPerfOverlay />
         </ThemeProvider>
       </ErrorBoundary>
     )
@@ -1020,6 +1022,7 @@ function App(): React.JSX.Element {
           <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+          <DevPerfOverlay />
         </ThemeProvider>
       </ErrorBoundary>
     )
@@ -1034,6 +1037,7 @@ function App(): React.JSX.Element {
             <OnboardingPage />
           </Suspense>
           <Toaster position="bottom-left" theme="system" richColors />
+          <DevPerfOverlay />
         </ThemeProvider>
       </ErrorBoundary>
     )
@@ -1146,6 +1150,7 @@ function App(): React.JSX.Element {
         <ConfirmDialogProvider />
         <PlanExecuteDialogProvider />
         <NotifyToastContainer />
+        <DevPerfOverlay />
       </ThemeProvider>
     </ErrorBoundary>
   )

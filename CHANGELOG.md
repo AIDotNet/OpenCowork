@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.18] - 2026-08-25
+
+### Added
+
+- Added OpenCowork Import Protocol v2. Desktop deep links (`opencowork://import/provider#…`) and the CLI device-login callback can now upsert built-in or custom channels with models and parameters; large catalogs can arrive via `configRef`. Legacy Routin-key (v1) imports still work.
+- Added first-party presets for Hunyuan, StepFun (and the StepFun plan channel), Mistral, Meta (Muse Spark), Groq, Vertex AI, LM Studio, NVIDIA NIM, Cerebras, Together AI, Fireworks, ModelScope, PPIO, Novita, Infini, and Hugging Face.
+- CLI assistant markdown now shares one layout and height pass (tables, fences, headings, lists) so the transcript viewport measures the same tokens it paints.
+
+### Changed
+
+- Refreshed built-in catalogs: OpenAI GPT-5.4/5.5 Pro, Anthropic Claude Opus 5, Google Gemini 3.6/3.7 Flash, Azure GPT-5.4 Pro, plus newer models on OpenRouter, SiliconFlow, Baidu, Gitee AI, OpenCode, Copilot, Codex, and Volcengine.
+- Codex and Copilot OAuth now share one client-identity helper (user-agent and editor headers). ChatGPT Codex backend URLs get `client_version`, and `/backend-api/codex/*` paths are recognized.
+- Custom providers can pick Vertex AI as the request type. Routin device-login opens with `protocol=2` so the web page can return a v2 payload.
+- The import toast reports how many channels were written and skipped.
+
+### Fixed
+
+- Fixed CLI markdown replies under-measuring their height and hard-clearing the terminal on every frame.
+
 ## [1.3.17] - 2026-08-25
 
 ### Added

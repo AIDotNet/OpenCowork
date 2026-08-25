@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed CLI markdown replies under-measuring their height and hard-clearing the terminal on every frame.
+- Fixed root `npm ci` / `prepare` failing on `cli:build` because the repo-root hoist of `wrap-ansi` was the untyped 7.x used by yargs, not the typed 9.x the CLI imports.
 
 ## [1.3.17] - 2026-08-25
 

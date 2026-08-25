@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.19] - 2026-08-25
+
+### Added
+
+- Added a live FPS, CPU, and memory overlay when Developer Mode is on. It samples the window frame rate and system load about once a second, pauses while the window is hidden, and appears in the main app plus detached session and SSH windows.
+
+### Changed
+
+- Dragging the workbench right-panel splitter now updates width on animation frames and freezes the split surfaces for the drag, so the chat and review panes do not reflow on every mouse move.
+
 ## [1.3.18] - 2026-08-25
 
 ### Added

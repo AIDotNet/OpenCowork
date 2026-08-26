@@ -8,9 +8,14 @@ using Microsoft.Data.Sqlite;
 
 internal static class OpenAIChatRuntime
 {
-    private const int ToolResultMaxChars = 16 * 1024;
-    private const int ToolResultTextBlockMaxChars = 12 * 1024;
+    // Matches the resultPolicy every Tool manifest advertises ('bounded-preview-64k') and the
+    // per-tool budgets Glob/Grep already compact to, which a smaller global cap used to override.
+    private const int ToolResultMaxChars = 64 * 1024;
+    private const int ToolResultTextBlockMaxChars = 48 * 1024;
     private const int ToolResultImageDataMaxChars = 4 * 1024;
+    // Upper bound for the host-supplied maxParallelTools; mirrors the renderer clamp in
+    // src/main/ipc/agent-runtime/session-run-settings.ts.
+    private const int MaxParallelToolsCeiling = 16;
     private const double DefaultContextCompressionThreshold = 0.8;
     private const int DefaultContextCompressionReservedOutputTokens = 20_000;
     private const int ContextCompressionAutoBufferTokens = 13_000;
@@ -1271,6 +1276,8 @@ internal static class OpenAIChatRuntime
     {
         var toolResults = new List<AgentRuntimeToolResult>(toolCalls.Count);
         var hookContextTexts = new List<string>();
+        var permissionPolicy = AgentRuntimePermissionPolicy.Resolve(parameters);
+        var maxParallelTools = ReadMaxParallelTools(parameters);
         for (var index = 0; index < toolCalls.Count;)
         {
             if (IsParallelSubAgentTaskCall(toolCalls[index], parameters))
@@ -1290,6 +1297,40 @@ internal static class OpenAIChatRuntime
                             .Skip(blockStart)
                             .Take(blockLength)
                             .ToArray(),
+                        state,
+                        context);
+                    toolResults.AddRange(blockResult.ToolResults);
+                    hookContextTexts.AddRange(blockResult.HookContextTexts);
+                    if (blockResult.ShouldStop)
+                    {
+                        break;
+                    }
+                    continue;
+                }
+
+                index = blockStart;
+            }
+
+            if (maxParallelTools > 1 &&
+                IsReadParallelCall(toolCalls[index], parameters, permissionPolicy))
+            {
+                var blockStart = index;
+                while (index < toolCalls.Count &&
+                    IsReadParallelCall(toolCalls[index], parameters, permissionPolicy))
+                {
+                    index++;
+                }
+
+                var blockLength = index - blockStart;
+                if (blockLength > 1)
+                {
+                    var blockResult = await ExecuteReadParallelBlockAsync(
+                        parameters,
+                        toolCalls
+                            .Skip(blockStart)
+                            .Take(blockLength)
+                            .ToArray(),
+                        maxParallelTools,
                         state,
                         context);
                     toolResults.AddRange(blockResult.ToolResults);
@@ -1345,6 +1386,73 @@ internal static class OpenAIChatRuntime
         var tasks = calls
             .Select(call => ExecuteSingleToolCallAsync(parameters, call, state, context))
             .ToArray();
+        var results = await Task.WhenAll(tasks);
+        return new AgentRuntimeParallelToolExecutionResult(
+            results.Select(result => result.ToolResult).ToList(),
+            results.SelectMany(result => result.HookContextTexts).ToList(),
+            results.Any(result => result.ShouldStop));
+    }
+
+    private static int ReadMaxParallelTools(JsonElement parameters)
+    {
+        // Default 1 keeps hosts that never send the field on the historical serial path.
+        return Math.Clamp(
+            JsonHelpers.GetInt(parameters, "maxParallelTools", 1),
+            1,
+            MaxParallelToolsCeiling);
+    }
+
+    /// <summary>
+    /// A call is safe to run inside a read-parallel batch when the Capability Snapshot classifies
+    /// it as readParallel and it needs no approval. Excluding approvals keeps a batch from opening
+    /// several concurrent reverse requests, and it also covers forceApproval and SSH-routed reads,
+    /// both of which ComputeRequiresApproval already accounts for.
+    /// </summary>
+    private static bool IsReadParallelCall(
+        AgentRuntimeNativeToolCall call,
+        JsonElement parameters,
+        AgentRuntimePermissionPolicy permissionPolicy)
+    {
+        if (!string.Equals(
+                AgentRuntimeCapabilityPolicy.ResolveParallelClass(parameters, call.Name),
+                "readParallel",
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var nativeTool = AgentRuntimeNativeToolExecutor.CanExecute(call.Name, parameters);
+        return !ComputeRequiresApproval(parameters, call, nativeTool, permissionPolicy);
+    }
+
+    private static async Task<AgentRuntimeParallelToolExecutionResult> ExecuteReadParallelBlockAsync(
+        JsonElement parameters,
+        IReadOnlyList<AgentRuntimeNativeToolCall> calls,
+        int maxParallelTools,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context)
+    {
+        var degree = Math.Min(maxParallelTools, calls.Count);
+        WorkerLog.Debug(
+            $"agent read parallel block runId={state.RunId} count={calls.Count} degree={degree} " +
+            $"toolUseIds={string.Join(',', calls.Select(call => call.Id))}");
+        using var slots = new SemaphoreSlim(degree, degree);
+        var tasks = calls
+            .Select(async call =>
+            {
+                await slots.WaitAsync(state.CancellationToken);
+                try
+                {
+                    return await ExecuteSingleToolCallAsync(parameters, call, state, context);
+                }
+                finally
+                {
+                    slots.Release();
+                }
+            })
+            .ToArray();
+        // WhenAll preserves input order, so tool results still line up with the Provider's
+        // tool_call order regardless of which read finished first.
         var results = await Task.WhenAll(tasks);
         return new AgentRuntimeParallelToolExecutionResult(
             results.Select(result => result.ToolResult).ToList(),

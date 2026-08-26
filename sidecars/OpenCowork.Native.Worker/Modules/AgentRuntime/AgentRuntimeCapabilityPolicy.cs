@@ -187,6 +187,37 @@ internal static class AgentRuntimeCapabilityPolicy
             null);
     }
 
+    /// <summary>
+    /// Reads a Tool's scheduling class off the Capability Snapshot without validating or cloning
+    /// its schema, so the tool-batch scheduler can group calls before paying for full resolution.
+    /// Returns null for legacy runs that carry no snapshot; callers must treat that as serial.
+    /// </summary>
+    public static string? ResolveParallelClass(JsonElement parameters, string toolName)
+    {
+        if (string.IsNullOrWhiteSpace(toolName) ||
+            !parameters.TryGetProperty("capabilitySnapshot", out var snapshot) ||
+            snapshot.ValueKind != JsonValueKind.Object ||
+            !snapshot.TryGetProperty("authorizedTools", out var tools) ||
+            tools.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var tool in tools.EnumerateArray())
+        {
+            if (tool.ValueKind == JsonValueKind.Object &&
+                string.Equals(
+                    JsonHelpers.GetString(tool, "wireName"),
+                    toolName,
+                    StringComparison.Ordinal))
+            {
+                return JsonHelpers.GetString(tool, "parallelClass");
+            }
+        }
+
+        return null;
+    }
+
     private static AgentRuntimeToolAuthorization ResolveLegacy(JsonElement parameters, string toolName)
     {
         if (!parameters.TryGetProperty("tools", out var tools) || tools.ValueKind != JsonValueKind.Array)

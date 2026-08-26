@@ -8,6 +8,9 @@ using System.Text.RegularExpressions;
 internal static class AgentRuntimeNativeToolExecutor
 {
     private const int ReadDefaultLimit = 2_000;
+    // Kept below the generic tool-result cap so a long Read truncates on a line boundary here,
+    // with a continuation hint, instead of losing its middle to the generic edge-preserving cut.
+    private const int ReadResultMaxChars = 48 * 1024;
     private const int LsPromptMaxItems = 100;
     private const int LsBackendFetchLimit = LsPromptMaxItems + 1;
     private const int LsPromptMaxOutputBytes = 8 * 1024;
@@ -670,10 +673,24 @@ internal static class AgentRuntimeNativeToolExecutor
                 var lines = content.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
                 var start = Math.Min(offset - 1, lines.Length);
                 var end = Math.Min(start + limit, lines.Length);
+                // Split leaves a trailing empty element when the file ends with a newline; that
+                // phantom line must not appear in the line count reported to the model.
+                var totalLines = lines.Length > 0 && lines[^1].Length == 0
+                    ? lines.Length - 1
+                    : lines.Length;
                 var width = Math.Max(6, end.ToString(System.Globalization.CultureInfo.InvariantCulture).Length);
                 var builder = new StringBuilder();
+                // Stop on a line boundary once the budget is spent. Overrunning it would hand the
+                // result to the generic tool-result cap, which drops the middle of the file and
+                // leaves the model believing it read the whole thing.
+                var nextLine = end;
                 for (var index = start; index < end; index++)
                 {
+                    if (builder.Length >= ReadResultMaxChars)
+                    {
+                        nextLine = index;
+                        break;
+                    }
                     if (builder.Length > 0)
                     {
                         builder.Append('\n');
@@ -681,6 +698,17 @@ internal static class AgentRuntimeNativeToolExecutor
                     builder.Append((index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture).PadLeft(width));
                     builder.Append('\t');
                     builder.Append(lines[index]);
+                }
+
+                if (nextLine < totalLines)
+                {
+                    if (builder.Length > 0)
+                    {
+                        builder.Append('\n');
+                    }
+                    builder.Append(
+                        $"[Read stopped after line {nextLine} of {totalLines}. " +
+                        $"Continue with offset={nextLine + 1}.]");
                 }
 
                 return builder.ToString();

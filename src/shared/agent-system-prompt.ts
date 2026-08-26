@@ -268,10 +268,9 @@ function buildParallelToolCallsPrompt(): string {
   return [
     '<use_parallel_tool_calls>',
     'Before calling tools, briefly plan which operations are independent and should be batched together.',
-    'For maximum efficiency, whenever you perform multiple independent operations, invoke all relevant tools simultaneously rather than sequentially.',
-    'Prioritize parallel tool calls whenever possible. For example, when reading 3 files, run 3 tool calls in parallel to read all 3 files into context at the same time.',
-    'When running multiple read-only operations such as directory listings, file reads, searches, or status checks, call them in parallel unless one result is required to choose the next operation.',
-    'Err on the side of maximizing parallel tool calls rather than running too many tools sequentially.',
+    'Read-only calls in the same batch execute concurrently. Batch them aggressively: when you need 3 files, issue 3 Read calls in one turn instead of one per turn.',
+    'This applies to file reads, directory listings, searches, memory lookups, web fetches, and status checks. Batch them unless one result is required to choose the next operation.',
+    'Writes, edits, and terminal commands execute in the order you list them, so batching them buys no speed. Batch them only when the order you wrote is the order you want, and keep a command that depends on a previous result in a later turn.',
     '</use_parallel_tool_calls>'
   ].join('\n')
 }

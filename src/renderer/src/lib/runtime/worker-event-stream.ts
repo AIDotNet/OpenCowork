@@ -37,7 +37,7 @@ const CHECKPOINT_EVERY = 64
 type EnvelopeSink = (envelope: AgentStreamEnvelope) => EnvelopeApplyResult
 
 type EnvelopeApplyResult =
-  | { status: 'applied' }
+  | { status: 'applied'; throughSeq?: number }
   | { status: 'duplicate' }
   | { status: 'rejected' }
   | { status: 'gap'; runId: string; expected: number }
@@ -274,11 +274,13 @@ function applyAndAcknowledge(envelope: AgentStreamEnvelope): void {
   // Live frames are not in the durable outbox, so there is no cursor to advance.
   if (envelope.live === true) return
 
+  const appliedSeq = result.throughSeq ?? hooks?.lastAppliedSeq(envelope.runId) ?? envelope.seq
   const previous = lastAppliedSeq.get(envelope.runId) ?? 0
-  if (envelope.seq <= previous) return
-  lastAppliedSeq.set(envelope.runId, envelope.seq)
+  if (appliedSeq <= previous) return
+  lastAppliedSeq.set(envelope.runId, appliedSeq)
 
-  const applied = (sinceCheckpoint.get(envelope.runId) ?? 0) + 1
+  const advanced = Math.max(1, appliedSeq - previous)
+  const applied = (sinceCheckpoint.get(envelope.runId) ?? 0) + advanced
   const terminal = envelope.events.some(
     (event) => event.type === 'loop_end' || event.type === 'error'
   )
@@ -290,7 +292,7 @@ function applyAndAcknowledge(envelope: AgentStreamEnvelope): void {
   sinceCheckpoint.delete(envelope.runId)
   void requestWorker(
     'events/checkpoint',
-    { consumerId, jobId: envelope.runId, throughSeq: envelope.seq },
+    { consumerId, jobId: envelope.runId, throughSeq: appliedSeq },
     CHECKPOINT_TIMEOUT_MS
   ).catch(() => {
     // Losing a checkpoint only means resubscribing rewinds further.

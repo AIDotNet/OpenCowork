@@ -15,7 +15,7 @@ type GlobalEventCallback = (runId: string, sessionId: string, event: AgentStream
 
 /** Outcome of handing one envelope to the receiver. */
 export type AgentStreamApplyResult =
-  | { status: 'applied' }
+  | { status: 'applied'; throughSeq?: number }
   | { status: 'duplicate' }
   | { status: 'rejected' }
   | { status: 'gap'; runId: string; expected: number }
@@ -23,11 +23,14 @@ export type AgentStreamApplyResult =
 // Keep completed runs long enough to deduplicate an ACK-loss replay without
 // allowing a long-lived Renderer process to grow this journal index forever.
 const MAX_TRACKED_RUN_SEQUENCES = 4096
+/** Later envelopes held while a missing seq is outstanding. Matches the CLI cap. */
+const MAX_PENDING_ENVELOPES_PER_RUN = 128
 
 export class AgentStreamReceiver {
   private runHandlers = new Map<string, Set<RunEventCallback>>()
   private globalHandlers = new Set<GlobalEventCallback>()
   private lastSeqByRun = new Map<string, number>()
+  private pendingByRun = new Map<string, Map<number, AgentStreamEnvelope>>()
   private attached = false
 
   /**
@@ -97,11 +100,10 @@ export class AgentStreamReceiver {
   /**
    * Applies one envelope, reporting why it did not when it did not.
    *
-   * A gap must be reported rather than swallowed. The sequence is not advanced
-   * past it, so every later envelope for that run would also read as a gap and
-   * the run would go silent for good — no terminal event, no sub-agent
-   * completion, not even the events a cancel produces. The caller answers a gap
-   * by replaying the run from the worker's durable outbox.
+   * A gap must be reported rather than swallowed, and later envelopes are
+   * buffered so a single missing seq does not drop the rest of a parallel
+   * tool batch. The caller answers a gap by replaying the run from the
+   * worker's durable outbox; buffered seqs drain once the hole is filled.
    */
   private acceptEnvelope(envelope: AgentStreamEnvelope): AgentStreamApplyResult {
     if (envelope.v !== AGENT_STREAM_PROTOCOL_VERSION) {
@@ -119,6 +121,10 @@ export class AgentStreamReceiver {
         return { status: 'duplicate' }
       }
       if (lastSeq !== undefined && envelope.seq > lastSeq + 1) {
+        // Parallel tool emits can arrive out of order. Hold later batches so a
+        // single missing seq does not drop tool_call_start/result and leave
+        // Read cards stuck on "receiving parameters".
+        this.bufferPending(envelope)
         return { status: 'gap', runId: envelope.runId, expected: lastSeq + 1 }
       }
       if (lastSeq === undefined || envelope.seq > lastSeq) {
@@ -126,6 +132,47 @@ export class AgentStreamReceiver {
       }
     }
 
+    this.dispatchEnvelope(envelope)
+    if (!live) {
+      this.drainPending(envelope.runId)
+    }
+    return {
+      status: 'applied',
+      ...(live ? {} : { throughSeq: this.lastSeqByRun.get(envelope.runId) })
+    }
+  }
+
+  private bufferPending(envelope: AgentStreamEnvelope): void {
+    let pending = this.pendingByRun.get(envelope.runId)
+    if (!pending) {
+      pending = new Map()
+      this.pendingByRun.set(envelope.runId, pending)
+    }
+    if (pending.size >= MAX_PENDING_ENVELOPES_PER_RUN && !pending.has(envelope.seq)) {
+      return
+    }
+    pending.set(envelope.seq, envelope)
+  }
+
+  private drainPending(runId: string): void {
+    const pending = this.pendingByRun.get(runId)
+    if (!pending || pending.size === 0) return
+
+    for (;;) {
+      const lastSeq = this.lastSeqByRun.get(runId)
+      if (lastSeq === undefined) break
+      const next = pending.get(lastSeq + 1)
+      if (!next) break
+      pending.delete(lastSeq + 1)
+      this.rememberSequence(runId, next.seq)
+      this.dispatchEnvelope(next)
+    }
+    if (pending.size === 0) {
+      this.pendingByRun.delete(runId)
+    }
+  }
+
+  private dispatchEnvelope(envelope: AgentStreamEnvelope): void {
     if (shouldLogStreamTrace()) {
       console.debug('[AgentStream] envelope applied', {
         runId: envelope.runId,
@@ -138,7 +185,6 @@ export class AgentStreamReceiver {
     for (const event of envelope.events) {
       this.dispatch(envelope.runId, envelope.sessionId, event)
     }
-    return { status: 'applied' }
   }
 
   /** Highest seq applied for a run, or undefined if none seen. Used to compute

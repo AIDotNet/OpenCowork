@@ -1436,6 +1436,10 @@ internal static class OpenAIChatRuntime
         WorkerLog.Debug(
             $"agent read parallel block runId={state.RunId} count={calls.Count} degree={degree} " +
             $"toolUseIds={string.Join(',', calls.Select(call => call.Id))}");
+        // Leave "receiving parameters" as soon as the provider turn is done. Waiting
+        // tools otherwise stay on streaming until their semaphore slot starts, which
+        // looks like a hang when several Reads are in flight.
+        await AnnounceToolCallsAsync(calls, state, context);
         using var slots = new SemaphoreSlim(degree, degree);
         var tasks = calls
             .Select(async call =>
@@ -1458,6 +1462,26 @@ internal static class OpenAIChatRuntime
             results.Select(result => result.ToolResult).ToList(),
             results.SelectMany(result => result.HookContextTexts).ToList(),
             results.Any(result => result.ShouldStop));
+    }
+
+    private static async Task AnnounceToolCallsAsync(
+        IReadOnlyList<AgentRuntimeNativeToolCall> calls,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context)
+    {
+        foreach (var call in calls)
+        {
+            await AgentRuntimeTools.EmitAsync(
+                state,
+                context,
+                new AgentRuntimeStreamEvent(
+                    "tool_use_generated",
+                    ToolUseBlock: new AgentRuntimeToolUseBlock(
+                        call.Id,
+                        call.Name,
+                        call.Input,
+                        call.ExtraContent)));
+        }
     }
 
     private static bool ComputeRequiresApproval(

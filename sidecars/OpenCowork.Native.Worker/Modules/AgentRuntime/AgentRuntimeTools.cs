@@ -394,27 +394,35 @@ internal static class AgentRuntimeTools
             return;
         }
 
-        JournalToolResults(state, events);
-        var envelope = new AgentRuntimeStreamEnvelope(
-            StreamProtocolVersion,
-            state.RunId,
-            state.SessionId,
-            state.NextSeq(),
-            events);
-        var messagePackEvent = AgentStreamMessagePackEmitter.Encode(envelope);
-        var terminal = events.Any(static streamEvent =>
-            streamEvent.Type is "loop_end" or "error");
-        RuntimeJobCoordinator.PersistEvent(
-            state.RunId,
-            envelope.Seq,
-            messagePackEvent.Payload,
-            terminal);
-        if (AgentStreamMessagePackEmitter.TraceEnabled)
+        // Allocate the sequence and persist under one lock. Parallel tool batches
+        // call EmitAsync concurrently; if seq N+1 hits disk before seq N, the
+        // outbox pump can deliver the later envelope first and then skip N
+        // (PublishedThrough moves past the hole). The renderer then freezes
+        // remaining tool cards on "receiving parameters".
+        state.CommitDurableEnvelope(() =>
         {
-            WorkerLog.Debug(
-                $"agent stream committed transport=durable-outbox runId={state.RunId} seq={envelope.Seq} " +
-                $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
-        }
+            JournalToolResults(state, events);
+            var envelope = new AgentRuntimeStreamEnvelope(
+                StreamProtocolVersion,
+                state.RunId,
+                state.SessionId,
+                state.NextSeq(),
+                events);
+            var messagePackEvent = AgentStreamMessagePackEmitter.Encode(envelope);
+            var terminal = events.Any(static streamEvent =>
+                streamEvent.Type is "loop_end" or "error");
+            RuntimeJobCoordinator.PersistEvent(
+                state.RunId,
+                envelope.Seq,
+                messagePackEvent.Payload,
+                terminal);
+            if (AgentStreamMessagePackEmitter.TraceEnabled)
+            {
+                WorkerLog.Debug(
+                    $"agent stream committed transport=durable-outbox runId={state.RunId} seq={envelope.Seq} " +
+                    $"events={events.Length} bytes={messagePackEvent.Payload.Length}");
+            }
+        });
     }
 
     private static bool IsLiveOnlyProgress(AgentRuntimeStreamEvent[] events)
@@ -578,6 +586,7 @@ internal static class AgentRuntimeTools
         private readonly CancellationTokenSource cancellation = new();
         private readonly ConcurrentQueue<JsonElement> queuedMessages = new();
         private readonly object messageQueueSync = new();
+        private readonly object emitSync = new();
         private long seq;
         private int queuedMessageCount;
         private int stopRequested;
@@ -637,6 +646,18 @@ internal static class AgentRuntimeTools
         public long NextSeq()
         {
             return Interlocked.Increment(ref seq);
+        }
+
+        /// <summary>
+        /// Serializes sequence allocation and outbox persist for this run so a
+        /// parallel tool batch cannot persist seq N+1 before seq N.
+        /// </summary>
+        public void CommitDurableEnvelope(Action commit)
+        {
+            lock (emitSync)
+            {
+                commit();
+            }
         }
 
         public int EnqueueMessages(JsonElement parameters)

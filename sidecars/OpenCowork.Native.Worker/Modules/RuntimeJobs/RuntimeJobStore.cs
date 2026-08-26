@@ -798,7 +798,7 @@ internal static class RuntimeJobStore
         using var command = connection.CreateCommand();
         command.CommandText = jobId is null
             ? """
-                SELECT e.job_id, e.seq, e.payload, e.terminal
+                SELECT e.job_id, e.seq, e.payload, e.terminal, COALESCE(c.through_seq, 0)
                   FROM runtime_event_batches e
                   JOIN runtime_jobs j ON j.job_id = e.job_id
                   LEFT JOIN runtime_event_cursors c
@@ -808,7 +808,7 @@ internal static class RuntimeJobStore
                  ORDER BY e.created_at, e.job_id, e.seq LIMIT $limit;
                 """
             : """
-                SELECT e.job_id, e.seq, e.payload, e.terminal
+                SELECT e.job_id, e.seq, e.payload, e.terminal, COALESCE(c.through_seq, 0)
                   FROM runtime_event_batches e
                   JOIN runtime_jobs j ON j.job_id = e.job_id
                   LEFT JOIN runtime_event_cursors c
@@ -826,14 +826,69 @@ internal static class RuntimeJobStore
             command.Parameters.AddWithValue("$sinceSeq", sinceSeq ?? 0);
         }
         using var reader = command.ExecuteReader();
-        var batches = new List<RuntimeEventBatch>();
+        var rows = new List<(RuntimeEventBatch Batch, long Cursor)>();
         while (reader.Read())
         {
-            batches.Add(new RuntimeEventBatch(
-                reader.GetString(0),
-                reader.GetInt64(1),
-                (byte[])reader[2],
-                reader.GetInt64(3) != 0));
+            rows.Add((
+                new RuntimeEventBatch(
+                    reader.GetString(0),
+                    reader.GetInt64(1),
+                    (byte[])reader[2],
+                    reader.GetInt64(3) != 0),
+                reader.GetInt64(4)));
+        }
+        return TakeContiguousFromCursor(rows, sinceSeq);
+    }
+
+    /// <summary>
+    /// Delivers only the contiguous prefix after each job's cursor. A parallel
+    /// persist that writes seq N+1 before N would otherwise hand the later
+    /// envelope to the pump, which then marks PublishedThrough past the hole
+    /// and never delivers N.
+    /// </summary>
+    private static List<RuntimeEventBatch> TakeContiguousFromCursor(
+        List<(RuntimeEventBatch Batch, long Cursor)> rows,
+        long? sinceSeq)
+    {
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var itemsByJob = new Dictionary<string, List<RuntimeEventBatch>>(StringComparer.Ordinal);
+        var cursorByJob = new Dictionary<string, long>(StringComparer.Ordinal);
+        var jobOrder = new List<string>();
+        foreach (var (batch, cursor) in rows)
+        {
+            if (!itemsByJob.TryGetValue(batch.JobId, out var items))
+            {
+                items = [];
+                itemsByJob[batch.JobId] = items;
+                cursorByJob[batch.JobId] = cursor;
+                jobOrder.Add(batch.JobId);
+            }
+            items.Add(batch);
+        }
+
+        var batches = new List<RuntimeEventBatch>(rows.Count);
+        foreach (var jobId in jobOrder)
+        {
+            var items = itemsByJob[jobId];
+            items.Sort(static (left, right) => left.Seq.CompareTo(right.Seq));
+            var next = Math.Max(cursorByJob[jobId], sinceSeq ?? 0) + 1;
+            foreach (var batch in items)
+            {
+                if (batch.Seq < next)
+                {
+                    continue;
+                }
+                if (batch.Seq > next)
+                {
+                    break;
+                }
+                batches.Add(batch);
+                next++;
+            }
         }
         return batches;
     }

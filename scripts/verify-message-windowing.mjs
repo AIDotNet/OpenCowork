@@ -90,7 +90,7 @@ async function startWorker(tempDir) {
   const consumerId = `verify-windowing-${process.pid}`
   const worker = await startWorkerOverHttp({
     command: 'dotnet',
-    commandArgs: ['run', '--project', workerProject, '--'],
+    commandArgs: ['run', '--project', workerProject, '-f', 'net11.0', '--'],
     hostId: `verify-windowing-${suffix}`,
     cwd: repoRoot,
     env: {

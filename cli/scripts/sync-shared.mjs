@@ -53,6 +53,10 @@ const SHARED_FILES = [
   {
     source: 'src/shared/oauth-client-identity.ts',
     target: 'oauth-client-identity.ts'
+  },
+  {
+    source: 'src/shared/task-tool-definitions.ts',
+    target: 'task-tool-definitions.ts'
   }
 ]
 

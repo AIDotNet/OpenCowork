@@ -1,5 +1,12 @@
 import * as React from 'react'
-import { ChevronDown, ChevronUp, ListChecks, Loader2 } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  CircleDotDashed,
+  CircleSlash,
+  ListChecks,
+  Loader2
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@renderer/lib/utils'
@@ -9,6 +16,18 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import { useTaskStore, type TaskItem } from '@renderer/stores/task-store'
 import { useTeamStore } from '@renderer/stores/team-store'
 import type { TeamTask } from '@renderer/lib/agent/teams/types'
+
+const TASK_STATUSES: readonly TaskItem['status'][] = [
+  'pending',
+  'in_progress',
+  'blocked',
+  'in_review',
+  'completed'
+]
+
+function narrowTaskStatus(value: unknown, fallback: TaskItem['status']): TaskItem['status'] {
+  return TASK_STATUSES.find((status) => status === value) ?? fallback
+}
 
 function teamTaskToItem(task: TeamTask): TaskItem {
   return {
@@ -41,6 +60,18 @@ function StatusDot({ status }: { status: TaskItem['status'] }): React.JSX.Elemen
           <Loader2 className="size-3.5 animate-spin text-blue-500" />
         </span>
       )
+    case 'blocked':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <CircleSlash className="size-3.5 text-amber-500" />
+        </span>
+      )
+    case 'in_review':
+      return (
+        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+          <CircleDotDashed className="size-3.5 text-violet-500" />
+        </span>
+      )
     case 'pending':
     default:
       return (
@@ -49,6 +80,29 @@ function StatusDot({ status }: { status: TaskItem['status'] }): React.JSX.Elemen
         </span>
       )
   }
+}
+
+function getTaskPrimaryText(task: TaskItem): string {
+  return task.status === 'in_progress' && task.activeForm ? task.activeForm : task.subject
+}
+
+/**
+ * Supporting detail lives in its own column now, so show it under the title instead of
+ * expecting the model to cram it into the title.
+ */
+function TaskDetailLine({ task }: { task: TaskItem }): React.JSX.Element | null {
+  const detail = task.description?.trim()
+  if (!detail || detail === getTaskPrimaryText(task).trim()) return null
+  return (
+    <div
+      className={cn(
+        'mt-0.5 text-[11px] leading-relaxed text-muted-foreground/60',
+        task.status === 'completed' && 'text-muted-foreground/45 line-through'
+      )}
+    >
+      {detail}
+    </div>
+  )
 }
 
 interface TaskCardProps {
@@ -105,7 +159,7 @@ function toTaskItem(task: TaskSnapshotLike | null | undefined): TaskItem | null 
     subject,
     description: typeof task.description === 'string' ? task.description : '',
     activeForm: typeof task.activeForm === 'string' ? task.activeForm : undefined,
-    status: task.status as TaskItem['status'],
+    status: narrowTaskStatus(task.status, 'pending'),
     owner: typeof task.owner === 'string' || task.owner === null ? task.owner : undefined,
     blocks: Array.isArray(task.blocks) ? task.blocks.map(String) : [],
     blockedBy: Array.isArray(task.blockedBy) ? task.blockedBy.map(String) : [],
@@ -192,12 +246,8 @@ export function TaskCard({
     if (!focusedTaskId) return null
     if (tasks.some((task) => task.id === focusedTaskId)) return null
     const inputSubject = getInputTaskTitle(input) ?? undefined
-    const inputStatus = typeof input.status === 'string' ? input.status : 'in_progress'
     const inputActiveForm = typeof input.activeForm === 'string' ? input.activeForm : undefined
-    const status: TaskItem['status'] =
-      inputStatus === 'completed' || inputStatus === 'in_progress' || inputStatus === 'pending'
-        ? inputStatus
-        : 'in_progress'
+    const status = narrowTaskStatus(input.status, 'in_progress')
     return {
       id: focusedTaskId,
       sessionId: '',
@@ -309,10 +359,9 @@ export function TaskCard({
                     task.status === 'pending' && 'text-muted-foreground/70'
                   )}
                 >
-                  {task.status === 'in_progress' && task.activeForm
-                    ? task.activeForm
-                    : task.subject}
+                  {getTaskPrimaryText(task)}
                 </div>
+                <TaskDetailLine task={task} />
                 {task.owner && (
                   <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
                 )}
@@ -432,10 +481,9 @@ export function TodoStatusList({
                     task.status === 'pending' && 'text-muted-foreground/70'
                   )}
                 >
-                  {task.status === 'in_progress' && task.activeForm
-                    ? task.activeForm
-                    : task.subject}
+                  {getTaskPrimaryText(task)}
                 </div>
+                <TaskDetailLine task={task} />
                 {task.owner && (
                   <div className="text-[10px] text-muted-foreground/50">{task.owner}</div>
                 )}

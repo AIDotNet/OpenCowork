@@ -42,8 +42,9 @@
     "verify:runtime-protocol": "node ./scripts/verify-runtime-protocol.mjs",
     "verify:runtime-projection": "node ./scripts/verify-runtime-projection.mjs",
     "verify:native-worker-jobs": "node ./scripts/verify-native-worker-jobs.mjs",
-    "verify:worker-http": "node --experimental-strip-types --import ./scripts/lib/register-ts-ext.mjs --test scripts/test/worker-http-channel.test.ts",
+    "verify:worker-http": "node --experimental-strip-types --import ./scripts/lib/register-ts-ext.mjs --test scripts/test/worker-http-channel.test.ts scripts/test/worker-http-job-routing.test.ts",
     "native:publish": "node ./scripts/publish-native-worker.mjs",
+    "native:publish:compat": "OPEN_COWORK_COMPAT_WORKER=1 node ./scripts/publish-native-worker.mjs",
     "codegraph:publish": "npm run native:publish",
     "codegraph:grammars:validate": "node ./scripts/validate-codegraph-grammars.mjs",
     "start": "electron-vite preview",
@@ -54,6 +55,7 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:win:green": "npm run build && electron-builder --win zip -c.extraMetadata.opencoworkDistribution=green -c.directories.output=dist-green --publish never",
+    "build:win:compat": "npm run build && OPEN_COWORK_COMPAT_WORKER=1 OPEN_COWORK_NATIVE_WORKER_RID=win-x64 npm run native:publish && electron-builder --win nsis --x64 --publish never -c.extraMetadata.opencoworkDistribution=compat -c.directories.output=dist-compat",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },

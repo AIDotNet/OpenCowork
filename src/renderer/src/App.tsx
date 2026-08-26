@@ -174,7 +174,10 @@ interface AvailableUpdate {
 }
 
 function normalizeDistribution(value: unknown): AppDistribution {
-  return value === 'green' ? 'green' : 'installer'
+  if (value === 'green' || value === 'compat') {
+    return value
+  }
+  return 'installer'
 }
 
 function normalizeReleaseUrl(value: unknown): string {

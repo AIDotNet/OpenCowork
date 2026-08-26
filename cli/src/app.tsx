@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+﻿import { spawn } from 'node:child_process'
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Box, Static, Text, useApp, useInput, useStdout } from 'ink'
 import { AgentPanel } from './components/agent-panel.js'
 import { AskUserPrompt } from './components/ask-user-prompt.js'
@@ -19,7 +19,7 @@ import { pickSpinnerVerb, TurnStatusLine } from './components/turn-status-line.j
 import { WelcomeCard } from './components/welcome-card.js'
 import { useTerminalSize } from './hooks/use-terminal-size.js'
 import { t } from './i18n.js'
-import { appendAssistantSegment, finalizeAssistantSegments } from './lib/assistant-content.js'
+import { finalizeAssistantSegments } from './lib/assistant-content.js'
 import { computeTranscriptWindow, estimateChromeLines } from './lib/message-height.js'
 import { formatTokenCount, formatUsdCost } from './lib/metrics.js'
 import {
@@ -44,6 +44,8 @@ import {
 import { CLEAR_SCREEN_SEQUENCE } from './terminal/terminal-screen.js'
 import { theme } from './theme.js'
 import { checkForUpdate } from './update.js'
+import { cliReducer } from './state/cli-reducer.js'
+import { createInitialCliState, resolveActiveOverlay } from './state/cli-state.js'
 import type {
   AgentRuntime,
   AgentOption,
@@ -139,14 +141,6 @@ function readRuntimeMetrics(runtime: AgentRuntime): RuntimeMetrics {
   return { context, usage }
 }
 
-function nowTimestamp(): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).format(new Date())
-}
-
 function isActiveThinkingMessage(message: Message): boolean {
   if (message.kind !== 'assistant' || !message.streaming) return false
   const segments = message.segments ?? []
@@ -201,31 +195,51 @@ export function CliApp({
   const { columns, revision: terminalRevision, rows } = useTerminalSize()
   const initialCatalogRef = useRef<ModelCatalog | null>(null)
   initialCatalogRef.current ??= runtime.getModelCatalog()
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (!initialResume) return []
-    const banner: Message[] = [
-      {
-        id: 'startup-resume',
-        kind: 'system',
-        text: t('cli.runtime.resumedSession', 'Resumed session · {{count}} canonical messages', {
-          count: initialResume.session.messageCount
-        }),
-        tone: 'success'
-      }
-    ]
-    if (initialResume.warning) {
-      banner.push({
-        id: 'startup-resume-warning',
-        kind: 'system',
-        text: initialResume.warning,
-        tone: 'warning'
-      })
-    }
-    return [...initialResume.transcript, ...banner]
-  })
+  const [cliState, dispatchCli] = useReducer(cliReducer, initialResume, (resume) =>
+    createInitialCliState(resume)
+  )
+  const {
+    activity,
+    askUserRequest,
+    isRunning,
+    messages,
+    permissionRequest,
+    plan,
+    showTasks,
+    tasks,
+    turnStatus
+  } = cliState
+  const setMessages = (messages: Message[] | ((current: Message[]) => Message[])): void =>
+    dispatchCli({ type: 'message/replace', messages })
+  const setTasks = (tasks: TaskItem[] | ((current: TaskItem[]) => TaskItem[])): void =>
+    dispatchCli({ type: 'tasks/replace', tasks })
+  const setShowTasks = (visible: boolean | ((current: boolean) => boolean)): void =>
+    dispatchCli({ type: 'tasks/visibility', visible })
+  const setPermissionRequest = (
+    request:
+      | PermissionRequest
+      | null
+      | ((current: PermissionRequest | null) => PermissionRequest | null)
+  ): void => dispatchCli({ type: 'permission/replace', request })
+  const setAskUserRequest = (
+    request: AskUserRequest | null | ((current: AskUserRequest | null) => AskUserRequest | null)
+  ): void => dispatchCli({ type: 'ask-user/replace', request })
+  const setPlan = (
+    nextPlan: PlanSnapshot | null | ((current: PlanSnapshot | null) => PlanSnapshot | null)
+  ): void => dispatchCli({ type: 'plan/replace', plan: nextPlan })
+  const setIsRunning = (value: boolean | ((current: boolean) => boolean)): void =>
+    dispatchCli({ type: 'running/replace', value })
+  const setActivity = (
+    nextActivity: string | undefined | ((current: string | undefined) => string | undefined)
+  ): void => dispatchCli({ type: 'activity/replace', activity: nextActivity })
+  const setTurnStatus = (
+    status:
+      | TurnStatusSnapshot
+      | null
+      | ((current: TurnStatusSnapshot | null) => TurnStatusSnapshot | null)
+  ): void => dispatchCli({ type: 'turn-status/replace', status })
   const [promptImages, setPromptImages] = useState<PromptImageAttachment[]>([])
   const [promptReferences, setPromptReferences] = useState<PromptReference[]>([])
-  const [tasks, setTasks] = useState<TaskItem[]>([])
   const [agents, setAgents] = useState<AgentOption[]>(() => runtime.getAgentCatalog())
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(initialCatalogRef.current)
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(
@@ -259,7 +273,6 @@ export function CliApp({
   )
   const [showHelp, setShowHelp] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
-  const [showTasks, setShowTasks] = useState(false)
   // Fullscreen scroll lock: index of the bottom-most visible message, null follows the tail.
   const [scrollAnchor, setScrollAnchor] = useState<number | null>(null)
   const [expandedMessageIds, setExpandedMessageIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -282,13 +295,7 @@ export function CliApp({
   const [configOpen, setConfigOpen] = useState(false)
   const [configCatalog, setConfigCatalog] = useState<ConfigCatalog | null>(null)
   const [configSavingKey, setConfigSavingKey] = useState<string>()
-  const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null)
-  const [askUserRequest, setAskUserRequest] = useState<AskUserRequest | null>(null)
-  const [plan, setPlan] = useState<PlanSnapshot | null>(null)
   const [planActionPending, setPlanActionPending] = useState(false)
-  const [isRunning, setIsRunning] = useState(false)
-  const [activity, setActivity] = useState<string>()
-  const [turnStatus, setTurnStatus] = useState<TurnStatusSnapshot | null>(null)
   const [notice, setNotice] = useState<string>()
   const [transcriptEpoch, setTranscriptEpoch] = useState(0)
   const [runtimeMetrics, setRuntimeMetrics] = useState<RuntimeMetrics>(() =>
@@ -340,18 +347,21 @@ export function CliApp({
   // Window by estimated per-message line heights, reserving bottom chrome (turn status,
   // prompt, status line). Classic also windows its dynamic frame: Ink redraws that tree
   // every spinner tick, and letting it grow past the terminal height causes flicker/OOM.
-  const bottomOverlayOpen = Boolean(
-    askUserRequest ||
-    permissionRequest ||
-    effortConfiguration ||
-    modelConfiguration ||
-    modelPickerPurpose ||
-    providerSetupCatalog ||
-    resumeOpen ||
-    agentPanelOpen ||
-    configOpen ||
-    (permissionMode === 'plan' && plan)
-  )
+  const activeOverlay = resolveActiveOverlay({
+    askUserRequest,
+    agentPanelOpen,
+    configCatalog,
+    configOpen,
+    effortConfiguration,
+    modelConfiguration,
+    modelPickerPurpose,
+    permissionMode,
+    permissionRequest,
+    plan,
+    providerSetupCatalog,
+    resumeOpen
+  })
+  const bottomOverlayOpen = activeOverlay !== null
   const chromeLines = estimateChromeLines({
     hasTurnStatus: Boolean(turnStatus),
     overlayOpen: bottomOverlayOpen,
@@ -769,290 +779,9 @@ export function CliApp({
   }
 
   const applyRuntimeEvent = (event: UiEvent): void => {
-    if (event.type === 'turn.done') {
-      refreshRuntimeMetrics()
-      setTurnStatus(null)
-      return
-    }
-
-    if (event.type === 'runtime.activity') {
-      setActivity(
-        event.activity === 'compressing'
-          ? t('cli.statuses.compressing', 'Compressing context?')
-          : t('cli.statuses.working', 'Working?')
-      )
-      if (event.activity === 'working') {
-        setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
-      }
-      return
-    }
-
-    if (event.type === 'runtime.usage') {
-      refreshRuntimeMetrics()
-      setTurnStatus((current) => {
-        if (!current) return current
-        const estimatedOutputTokens = Math.round(current.activeResponseCharacters / 4)
-        const outputTokens =
-          event.outputTokens !== undefined && event.outputTokens > 0
-            ? event.outputTokens
-            : estimatedOutputTokens
-        const reportedRequestTokens = event.contextTokens ?? event.inputTokens
-        return {
-          ...current,
-          activeResponseCharacters: 0,
-          activeResponseStartedAt: undefined,
-          completedOutputTokens: current.completedOutputTokens + outputTokens,
-          generationMs:
-            current.generationMs +
-            (current.activeResponseStartedAt !== undefined
-              ? Math.max(0, Date.now() - current.activeResponseStartedAt)
-              : 0),
-          phase: current.phase === 'requesting' ? 'responding' : current.phase,
-          requestTokens:
-            reportedRequestTokens !== undefined && reportedRequestTokens > 0
-              ? reportedRequestTokens
-              : current.requestTokens
-        }
-      })
-      return
-    }
-
-    if (event.type === 'runtime.retry') {
-      const delay =
-        event.delayMs >= 1_000
-          ? `${(event.delayMs / 1_000).toFixed(event.delayMs % 1_000 === 0 ? 0 : 1)}s`
-          : `${event.delayMs}ms`
-      setActivity(
-        `${t('cli.runtime.retry', 'Retry')} ${event.attempt}/${event.maxAttempts}${event.statusCode ? ` ? HTTP ${event.statusCode}` : ''} ? ${t('cli.runtime.retryIn', 'in')} ${delay}${event.reason ? ` ? ${event.reason}` : ''}`
-      )
-      setTurnStatus((current) => (current ? { ...current, phase: 'requesting' } : current))
-      return
-    }
-
-    if (event.type === 'context-compression.start') {
-      setActivity(t('cli.statuses.compressing', 'Compressing context…'))
-      return
-    }
-
-    if (event.type === 'context-compression.delta') {
-      const preview = event.text.replace(/\s+/g, ' ').trim()
-      if (preview) {
-        setActivity(
-          `${t('cli.statuses.compressing', 'Compressing context…')} ${preview.slice(-48)}`
-        )
-      }
-      return
-    }
-
-    if (event.type === 'context-compression.done') {
-      setActivity(t('cli.statuses.working', 'Working?'))
-      appendSystem(
-        event.summarizerFailed
-          ? event.error ||
-              'Context compression failed; the Native Worker preserved the original history.'
-          : `Context compressed ? ${event.originalCount} ? ${event.newCount} messages${event.messagesSummarized === undefined ? '' : ` ? ${event.messagesSummarized} summarized`}`,
-        event.summarizerFailed ? 'warning' : 'success'
-      )
-      return
-    }
-
-    if (event.type === 'assistant.start') {
-      setActivity(t('cli.statuses.working', 'Working?'))
-      setTurnStatus((current) => (current ? { ...current, phase: 'responding' } : current))
-      setMessages((current) => [
-        ...current,
-        {
-          id: event.id,
-          kind: 'assistant',
-          model: event.model,
-          segments: [],
-          streaming: true,
-          text: '',
-          timestamp: nowTimestamp()
-        }
-      ])
-      return
-    }
-
-    if (event.type === 'assistant.delta') {
-      setTurnStatus((current) =>
-        current
-          ? {
-              ...current,
-              activeResponseCharacters: current.activeResponseCharacters + event.text.length,
-              activeResponseStartedAt: current.activeResponseStartedAt ?? Date.now(),
-              firstResponseAt: current.firstResponseAt ?? Date.now(),
-              phase: 'responding'
-            }
-          : current
-      )
-      setMessages((current) =>
-        updateMessageById(current, event.id, 'assistant', (message) => ({
-          ...message,
-          segments: appendAssistantSegment(message.segments, 'text', event.text, Date.now()),
-          text: message.text + event.text
-        }))
-      )
-      return
-    }
-
-    if (event.type === 'assistant.thinking') {
-      setTurnStatus((current) =>
-        current
-          ? {
-              ...current,
-              activeResponseCharacters: current.activeResponseCharacters + event.thinking.length,
-              activeResponseStartedAt: current.activeResponseStartedAt ?? Date.now(),
-              firstResponseAt: current.firstResponseAt ?? Date.now(),
-              phase: 'thinking'
-            }
-          : current
-      )
-      setMessages((current) =>
-        updateMessageById(current, event.id, 'assistant', (message) => ({
-          ...message,
-          segments: appendAssistantSegment(message.segments, 'thinking', event.thinking, Date.now())
-        }))
-      )
-      return
-    }
-
-    if (event.type === 'assistant.done') {
-      if (!event.preserveResponseCharacters) {
-        setTurnStatus((current) => {
-          if (
-            !current ||
-            (current.activeResponseCharacters <= 0 && current.activeResponseStartedAt === undefined)
-          ) {
-            return current
-          }
-          return {
-            ...current,
-            activeResponseCharacters: 0,
-            activeResponseStartedAt: undefined,
-            completedOutputTokens:
-              current.completedOutputTokens + Math.round(current.activeResponseCharacters / 4),
-            generationMs:
-              current.generationMs +
-              (current.activeResponseStartedAt !== undefined
-                ? Math.max(0, Date.now() - current.activeResponseStartedAt)
-                : 0)
-          }
-        })
-      }
-      setMessages((current) =>
-        updateMessageById(current, event.id, 'assistant', (message) => ({
-          ...message,
-          ...(event.reasoningTokens === undefined
-            ? {}
-            : { reasoningTokens: event.reasoningTokens }),
-          segments: finalizeAssistantSegments(
-            message.segments,
-            event.reasoningTokens ?? message.reasoningTokens,
-            Date.now()
-          ),
-          streaming: false
-        }))
-      )
-      return
-    }
-
-    if (event.type === 'tool.start') {
-      setActivity(t('cli.statuses.working', 'Working?'))
-      setTurnStatus((current) => (current ? { ...current, phase: 'tool-use' } : current))
-      setMessages((current) => [
-        ...current,
-        {
-          id: event.id,
-          kind: 'tool',
-          title: event.title,
-          detail: event.detail,
-          status: 'running',
-          ...(event.subAgent ? { subAgent: event.subAgent } : {})
-        }
-      ])
-      return
-    }
-
-    if (event.type === 'tool.done') {
-      setMessages((current) =>
-        updateMessageById(current, event.id, 'tool', (message) => ({
-          ...message,
-          status: event.status,
-          ...(event.summary !== undefined ? { summary: event.summary } : {}),
-          ...(event.title ? { title: event.title } : {}),
-          ...(event.diff ? { diff: event.diff } : {}),
-          ...(event.subAgent
-            ? { subAgent: mergeSubAgentDisplay(message.subAgent, event.subAgent) }
-            : {})
-        }))
-      )
-      return
-    }
-
-    if (event.type === 'tool.update') {
-      setMessages((current) =>
-        updateMessageById(current, event.id, 'tool', (message) => ({
-          ...message,
-          ...(event.title ? { title: event.title } : {}),
-          ...(event.detail ? { detail: event.detail } : {}),
-          ...(event.summary ? { summary: event.summary } : {}),
-          ...(event.subAgent
-            ? { subAgent: mergeSubAgentDisplay(message.subAgent, event.subAgent) }
-            : {})
-        }))
-      )
-      return
-    }
-
-    if (event.type === 'permission.request') {
-      setPermissionRequest(event.request)
-      return
-    }
-
-    if (event.type === 'permission.cancel') {
-      setPermissionRequest((current) => (current?.id === event.requestId ? null : current))
-      return
-    }
-
-    if (event.type === 'askUser.request') {
-      setAskUserRequest(event.request)
-      return
-    }
-
-    if (event.type === 'askUser.cancel') {
-      setAskUserRequest((current) => (current?.id === event.requestId ? null : current))
-      return
-    }
-
-    if (event.type === 'plan.update') {
-      setPlan(event.plan)
-      return
-    }
-
-    if (event.type === 'tasks.update') {
-      setTasks(event.tasks)
-      setShowTasks(event.tasks.length > 0)
-      return
-    }
-
-    if (event.type === 'system') {
-      setMessages((current) => {
-        const previous = current.at(-1)
-        // Collapse identical consecutive system lines (legacy spam / reconnect noise)
-        // so the live Ink frame stays within the terminal height budget.
-        if (
-          previous &&
-          previous.kind === 'system' &&
-          previous.text === event.message.text &&
-          previous.tone === event.message.tone
-        ) {
-          return current
-        }
-        return [...current, event.message]
-      })
-      return
-    }
+    dispatchCli({ type: 'runtime', event })
+    if (event.type === 'turn.done' || event.type === 'runtime.usage') refreshRuntimeMetrics()
+    return
   }
 
   const appendUserTranscript = (
@@ -2005,7 +1734,7 @@ export function CliApp({
     void runtime
       .revisePlan(currentPlan, feedback)
       .then(() => {
-        setPlan({ ...currentPlan, status: 'drafting', content: undefined, updatedAt: Date.now() })
+        setPlan({ ...currentPlan, status: 'drafting', updatedAt: Date.now() })
         setPermissionMode('plan')
         runtime.configure?.({ permissionMode: 'plan' })
         appendSystem('Plan revision requested ? returning to planning.', 'muted')
@@ -2138,22 +1867,7 @@ export function CliApp({
       .finally(() => setConfigSavingKey(undefined))
   }
 
-  const planOverlay = Boolean(
-    permissionMode === 'plan' &&
-    plan &&
-    (plan.status === 'drafting' || plan.status === 'awaiting_review')
-  )
-  const inputActive =
-    !askUserRequest &&
-    !planOverlay &&
-    !permissionRequest &&
-    !effortConfiguration &&
-    !modelConfiguration &&
-    !modelPickerPurpose &&
-    !providerSetupCatalog &&
-    !resumeOpen &&
-    !agentPanelOpen &&
-    !configOpen
+  const inputActive = activeOverlay === null
   const hasTranscript = messages.length > 0
 
   return (
@@ -2188,7 +1902,7 @@ export function CliApp({
           height={clampTranscript ? transcriptBudget : undefined}
           overflow={clampTranscript ? 'hidden' : undefined}
         >
-          {agentPanelOpen ? null : !hasTranscript ? (
+          {activeOverlay?.type === 'agents' ? null : !hasTranscript ? (
             <WelcomeCard
               cwd={cwd}
               model={modelSelection?.modelName ?? t('cli.welcome.noModel', 'No model configured')}
@@ -2244,29 +1958,19 @@ export function CliApp({
             />
           ) : null}
 
-          {showTasks &&
-          !askUserRequest &&
-          !planOverlay &&
-          !permissionRequest &&
-          !effortConfiguration &&
-          !modelConfiguration &&
-          !modelPickerPurpose &&
-          !providerSetupCatalog &&
-          !resumeOpen &&
-          !agentPanelOpen &&
-          !configOpen ? (
+          {showTasks && activeOverlay === null ? (
             <TaskList rows={rows} tasks={tasks} width={contentWidth} />
           ) : null}
 
-          {askUserRequest ? (
+          {activeOverlay?.type === 'askUser' ? (
             <AskUserPrompt
               onCancel={handleAskUserCancel}
               onNotice={showNotice}
               onSubmit={handleAskUserSubmit}
-              request={askUserRequest}
+              request={activeOverlay.request}
               width={contentWidth}
             />
-          ) : planOverlay && plan ? (
+          ) : activeOverlay?.type === 'plan' ? (
             <PlanPanel
               isRunning={isRunning || planActionPending}
               maxVisibleLines={Math.max(5, Math.min(16, rows - 14))}
@@ -2275,16 +1979,16 @@ export function CliApp({
               onCycleMode={cyclePermissionMode}
               onNotice={showNotice}
               onRevise={handlePlanRevise}
-              plan={plan}
+              plan={activeOverlay.plan}
               width={contentWidth}
             />
-          ) : permissionRequest ? (
+          ) : activeOverlay?.type === 'permission' ? (
             <PermissionPrompt
               onDecision={handlePermissionDecision}
-              request={permissionRequest}
+              request={activeOverlay.request}
               width={contentWidth}
             />
-          ) : resumeOpen ? (
+          ) : activeOverlay?.type === 'resume' ? (
             <ResumePanel
               loadSessions={listResumableSessions}
               maxVisible={Math.max(3, Math.min(10, rows - 13))}
@@ -2293,9 +1997,9 @@ export function CliApp({
               onResume={runResume}
               width={contentWidth}
             />
-          ) : providerSetupCatalog ? (
+          ) : activeOverlay?.type === 'providerSetup' ? (
             <ProviderSetupPanel
-              catalog={providerSetupCatalog}
+              catalog={activeOverlay.catalog}
               maxVisible={Math.max(4, Math.min(10, rows - 13))}
               onboarding={providerSetupOnboarding}
               startDeviceLogin={providerSetupDeviceLogin}
@@ -2304,33 +2008,33 @@ export function CliApp({
               onSave={saveProviderSetup}
               width={contentWidth}
             />
-          ) : effortConfiguration ? (
+          ) : activeOverlay?.type === 'effort' ? (
             <EffortPanel
-              configuration={effortConfiguration}
-              onApply={(intensity) => saveThinkingIntensity(effortConfiguration, intensity)}
+              configuration={activeOverlay.configuration}
+              onApply={(intensity) => saveThinkingIntensity(activeOverlay.configuration, intensity)}
               onCancel={() => setEffortConfiguration(null)}
               saving={effortSaving}
               width={contentWidth}
             />
-          ) : modelConfiguration ? (
+          ) : activeOverlay?.type === 'modelConfig' ? (
             <ModelConfigPanel
-              configuration={modelConfiguration}
+              configuration={activeOverlay.configuration}
               maxVisible={Math.max(6, Math.min(12, rows - 13))}
               onApply={applyModelConfiguration}
               onCancel={cancelModelConfiguration}
               saving={modelConfigurationSaving}
               width={contentWidth}
             />
-          ) : modelPickerPurpose ? (
+          ) : activeOverlay?.type === 'modelPicker' ? (
             <ModelPicker
               catalog={modelCatalog}
               current={
-                modelPickerPurpose === 'compression'
+                activeOverlay.purpose === 'compression'
                   ? (configCatalog?.compressionModel ?? null)
                   : modelSelection
               }
               heading={
-                modelPickerPurpose === 'compression'
+                activeOverlay.purpose === 'compression'
                   ? t('cli.model.selectCompression', 'Select compression model')
                   : t('cli.model.selectStepOne', 'Select model ? Step 1 of 2')
               }
@@ -2343,17 +2047,17 @@ export function CliApp({
                 openProviderSetup(returnToConfig)
               }}
               onSelect={(nextModel) => {
-                if (modelPickerPurpose === 'compression') {
+                if (activeOverlay.purpose === 'compression') {
                   saveCompressionModel(nextModel)
                   return
                 }
                 beginModelConfiguration(nextModel)
               }}
               onUseCurrent={
-                modelPickerPurpose === 'compression' ? () => saveCompressionModel(null) : undefined
+                activeOverlay.purpose === 'compression' ? () => saveCompressionModel(null) : undefined
               }
               summary={
-                modelPickerPurpose === 'compression'
+                activeOverlay.purpose === 'compression'
                   ? t(
                       'cli.model.compressionSummary',
                       'Use any enabled model from a connected provider, or follow the current session model'
@@ -2362,9 +2066,9 @@ export function CliApp({
               }
               width={contentWidth}
             />
-          ) : configOpen && configCatalog ? (
+          ) : activeOverlay?.type === 'config' ? (
             <ConfigPanel
-              catalog={configCatalog}
+              catalog={activeOverlay.catalog}
               maxVisible={Math.max(5, Math.min(11, rows - 13))}
               onCancel={() => setConfigOpen(false)}
               onChange={updateConfigValue}
@@ -2380,7 +2084,7 @@ export function CliApp({
               savingKey={configSavingKey}
               width={contentWidth}
             />
-          ) : agentPanelOpen ? (
+          ) : activeOverlay?.type === 'agents' ? (
             <AgentPanel
               agents={agents}
               maxVisible={Math.max(3, Math.min(8, rows - 11))}

@@ -209,36 +209,97 @@ internal static class AgentRuntimeTeamExecutor
         CancellationToken cancellationToken)
     {
         var teamName = RequireTeamName(call.Input, parameters);
-        var subject = ResolveTaskTitle(call.Input);
-        if (subject.Length == 0)
+        // Accepts the same two shapes as the session executor: a `tasks` array (preferred) or
+        // the single-task fields.
+        var entries = ReadCreateEntries(call.Input);
+        if (entries.Count == 0)
         {
-            return EncodeError("TaskCreate requires a non-empty title.");
+            return EncodeError("TaskCreate requires a non-empty title, or a tasks array.");
         }
 
-        var snapshot = AgentRuntimeTeamRuntimeStore.CreateTask(
-            teamName,
-            subject,
-            JsonHelpers.GetString(call.Input, "activeForm"),
-            AgentRuntimeTeamRuntimeStore.GetTaskDependencies(call.Input),
-            out var task,
-            out var existing);
+        var createdIds = new List<string>(entries.Count);
+        var createdTasks = new List<JsonObject>(entries.Count);
+        var anyExisting = false;
+        TeamSnapshot? snapshot = null;
+        foreach (var entry in entries)
+        {
+            snapshot = AgentRuntimeTeamRuntimeStore.CreateTask(
+                teamName,
+                entry.Subject,
+                entry.Description,
+                entry.ActiveForm,
+                entry.DependsOn,
+                out var task,
+                out var existing);
+            createdTasks.Add(task);
+            createdIds.Add(AgentRuntimeTeamRuntimeStore.GetString(task, "id"));
+            anyExisting |= existing;
+        }
+
         await AgentRuntimeTeamUiBridge.EmitSnapshotAsync(
             context,
             parameters,
-            snapshot,
+            snapshot!,
             openPanel: false,
             cancellationToken);
+        var first = createdTasks[0];
         return EncodeJsonObject(writer =>
         {
             writer.WriteBoolean("success", true);
-            writer.WriteString("task_id", AgentRuntimeTeamRuntimeStore.GetString(task, "id"));
-            writer.WriteString("title", AgentRuntimeTeamRuntimeStore.GetString(task, "subject"));
-            writer.WriteString("subject", AgentRuntimeTeamRuntimeStore.GetString(task, "subject"));
-            if (existing)
+            writer.WriteNumber("created", createdTasks.Count);
+            writer.WritePropertyName("created_ids");
+            writer.WriteStartArray();
+            foreach (var id in createdIds)
             {
-                writer.WriteString("note", "Task with this title already exists, returning existing task.");
+                writer.WriteStringValue(id);
+            }
+            writer.WriteEndArray();
+            writer.WriteString("task_id", AgentRuntimeTeamRuntimeStore.GetString(first, "id"));
+            writer.WriteString("title", AgentRuntimeTeamRuntimeStore.GetString(first, "subject"));
+            writer.WriteString("subject", AgentRuntimeTeamRuntimeStore.GetString(first, "subject"));
+            if (anyExisting)
+            {
+                writer.WriteString("note", "One or more titles already existed; those tasks were returned as-is.");
             }
         });
+    }
+
+    private sealed record TeamTaskCreateEntry(
+        string Subject,
+        string Description,
+        string? ActiveForm,
+        string[] DependsOn);
+
+    private static List<TeamTaskCreateEntry> ReadCreateEntries(JsonElement input)
+    {
+        var entries = new List<TeamTaskCreateEntry>();
+        if (input.ValueKind == JsonValueKind.Object &&
+            input.TryGetProperty("tasks", out var batch) &&
+            batch.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in batch.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var entry = ReadCreateEntry(item);
+                if (entry is not null) entries.Add(entry);
+            }
+            return entries;
+        }
+
+        var single = ReadCreateEntry(input);
+        if (single is not null) entries.Add(single);
+        return entries;
+    }
+
+    private static TeamTaskCreateEntry? ReadCreateEntry(JsonElement item)
+    {
+        var subject = ResolveCreateTitle(item);
+        if (subject.Length == 0) return null;
+        return new TeamTaskCreateEntry(
+            subject,
+            NormalizeTaskTitlePart(JsonHelpers.GetString(item, "description")),
+            JsonHelpers.GetString(item, "activeForm"),
+            AgentRuntimeTeamRuntimeStore.GetTaskDependencies(item));
     }
 
     private static string ExecuteTaskGet(NativeToolCallView call, JsonElement parameters)
@@ -341,18 +402,17 @@ internal static class AgentRuntimeTeamExecutor
         return teamName;
     }
 
-    private static string ResolveTaskTitle(JsonElement input)
+    /// <summary>
+    /// `description` is stored in its own field on the team task record, so it is never folded
+    /// into the title. Falls back to it only when no title was supplied at all.
+    /// </summary>
+    private static string ResolveCreateTitle(JsonElement input)
     {
         var title = NormalizeTaskTitlePart(JsonHelpers.GetString(input, "title") ??
             JsonHelpers.GetString(input, "subject"));
-        var description = NormalizeTaskTitlePart(JsonHelpers.GetString(input, "description"));
-        if (title.Length > 0)
-        {
-            return description.Length == 0 || title.Contains(description, StringComparison.Ordinal)
-                ? title
-                : $"{title}: {description}";
-        }
-        return description;
+        return title.Length > 0
+            ? title
+            : NormalizeTaskTitlePart(JsonHelpers.GetString(input, "description"));
     }
 
     private static string NormalizeTaskTitlePart(string? value)
@@ -398,6 +458,11 @@ internal static class AgentRuntimeTeamExecutor
         writer.WriteString("task_id", id);
         writer.WriteString("title", subject);
         writer.WriteString("subject", subject);
+        var description = AgentRuntimeTeamRuntimeStore.GetString(task, "description");
+        if (!string.IsNullOrEmpty(description))
+        {
+            writer.WriteString("description", description);
+        }
         writer.WriteString("status", AgentRuntimeTeamRuntimeStore.GetString(task, "status"));
         WriteNullableString(writer, "owner", AgentRuntimeTeamRuntimeStore.GetString(task, "owner"));
         if (task["activeForm"] is not null)

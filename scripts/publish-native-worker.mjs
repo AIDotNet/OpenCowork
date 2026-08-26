@@ -57,6 +57,17 @@ mkdirSync(codeGraphTempOutputDir, { recursive: true })
 
 const rid = process.env.OPEN_COWORK_NATIVE_WORKER_RID || currentRid()
 const winArm64LinkerArgs = winArm64AotLinkerArgs(rid)
+const compatWorker = process.env.OPEN_COWORK_COMPAT_WORKER === '1'
+const workerTfm = compatWorker ? 'net8.0' : 'net11.0'
+const compatPublishArgs = compatWorker
+  ? ['/p:OpenCoworkCompatWorker=true', '/p:IlcInstructionSet=base']
+  : []
+
+if (compatWorker) {
+  console.log(
+    `[publish-native-worker] compat SKU: net8.0 Native AOT + IlcInstructionSet=base (${rid})`
+  )
+}
 
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 function publishWorker(project, destination) {
@@ -67,6 +78,8 @@ function publishWorker(project, destination) {
       project,
       '-c',
       'Release',
+      '-f',
+      workerTfm,
       '-r',
       rid,
       '--source',
@@ -75,6 +88,7 @@ function publishWorker(project, destination) {
       destination,
       '/p:PublishAot=true',
       '/p:StripSymbols=true',
+      ...compatPublishArgs,
       ...winArm64LinkerArgs
     ],
     {

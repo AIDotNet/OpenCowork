@@ -5,7 +5,11 @@ import { autoUpdater } from 'electron-updater'
 import { writeCrashLog } from './crash-logger'
 import { safeSendMessagePackToWindow } from './window-ipc'
 import { readSettings } from './ipc/settings-handlers'
-import { getUpdateDistributionInfo, isAutoInstallUpdateSupported } from './distribution'
+import {
+  getAppDistribution,
+  getUpdateDistributionInfo,
+  isAutoInstallUpdateSupported
+} from './distribution'
 
 type WindowGetter = () => BrowserWindow | null
 type QuitMarker = () => void
@@ -25,6 +29,9 @@ let downloadedUpdateVersion: string | null = null
 
 const GREEN_UPDATE_MESSAGE =
   'The no-install build does not support automatic updates. Download the latest version manually and replace the current folder after quitting the app.'
+
+const COMPAT_UPDATE_MESSAGE =
+  'The compatibility build does not use the official auto-update channel. Download the matching *-win-x64-compat installer from the GitHub Release for this version.'
 
 interface UpdaterLogger {
   info?: (...args: unknown[]) => void
@@ -456,6 +463,16 @@ export async function requestUpdateCheck(): Promise<
 > {
   try {
     console.log('[Updater] User requested update check')
+    if (getAppDistribution() === 'compat') {
+      return {
+        success: true,
+        available: false,
+        currentVersion: normalizeVersion(app.getVersion()),
+        latestVersion: null,
+        skipped: true,
+        ...getUpdateDistributionInfo()
+      }
+    }
     const unsupportedReason = getUpdaterUnsupportedReason()
     if (unsupportedReason) {
       return { success: false, error: unsupportedReason }
@@ -511,7 +528,8 @@ export async function requestUpdateDownload(): Promise<
       return {
         success: false,
         manualDownload: true,
-        error: GREEN_UPDATE_MESSAGE,
+        error:
+          getAppDistribution() === 'compat' ? COMPAT_UPDATE_MESSAGE : GREEN_UPDATE_MESSAGE,
         ...getUpdateDistributionInfo()
       }
     }
@@ -564,6 +582,11 @@ export function setupAutoUpdater(options: AutoUpdateOptions): void {
 
   if (!app.isPackaged) {
     console.log('[Updater] Running in development mode - using dev-app-update.yml')
+  }
+
+  if (getAppDistribution() === 'compat') {
+    console.log('[Updater] Compat build skips the official auto-update channel')
+    return
   }
 
   if (

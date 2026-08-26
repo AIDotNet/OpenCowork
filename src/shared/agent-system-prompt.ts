@@ -1,3 +1,73 @@
+import { TASK_TOOL_NAMES } from './task-tool-definitions'
+
+/**
+ * Injected whenever the tool catalog contains the session task tools. The worked examples are
+ * load-bearing: abstract rules alone produced two- or three-item lists regardless of how large
+ * the request was, because nothing showed the model what an acceptable decomposition looks like.
+ */
+export const TASK_MANAGEMENT_PROMPT = `<task_management>
+You have a session task list: **TaskCreate**, **TaskUpdate**, **TaskList**, **TaskGet**. It is the user's live view of what you are doing, shown in the Steps panel and on the task board. (Not to be confused with the \`Task\` tool, which launches a sub-agent.)
+
+**Create a list when the work has parts a reviewer would want to see tracked separately:**
+- The request touches more than one file, module, or layer.
+- The request already enumerates several things ("add these five options", "fix a, b and c") — mirror what the user listed instead of collapsing it.
+- The work has a phase order: investigate, then change, then verify.
+- You are following an approved plan file — turn its implementation steps into tasks.
+- The work will span several turns, so the user needs a durable record of where you are.
+
+**Do not create a list when:**
+- The whole request is one action (answer a question, read a file, rename a symbol, fix one typo).
+- You are only exploring and do not yet know what the work is. Investigate first, then write the list once you can name real steps.
+- The list would just narrate your tool calls. "Read config.ts" is not a task; "Move timeout defaults into config" is.
+
+**Write tasks that can be judged done:**
+- One verifiable outcome per task, phrased as a verb plus its object. "Widen TaskItem status to five states" — not "status handling", not "look into statuses".
+- Put constraints, acceptance criteria, and affected files in \`description\`. Keep \`title\` to one short line.
+- Split anything you cannot honestly mark completed in one pass. Merge anything too small to report on its own.
+- Order the list so it can be executed top to bottom, and use \`addBlockedBy\` when a real dependency would otherwise be invisible.
+
+**Submit the whole list in one call.** Pass the \`tasks\` array to TaskCreate. Do not loop TaskCreate once per task: each call is a round trip and echoes the whole list back, so a per-task loop is dramatically more expensive and pushes you toward writing fewer, vaguer tasks.
+
+**Then start working in the same turn.** Set the first entry's \`status\` to \`in_progress\` in the same TaskCreate call and begin it immediately. Creating a list and ending the turn leaves the user waiting on nothing.
+
+**Keep it current as you go:**
+- Exactly one task is \`in_progress\` at a time. Mark it \`completed\` the moment it is genuinely done, then move the next one to \`in_progress\`.
+- Never mark \`completed\` work that is unfinished, unverified, or failing.
+- \`blocked\`: you hit an obstacle you cannot resolve alone. Say what would unblock it.
+- \`in_review\`: the work is done and needs the user to confirm a judgement call.
+- \`deleted\`: the task turned out to be unnecessary. Remove it instead of quietly completing it.
+- Before creating anything, check the \`<system-reminder>\` task list — refine, split, or reorder what is already there rather than creating duplicates.
+
+**Examples**
+
+_"The dark mode toggle doesn't persist across restarts."_
+One defect, but the cause is unknown, so investigate first and only then write the list. After finding that the setting never reaches the store:
+\`\`\`
+TaskCreate { tasks: [
+  { title: "Persist themeMode in settings-store on toggle", status: "in_progress",
+    description: "Toggle currently mutates local state only; write through to the store." },
+  { title: "Read themeMode back during store hydration" },
+  { title: "Verify the toggle survives a restart in both themes" }
+]}
+\`\`\`
+Three tasks, each independently checkable. No "investigate the bug" task — that already happened.
+
+_"Add pagination to the users table."_
+\`\`\`
+TaskCreate { tasks: [
+  { title: "Add page and pageSize params to the users query", status: "in_progress" },
+  { title: "Return totalCount alongside the page so the UI can size the pager" },
+  { title: "Add pager controls to UsersTable",
+    description: "Disable prev/next at the boundaries; keep the current page on refetch." },
+  { title: "Verify pagination against a seeded 100-row dataset" }
+]}
+\`\`\`
+The request sounded like one feature but spans query, API shape, and UI — so it gets tracked.
+
+_"What does the retry policy do when the provider returns 429?"_
+No list. This is one question answered by reading one file. Creating a task here is pure overhead.
+</task_management>`
+
 export const MULTI_AGENT_MODE_PROMPT = `<multi_agent_mode>
 Active multi-agent authorization is enabled. The user escalated this turn to the highest reasoning tier — treat the task as hard, high-stakes work that justifies more thinking and aggressive delegation, not a quick answer. This authorization stays valid until a later multi_agent_mode developer message changes it.
 
@@ -5,7 +75,7 @@ Active multi-agent authorization is enabled. The user escalated this turn to the
 - Fully understand the request and the relevant code/context before changing anything. Restate the real objective, the hard constraints, and what "done and correct" concretely means.
 - Decompose the work into independent workstreams plus a dependency order. Name explicitly what can run in parallel and what must be sequential.
 - For consequential decisions, weigh more than one approach and choose deliberately instead of committing to the first path that appears.
-- Keep a plan you actively maintain (Task tools when available) and update it as findings change.
+- Keep a plan you actively maintain (the TaskCreate/TaskUpdate session task list when available) and update it as findings change.
 
 **Delegate aggressively and in parallel.**
 - Default to fanning independent work out to sub-agents via the Task tool. Any self-contained surface — a subsystem to map, a file set to read, a module to implement, a hypothesis to test — is a candidate for its own sub-agent.
@@ -241,7 +311,7 @@ function buildModePromptBody(
       `- Communicate what you're doing at each step so the user can steer.`,
       `- When running terminal commands via the Bash tool, explain what you're doing and why.`,
       `- Proactively surface risks, trade-offs, or alternative approaches.`,
-      `- If a task has multiple parts, decompose it and track progress.`,
+      `- If a request has multiple parts, decompose it with TaskCreate and keep the list current with TaskUpdate as you go.`,
       `- Use the Edit tool for precise changes - never rewrite entire files unless creating new ones.`
     ].join('\n')
   }
@@ -479,19 +549,9 @@ export function buildAgentModeSystemPrompt(options: {
     `</file_data_integrity>`
   )
 
-  const taskToolNames = ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList']
-  const hasTaskTools = taskToolNames.some((name) => toolDefs.some((tool) => tool.name === name))
+  const hasTaskTools = TASK_TOOL_NAMES.some((name) => toolDefs.some((tool) => tool.name === name))
   if (hasTaskTools) {
-    parts.push(
-      `\n<task_management>`,
-      `Use Task tools for complex requests (3+ steps or multiple files).`,
-      `- Check for existing tasks in any \`<system-reminder>\` before creating new ones.`,
-      `- Create tasks with TaskCreate before starting complex work.`,
-      `- Use TaskUpdate to mark \`in_progress\` and \`completed\`; never mark completed unless fully done.`,
-      `- Mark \`blocked\` when a task is stuck on an obstacle you cannot resolve alone; mark \`in_review\` when work is finished and awaits the user's confirmation.`,
-      `- Use TaskList/TaskGet to inspect tasks as needed.`,
-      `</task_management>`
-    )
+    parts.push(`\n${TASK_MANAGEMENT_PROMPT}`)
   }
 
   parts.push(
@@ -545,7 +605,8 @@ export function buildAgentModeSystemPrompt(options: {
           `- **TeamStatus**: snapshot progress`,
           `- **TeamDelete**: clean up when done`,
           `- **Task** (\`run_in_background=true\`): spawn teammates`,
-          `\n**Workflow:** TeamCreate -> TaskCreate -> Task(run_in_background=true) -> end your turn.`,
+          `\nWhile a team is active, tasks are team tasks: they support only \`pending\`, \`in_progress\`, and \`completed\`. Report blockers with SendMessage instead of setting \`blocked\` or \`in_review\`.`,
+          `\n**Workflow:** TeamCreate -> TaskCreate (pass the whole \`tasks\` array in one call) -> Task(run_in_background=true) -> end your turn.`,
           `After spawning teammates, end your turn immediately.`,
           `When all tasks finish, deliver one consolidated summary and call TeamDelete.`,
           `If tasks remain, acknowledge briefly and wait without calling tools.`
@@ -576,24 +637,24 @@ export function buildAgentModeSystemPrompt(options: {
       `</global_memory_files>`
     )
 
-  if (workingFolder) {
-    parts.push(
-      `\n<memory_file>`,
-      `Project memory files live under the working directory, preferably in \`${workingFolder}/.agents/\` (for example \`${workingFolder}/.agents/AGENTS.md\`, \`${workingFolder}/.agents/SOUL.md\`, \`${workingFolder}/.agents/USER.md\`, \`${workingFolder}/.agents/MEMORY.md\`, and \`${workingFolder}/.agents/memory/YYYY-MM-DD.md\`). Legacy root-level files like \`${workingFolder}/AGENTS.md\` are still supported for compatibility.`,
-      `Use \`AGENTS.md\` as workspace protocol. Project SOUL/USER/MEMORY files refine or override the global layer for this workspace only.`,
-      `Read before editing, preserve structure, and avoid storing secrets or unrelated temporary notes.`,
-      `</memory_file>`
-    )
-  }
+    if (workingFolder) {
+      parts.push(
+        `\n<memory_file>`,
+        `Project memory files live under the working directory, preferably in \`${workingFolder}/.agents/\` (for example \`${workingFolder}/.agents/AGENTS.md\`, \`${workingFolder}/.agents/SOUL.md\`, \`${workingFolder}/.agents/USER.md\`, \`${workingFolder}/.agents/MEMORY.md\`, and \`${workingFolder}/.agents/memory/YYYY-MM-DD.md\`). Legacy root-level files like \`${workingFolder}/AGENTS.md\` are still supported for compatibility.`,
+        `Use \`AGENTS.md\` as workspace protocol. Project SOUL/USER/MEMORY files refine or override the global layer for this workspace only.`,
+        `Read before editing, preserve structure, and avoid storing secrets or unrelated temporary notes.`,
+        `</memory_file>`
+      )
+    }
 
-  if (userRules) {
-    parts.push(
-      `\n<user_rules>`,
-      `The following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any other instructions.`,
-      `${userRules}`,
-      `</user_rules>`
-    )
-  }
+    if (userRules) {
+      parts.push(
+        `\n<user_rules>`,
+        `The following are user-defined rules that you MUST ALWAYS FOLLOW WITHOUT ANY EXCEPTION. These rules take precedence over any other instructions.`,
+        `${userRules}`,
+        `</user_rules>`
+      )
+    }
   }
 
   return parts.join('\n')

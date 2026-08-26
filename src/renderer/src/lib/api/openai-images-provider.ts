@@ -73,6 +73,7 @@ async function requestNativeImages(args: {
     throw new Error('Native worker unavailable for image generation.')
   }
 
+  // Registered as a Background Job; requestWorker submits it through jobs/submit.
   const result = await agentBridge.request(
     'openai-images/generate',
     {

@@ -5,6 +5,7 @@ import {
   applyOauthClientIdentityHeaders,
   resolveOauthForwardUserAgent
 } from '../vendor/oauth-client-identity.js'
+import { TASK_TOOL_DEFINITIONS } from '../vendor/task-tool-definitions.js'
 import type { ModelSelection, PermissionMode } from '../types.js'
 import {
   isRecord,
@@ -290,55 +291,7 @@ const CORE_TOOL_DEFINITIONS: WorkerToolDefinition[] = [
       required: ['description', 'prompt']
     }
   },
-  {
-    name: 'TaskCreate',
-    description: 'Create a task for multi-step work in the current session.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        subject: { type: 'string' },
-        description: { type: 'string' },
-        activeForm: { type: 'string' },
-        metadata: { type: 'object' }
-      }
-    }
-  },
-  {
-    name: 'TaskGet',
-    description: 'Get one task by ID.',
-    inputSchema: {
-      type: 'object',
-      properties: { taskId: { type: 'string' }, task_id: { type: 'string' } }
-    }
-  },
-  {
-    name: 'TaskUpdate',
-    description: 'Update task status, title, owner, or dependency links.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string' },
-        task_id: { type: 'string' },
-        status: {
-          type: 'string',
-          enum: ['pending', 'in_progress', 'blocked', 'in_review', 'completed', 'deleted']
-        },
-        title: { type: 'string' },
-        subject: { type: 'string' },
-        description: { type: 'string' },
-        activeForm: { type: ['string', 'null'] },
-        owner: { type: ['string', 'null'] },
-        addBlocks: { type: 'array', items: { type: 'string' } },
-        addBlockedBy: { type: 'array', items: { type: 'string' } }
-      }
-    }
-  },
-  {
-    name: 'TaskList',
-    description: 'List all tasks for the current session.',
-    inputSchema: { type: 'object', properties: {} }
-  }
+  ...TASK_TOOL_DEFINITIONS
 ]
 
 const ASK_USER_TOOL_DEFINITION: WorkerToolDefinition = {

@@ -122,7 +122,7 @@ internal static class MediaFileStore
         CancellationToken cancellationToken)
     {
         var filePath = CreateOutputPath(category, extension);
-        await File.WriteAllBytesAsync(filePath, bytes, cancellationToken);
+        await File.WriteAllBytesAsync(filePath, bytes.ToArray(), cancellationToken);
         return filePath;
     }
 

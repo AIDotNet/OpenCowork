@@ -212,6 +212,7 @@ internal static partial class AgentRuntimeTeamRuntimeStore
     public static TeamSnapshot CreateTask(
         string teamName,
         string subject,
+        string description,
         string? activeForm,
         string[] dependsOn,
         out JsonObject task,
@@ -237,7 +238,7 @@ internal static partial class AgentRuntimeTeamRuntimeStore
             {
                 ["id"] = CreateId(8),
                 ["subject"] = subject,
-                ["description"] = string.Empty,
+                ["description"] = description,
                 ["status"] = "pending",
                 ["owner"] = null,
                 ["dependsOn"] = ToJsonArray(dependsOn)
@@ -398,6 +399,15 @@ internal static partial class AgentRuntimeTeamRuntimeStore
                 patch["report"] = "[deleted]";
                 task["report"] = "[deleted]";
             }
+            // Team tasks are a three-state machine (TeamRuntimeTaskStatus). Reject the
+            // session-only states explicitly instead of ignoring them, so the model is not
+            // told the update succeeded while nothing changed.
+            if (newStatus is "blocked" or "in_review")
+            {
+                throw new InvalidOperationException(
+                    $"Team tasks do not support status \"{newStatus}\". " +
+                    "Use pending, in_progress, or completed, and report blockers with SendMessage.");
+            }
             if (newStatus is "pending" or "in_progress" or "completed")
             {
                 if (currentStatus == "completed" && newStatus != "completed")
@@ -409,12 +419,31 @@ internal static partial class AgentRuntimeTeamRuntimeStore
                 patch["status"] = newStatus;
             }
 
-            var nextTitle = ResolveTaskTitle(input, GetString(task, "subject") ?? string.Empty);
-            if (!string.IsNullOrWhiteSpace(nextTitle) &&
-                nextTitle != GetString(task, "subject"))
+            // Title and description are separate fields on the task record; updating one must
+            // not rewrite the other.
+            var nextTitle = NormalizeTaskTitlePart(JsonHelpers.GetString(input, "title") ??
+                JsonHelpers.GetString(input, "subject"));
+            if (nextTitle.Length > 0 && nextTitle != GetString(task, "subject"))
             {
                 task["subject"] = nextTitle;
                 patch["subject"] = nextTitle;
+            }
+
+            if (input.TryGetProperty("description", out var descriptionValue))
+            {
+                var nextDescription = descriptionValue.ValueKind == JsonValueKind.Null
+                    ? string.Empty
+                    : NormalizeTaskTitlePart(descriptionValue.ToString());
+                if (string.IsNullOrEmpty(GetString(task, "subject")) && nextDescription.Length > 0)
+                {
+                    task["subject"] = nextDescription;
+                    patch["subject"] = nextDescription;
+                }
+                else if (nextDescription != GetString(task, "description"))
+                {
+                    task["description"] = nextDescription;
+                    patch["description"] = nextDescription;
+                }
             }
 
             if (input.TryGetProperty("activeForm", out var activeForm))
@@ -862,39 +891,11 @@ internal static partial class AgentRuntimeTeamRuntimeStore
                 : 0;
     }
 
-    private static string ResolveTaskTitle(JsonElement input, string fallbackTitle = "")
-    {
-        var title = NormalizeTaskTitlePart(JsonHelpers.GetString(input, "title") ??
-            JsonHelpers.GetString(input, "subject"));
-        var description = NormalizeTaskTitlePart(JsonHelpers.GetString(input, "description"));
-        if (title.Length > 0)
-        {
-            return MergeTaskTitle(title, description);
-        }
-        if (description.Length > 0)
-        {
-            return description;
-        }
-        return NormalizeTaskTitlePart(fallbackTitle);
-    }
-
     private static string NormalizeTaskTitlePart(string? value)
     {
         return string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : WhitespaceRegex().Replace(value, " ").Trim();
-    }
-
-    private static string MergeTaskTitle(string title, string description)
-    {
-        if (title.Length == 0) return description;
-        if (description.Length == 0) return title;
-        if (title == description) return title;
-        if (title.Contains(description, StringComparison.Ordinal)) return title;
-        if (description.Contains(title, StringComparison.Ordinal)) return description;
-        return ":;\uFF1A\uFF1B,.\uFF0C\u3002!?\uFF01\uFF1F".Contains(title[^1], StringComparison.Ordinal)
-            ? $"{title} {description}"
-            : $"{title}: {description}";
     }
 
     private static string SanitizeTeamName(string rawName)

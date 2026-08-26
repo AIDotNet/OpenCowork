@@ -4,6 +4,7 @@ import {
 } from '../../../shared/agent-runtime-v2'
 import { SKILL_TOOL_DESCRIPTION } from '../../../shared/agent-system-prompt'
 import type { RuntimeToolCatalogEntry } from '../../../shared/runtime-contracts/generated/contracts'
+import { TASK_TOOL_DEFINITIONS } from '../../../shared/task-tool-definitions'
 import {
   BROWSER_SESSION_TOOLS,
   CODEGRAPH_EXPLORE_TOOL,
@@ -170,49 +171,7 @@ const CORE_SESSION_TOOLS: SessionToolDefinition[] = [
       required: ['description', 'prompt']
     }
   },
-  {
-    name: 'TaskCreate',
-    description: 'Create a task for multi-step work in the current session.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        subject: { type: 'string' },
-        description: { type: 'string' },
-        activeForm: { type: 'string' }
-      }
-    }
-  },
-  {
-    name: 'TaskGet',
-    description: 'Get one task by ID.',
-    inputSchema: {
-      type: 'object',
-      properties: { taskId: { type: 'string' }, task_id: { type: 'string' } }
-    }
-  },
-  {
-    name: 'TaskUpdate',
-    description: 'Update task status, title, owner, or dependency links.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        taskId: { type: 'string' },
-        task_id: { type: 'string' },
-        status: {
-          type: 'string',
-          enum: ['pending', 'in_progress', 'blocked', 'in_review', 'completed', 'deleted']
-        },
-        title: { type: 'string' },
-        description: { type: 'string' }
-      }
-    }
-  },
-  {
-    name: 'TaskList',
-    description: 'List all tasks for the current session.',
-    inputSchema: { type: 'object', properties: {} }
-  },
+  ...TASK_TOOL_DEFINITIONS,
   {
     name: 'AskUserQuestion',
     description:

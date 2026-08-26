@@ -73,6 +73,12 @@ export const TaskCard = memo(function TaskCard({
             {isAgentBusy && item.activeForm ? item.activeForm : item.subject}
           </p>
 
+          {item.description.trim() && item.description.trim() !== item.subject.trim() && (
+            <p className="mt-1 line-clamp-2 text-xs leading-snug text-muted-foreground/70">
+              {item.description}
+            </p>
+          )}
+
           {(item.priority || item.tags.length > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1">
               {item.priority && (

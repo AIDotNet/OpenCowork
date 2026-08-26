@@ -21,20 +21,45 @@ function statusRank(task: TaskItem, completedAt: number | undefined, now: number
     return 0
   }
   if (task.status === 'in_progress') return 1
-  if (task.status === 'pending') return 2
-  return 3
+  // Blocked and in_review need attention before untouched work does.
+  if (task.status === 'blocked') return 2
+  if (task.status === 'in_review') return 3
+  if (task.status === 'pending') return 4
+  return 5
 }
 
 function hiddenTaskSummary(tasks: TaskItem[]): string {
-  const inProgress = tasks.filter((task) => task.status === 'in_progress').length
-  const pending = tasks.filter((task) => task.status === 'pending').length
-  const completed = tasks.filter((task) => task.status === 'completed').length
+  const countOf = (status: TaskItem['status']): number =>
+    tasks.filter((task) => task.status === status).length
+  const inProgress = countOf('in_progress')
+  const blocked = countOf('blocked')
+  const inReview = countOf('in_review')
+  const pending = countOf('pending')
+  const completed = countOf('completed')
   const parts = [
     inProgress > 0 ? `${inProgress} ${t('cli.tasks.inProgress', 'in progress')}` : '',
+    blocked > 0 ? `${blocked} ${t('cli.tasks.blocked', 'blocked')}` : '',
+    inReview > 0 ? `${inReview} ${t('cli.tasks.inReview', 'in review')}` : '',
     pending > 0 ? `${pending} ${t('cli.tasks.pending', 'pending')}` : '',
     completed > 0 ? `${completed} ${t('cli.tasks.completed', 'completed')}` : ''
   ].filter(Boolean)
   return `${t('cli.tasks.more', '… +{{summary}}', { summary: parts.join(', ') })}`
+}
+
+function statusGlyph(status: TaskItem['status']): string {
+  if (status === 'completed') return '✔'
+  if (status === 'in_progress') return '◼'
+  if (status === 'blocked') return '⊘'
+  if (status === 'in_review') return '◐'
+  return '◻'
+}
+
+function statusColor(status: TaskItem['status']): string {
+  if (status === 'completed') return theme.success
+  if (status === 'in_progress') return theme.primary
+  if (status === 'blocked') return theme.warning
+  if (status === 'in_review') return theme.accent
+  return theme.dim
 }
 
 function taskOwner(owner: string | null | undefined): string {
@@ -114,17 +139,8 @@ export function TaskList({
       {visibleTasks.map((task) => (
         <Box flexDirection="column" key={task.id}>
           <Box>
-            <Text
-              bold={task.status === 'in_progress'}
-              color={
-                task.status === 'completed'
-                  ? theme.success
-                  : task.status === 'in_progress'
-                    ? theme.primary
-                    : theme.dim
-              }
-            >
-              {task.status === 'completed' ? '✔' : task.status === 'in_progress' ? '◼' : '◻'}
+            <Text bold={task.status === 'in_progress'} color={statusColor(task.status)}>
+              {statusGlyph(task.status)}
             </Text>
             {(() => {
               const owner = width >= 72 ? taskOwner(task.owner) : ''
@@ -145,6 +161,11 @@ export function TaskList({
               )
             })()}
           </Box>
+          {task.detail && task.status !== 'completed' ? (
+            <Box marginLeft={2}>
+              <Text color={theme.dim}>{fitText(task.detail, Math.max(8, width - 4))}</Text>
+            </Box>
+          ) : null}
           {task.blockedBy && task.blockedBy.length > 0 ? (
             <Box marginLeft={2}>
               <Text color={theme.muted}>

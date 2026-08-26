@@ -111,6 +111,8 @@ function publishAotWorker({
     projectPath,
     '-c',
     'Release',
+    '-f',
+    'net11.0',
     '-r',
     currentRid(),
     '-o',

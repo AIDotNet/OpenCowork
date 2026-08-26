@@ -1,6 +1,6 @@
 import { useUIStore } from '../../stores/ui-store'
 import { useChatStore } from '../../stores/chat-store'
-import { useTaskStore } from '../../stores/task-store'
+import { useTaskStore, type TaskItem } from '../../stores/task-store'
 import { usePlanStore } from '../../stores/plan-store'
 import { useGoalStore } from '../../stores/goal-store'
 import { useSettingsStore } from '../../stores/settings-store'
@@ -15,6 +15,73 @@ import { buildGoalSessionStateLine } from './goal-context'
 const FILE_CONTEXT_BUDGET_RATIO = 0.25
 const FILE_CONTEXT_BUDGET_MAX_TOKENS = 24_000
 const FILE_CONTEXT_FALLBACK_TOKENS = 12_000
+
+/** Above this many tasks the reminder degrades to counts and tells the model to call TaskList. */
+const TASK_REMINDER_MAX_ROWS = 15
+/** Completed tasks older than the most recent few are folded into a single count line. */
+const TASK_REMINDER_RECENT_COMPLETED = 3
+const TASK_REMINDER_TITLE_LIMIT = 100
+
+function truncateTaskTitle(title: string): string {
+  const collapsed = title.replace(/\s+/gu, ' ').trim()
+  return collapsed.length > TASK_REMINDER_TITLE_LIMIT
+    ? `${collapsed.slice(0, TASK_REMINDER_TITLE_LIMIT - 1)}…`
+    : collapsed
+}
+
+/**
+ * Emits the actual task titles, not just counts. With counts alone the model cannot tell which
+ * task is current, cannot refine or split existing tasks, and tends to re-create tasks it
+ * already has — the list becomes write-only after the first turn.
+ */
+function buildTaskListReminderLines(tasks: TaskItem[]): string[] {
+  const lines: string[] = []
+  const completed = tasks.filter((task) => task.status === 'completed')
+  const open = tasks.filter((task) => task.status !== 'completed')
+  const current = open.find((task) => task.status === 'in_progress') ?? null
+
+  lines.push(`- Task List (${tasks.length} total, ${completed.length} completed):`)
+
+  if (tasks.length > TASK_REMINDER_MAX_ROWS) {
+    const byStatus = (status: TaskItem['status']): number =>
+      tasks.filter((task) => task.status === status).length
+    lines.push(
+      `  ${byStatus('pending')} pending, ${byStatus('in_progress')} in_progress, ` +
+        `${byStatus('blocked')} blocked, ${byStatus('in_review')} in_review`
+    )
+    if (current) {
+      lines.push(`  Current: #${current.id} ${truncateTaskTitle(current.subject)}`)
+    }
+    lines.push('  Too many tasks to list here. Call TaskList before changing the plan.')
+    return lines
+  }
+
+  // Keep source order so the list reads as the execution order the model wrote.
+  const foldedCompleted = new Set(
+    completed
+      .slice(0, Math.max(0, completed.length - TASK_REMINDER_RECENT_COMPLETED))
+      .map((task) => task.id)
+  )
+  if (foldedCompleted.size > 0) {
+    lines.push(`  (${foldedCompleted.size} earlier completed tasks omitted)`)
+  }
+  for (const task of tasks) {
+    if (foldedCompleted.has(task.id)) continue
+    const marker = task.id === current?.id ? '  <- current' : ''
+    lines.push(`  [${task.status}] #${task.id} ${truncateTaskTitle(task.subject)}${marker}`)
+  }
+
+  if (current) {
+    lines.push(
+      '  Reminder: finish the current task, mark it completed with TaskUpdate, then move the next one to in_progress.'
+    )
+  } else if (open.length > 0) {
+    lines.push(
+      '  Reminder: no task is in_progress. Pick the next one, mark it in_progress with TaskUpdate, and continue. Do not re-create tasks that already exist.'
+    )
+  }
+  return lines
+}
 
 /**
  * Build a runtime reminder passed to the Native Worker as request context.
@@ -153,17 +220,7 @@ function buildSessionStateContext(sessionId: string): string | null {
 
   const tasks = useTaskStore.getState().getTasksBySession(sessionId)
   if (tasks.length > 0) {
-    const pending = tasks.filter((task) => task.status === 'pending').length
-    const inProgress = tasks.filter((task) => task.status === 'in_progress').length
-    const completed = tasks.filter((task) => task.status === 'completed').length
-    parts.push(
-      `- Task List: ${tasks.length} tasks (${pending} pending, ${inProgress} in_progress, ${completed} completed)`
-    )
-    if (inProgress > 0 || pending > 0) {
-      parts.push(
-        '  Reminder: Continue with existing tasks and use TaskUpdate to keep status current.'
-      )
-    }
+    parts.push(...buildTaskListReminderLines(tasks))
   }
 
   const plan = usePlanStore.getState().getPlanBySession(sessionId)

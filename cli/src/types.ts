@@ -131,13 +131,16 @@ export type Message =
       tone?: 'muted' | 'warning' | 'error' | 'success'
     }
 
+export type TaskItemStatus = 'pending' | 'in_progress' | 'blocked' | 'in_review' | 'completed'
+
 export interface TaskItem {
   activeForm?: string
   blockedBy?: string[]
+  detail?: string
   id: string
   label: string
   owner?: string | null
-  status: 'pending' | 'in_progress' | 'completed'
+  status: TaskItemStatus
 }
 
 export interface PermissionRequest {

@@ -1,11 +1,10 @@
 using System.Buffers;
 using System.Text.Json;
 
-// Routes codegraph_* agent tools (codegraph_explore, and later search/callers/...)
-// to the OPT-IN CodeGraph sidecar. The main worker has no direct client to that
-// sidecar's socket — the Electron main process owns it — so execution goes over the
-// reverse-request channel ("codegraph:tool"), where the host applies the enabled
-// gate and forwards to getCodeGraphWorker().request('codegraph/<tool>', args).
+// Routes codegraph_* agent tools onto the source-merged CodeGraph engine in this
+// same worker. The old path bounced through host reverse-request ("codegraph:tool")
+// so Electron could forward to a separate sidecar; that sidecar is gone, and the
+// bounce fails outright when GET /reverse is not attached.
 //
 // Error convention: the CodeGraph tool surface is success-shaped for expected
 // conditions (not_indexed / disabled return guidance text, never a thrown error),
@@ -17,22 +16,55 @@ internal static class AgentRuntimeCodeGraphExecutor
         return toolName.StartsWith("codegraph_", StringComparison.Ordinal);
     }
 
-    public static async Task<string> ExecuteAsync(
+    public static Task<string> ExecuteAsync(
         NativeToolCallView call,
         JsonElement parameters,
         WorkerRequestContext context,
         CancellationToken cancellationToken)
     {
+        _ = context;
+        _ = cancellationToken;
         var workingFolder = JsonHelpers.GetString(parameters, "workingFolder");
-        var payload = BuildPayload(call, workingFolder);
-        var result = await AgentRuntimeReverseRequests.RequestAsync(
-            context,
-            "codegraph:tool",
-            payload,
-            cancellationToken);
+        var args = BuildToolArgs(call, workingFolder);
+        WorkerResponse response;
+        try
+        {
+            response = Dispatch(call.Name, args);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Task.FromResult($"CodeGraph {call.Name} failed: {ex.Message}");
+        }
 
-        // The host resolves with the CodeGraph worker's CodeGraphToolResult
-        // ({ success, text, isError, errorKind? }) or a success-shaped fallback.
+        return Task.FromResult(ReadToolText(response));
+    }
+
+    private static WorkerResponse Dispatch(string toolName, JsonElement args)
+    {
+        return toolName switch
+        {
+            "codegraph_explore" => CodeGraphToolHandler.ExploreRpc(args),
+            "codegraph_search" => CodeGraphToolHandler.SearchRpc(args),
+            "codegraph_status" => CodeGraphToolHandler.StatusRpc(args),
+            "codegraph_node" => CodeGraphToolHandler.NodeRpc(args),
+            "codegraph_callers" => CodeGraphToolHandler.CallersRpc(args),
+            "codegraph_callees" => CodeGraphToolHandler.CalleesRpc(args),
+            "codegraph_impact" => CodeGraphToolHandler.ImpactRpc(args),
+            "codegraph_files" => CodeGraphToolHandler.FilesRpc(args),
+            _ => WorkerResponse.Json(
+                new CodeGraphToolResult(
+                    true,
+                    $"Unknown CodeGraph tool: {toolName}",
+                    false,
+                    CodeGraphErrorKind.NotIndexed),
+                CodeGraphJsonContext.Default.CodeGraphToolResult)
+        };
+    }
+
+    private static string ReadToolText(WorkerResponse response)
+    {
+        using var document = JsonDocument.Parse(response.ToResultJsonBytes());
+        var result = document.RootElement;
         var text = JsonHelpers.GetString(result, "text");
         if (!string.IsNullOrEmpty(text))
         {
@@ -50,23 +82,46 @@ internal static class AgentRuntimeCodeGraphExecutor
             : result.GetRawText();
     }
 
-    private static JsonElement BuildPayload(NativeToolCallView call, string? workingFolder)
+    private static JsonElement BuildToolArgs(NativeToolCallView call, string? workingFolder)
     {
+        var input = call.Input;
+        var hasProject = input.ValueKind == JsonValueKind.Object &&
+            (HasNonEmptyString(input, "projectPath") || HasNonEmptyString(input, "workingFolder"));
+        if (hasProject || string.IsNullOrWhiteSpace(workingFolder))
+        {
+            return input.ValueKind == JsonValueKind.Object ? input.Clone() : CreateEmptyObject();
+        }
+
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("name", call.Name);
-            writer.WritePropertyName("input");
-            call.Input.WriteTo(writer);
-            if (!string.IsNullOrWhiteSpace(workingFolder))
+            if (input.ValueKind == JsonValueKind.Object)
             {
-                writer.WriteString("workingFolder", workingFolder);
+                foreach (var property in input.EnumerateObject())
+                {
+                    property.WriteTo(writer);
+                }
             }
+
+            writer.WriteString("workingFolder", workingFolder);
             writer.WriteEndObject();
         }
 
         using var document = JsonDocument.Parse(buffer.WrittenMemory);
+        return document.RootElement.Clone();
+    }
+
+    private static bool HasNonEmptyString(JsonElement source, string name)
+    {
+        return source.TryGetProperty(name, out var value) &&
+            value.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(value.GetString());
+    }
+
+    private static JsonElement CreateEmptyObject()
+    {
+        using var document = JsonDocument.Parse("{}");
         return document.RootElement.Clone();
     }
 }

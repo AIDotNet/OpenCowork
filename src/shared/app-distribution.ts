@@ -1,4 +1,4 @@
-export type AppDistribution = 'installer' | 'green'
+export type AppDistribution = 'installer' | 'green' | 'compat'
 
 export interface UpdateDistributionInfo {
   distribution: AppDistribution

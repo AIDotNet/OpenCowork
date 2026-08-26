@@ -478,6 +478,8 @@ const chineseResources = {
     },
     tasks: {
       inProgress: '进行中',
+      blocked: '受阻',
+      inReview: '待确认',
       pending: '待处理',
       completed: '已完成',
       more: '… +{{summary}}',

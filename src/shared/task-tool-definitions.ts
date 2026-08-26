@@ -1,0 +1,191 @@
+/**
+ * Single source of truth for the session task tools (TaskCreate / TaskGet / TaskUpdate /
+ * TaskList). The desktop renderer catalog, the hosted session catalog, and the CLI all read
+ * from here; they used to carry three hand-maintained copies that drifted badly — the hosted
+ * copy had no property descriptions, no `required`, and omitted the dependency fields, so on
+ * that path the model could not express task dependencies at all.
+ *
+ * Execution lives in the Native Worker: `AgentRuntimeTaskExecutor` for session tasks, or
+ * `AgentRuntimeTeamExecutor` when a team is active. Nothing here executes.
+ *
+ * Two constraints from `AgentRuntimeToolSchemaValidator` shape these schemas:
+ * - `required` is enforced, and a missing required property rejects the call before it
+ *   reaches the executor. Task identity is therefore documented rather than declared
+ *   required, so the legacy `task_id` spelling still reaches the executor (which accepts it)
+ *   instead of hard-failing validation.
+ * - Unknown properties are only pruned when a schema sets `additionalProperties: false`.
+ *   These schemas deliberately do not, which is what keeps the legacy `subject` / `task_id`
+ *   aliases working without advertising them to the model.
+ */
+
+export type TaskToolInputSchema = {
+  type: 'object'
+  properties: Record<string, unknown>
+  required?: string[]
+}
+
+export type TaskToolDefinition = {
+  name: string
+  description: string
+  inputSchema: TaskToolInputSchema
+}
+
+/** Wire names of the session task tool family, in catalog order. */
+export const TASK_TOOL_NAMES = ['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'] as const
+
+export type TaskToolName = (typeof TASK_TOOL_NAMES)[number]
+
+/**
+ * Statuses `TaskUpdate` accepts. `deleted` is a command rather than a stored state — it
+ * removes the task and its dependency links.
+ *
+ * `AgentRuntimeTaskExecutor.NormalizeStatus` must accept every value here except `deleted`,
+ * otherwise a status written successfully reads back as something else.
+ */
+export const TASK_UPDATE_STATUSES = [
+  'pending',
+  'in_progress',
+  'blocked',
+  'in_review',
+  'completed',
+  'deleted'
+] as const
+
+const TITLE_DESCRIPTION =
+  'One short, verifiable action. Prefer a verb plus its object ' +
+  '("Widen TaskItem status to five states") over a topic ("status handling").'
+
+const DETAIL_DESCRIPTION =
+  'Optional supporting detail: constraints, acceptance criteria, or files involved. ' +
+  'Keep it out of the title.'
+
+const ACTIVE_FORM_DESCRIPTION =
+  'Present continuous form shown in the spinner while the task is in_progress (e.g. "Running tests").'
+
+const METADATA_DESCRIPTION =
+  'Arbitrary metadata to attach to the task. Recognized keys shown on the task board: ' +
+  '"priority" ("urgent"|"high"|"medium"|"low"), "tags" (string[]), "dueAt" (unix ms timestamp).'
+
+const STATUS_DESCRIPTION =
+  'New status for the task. Use "blocked" when progress is stuck on an obstacle you cannot ' +
+  'resolve alone, "in_review" when the work is done and awaits the user\'s confirmation, and ' +
+  '"deleted" to remove the task permanently.'
+
+export const TASK_TOOL_DEFINITIONS: readonly TaskToolDefinition[] = [
+  {
+    name: 'TaskCreate',
+    description:
+      'Create tasks for the current session to track progress on complex multi-step work. ' +
+      'Tasks are shown in the Steps panel and on the task board. ' +
+      'Pass `tasks` to submit the whole list in one call — that is the normal way to use this ' +
+      'tool. Creating tasks one per call costs a round trip each and returns the growing list ' +
+      'every time.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array',
+          minItems: 1,
+          description:
+            'The whole task list, in execution order. Preferred over repeated single-task ' +
+            'calls. Set the first entry to in_progress and start working on it in the same turn.',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: TITLE_DESCRIPTION },
+              description: { type: 'string', description: DETAIL_DESCRIPTION },
+              activeForm: { type: 'string', description: ACTIVE_FORM_DESCRIPTION },
+              status: {
+                type: 'string',
+                enum: ['pending', 'in_progress'],
+                description:
+                  'Defaults to pending. Set in_progress on the entry you are starting now; ' +
+                  'at most one entry may be in_progress.'
+              },
+              metadata: { type: 'object', description: METADATA_DESCRIPTION }
+            },
+            required: ['title']
+          }
+        },
+        title: {
+          type: 'string',
+          description: `Single-task shorthand; ignored when \`tasks\` is present. ${TITLE_DESCRIPTION}`
+        },
+        description: { type: 'string', description: DETAIL_DESCRIPTION },
+        activeForm: { type: 'string', description: ACTIVE_FORM_DESCRIPTION },
+        metadata: { type: 'object', description: METADATA_DESCRIPTION }
+      }
+    }
+  },
+  {
+    name: 'TaskGet',
+    description:
+      'Retrieve one task by ID to inspect its title, description, status, ownership, and dependencies.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'The ID of the task to retrieve. Required.' }
+      }
+    }
+  },
+  {
+    name: 'TaskUpdate',
+    description:
+      'Update one task: change its status, title, description, owner, or dependency links.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'The ID of the task to update. Required.' },
+        status: {
+          type: 'string',
+          enum: [...TASK_UPDATE_STATUSES],
+          description: STATUS_DESCRIPTION
+        },
+        title: { type: 'string', description: `Replacement title. ${TITLE_DESCRIPTION}` },
+        description: { type: 'string', description: `Replacement detail. ${DETAIL_DESCRIPTION}` },
+        // Nullable so a field can be cleared, which the executor already honours.
+        activeForm: { type: ['string', 'null'], description: ACTIVE_FORM_DESCRIPTION },
+        owner: { type: ['string', 'null'], description: 'New owner for the task.' },
+        addBlocks: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task IDs that this task blocks.'
+        },
+        addBlockedBy: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Task IDs that block this task.'
+        },
+        metadata: {
+          type: 'object',
+          description: `${METADATA_DESCRIPTION} Set a key to null to delete it.`
+        }
+      }
+    }
+  },
+  {
+    name: 'TaskList',
+    description:
+      'List every task in the current session with its title, status, owner, and unmet dependencies.',
+    inputSchema: { type: 'object', properties: {} }
+  }
+]
+
+function findTaskToolDefinition(name: TaskToolName): TaskToolDefinition {
+  const definition = TASK_TOOL_DEFINITIONS.find((candidate) => candidate.name === name)
+  if (!definition) throw new Error(`task tool definition missing: ${name}`)
+  return definition
+}
+
+/** Returns a deep-enough copy so consumers can adapt a definition without mutating the source. */
+export function getTaskToolDefinition(name: TaskToolName): TaskToolDefinition {
+  const definition = findTaskToolDefinition(name)
+  return {
+    name: definition.name,
+    description: definition.description,
+    inputSchema: {
+      ...definition.inputSchema,
+      properties: { ...definition.inputSchema.properties }
+    }
+  }
+}

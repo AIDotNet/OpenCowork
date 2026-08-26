@@ -317,9 +317,11 @@
     "autoUpdate": "自动检测并更新应用",
     "autoUpdateDesc": "默认开启。启动时自动检查更新，发现新版本后自动下载，并在安装前询问是否重启；关闭后仅保留手动检查与更新。",
     "autoUpdateGreenDesc": "免安装版会检查新版本，但不自动下载或安装。发现新版本后需要手动下载并覆盖。",
+    "autoUpdateCompatDesc": "兼容版（无 SSE4.2 的旧 CPU）不走正式自动更新通道。请从 GitHub Release 下载对应版本的 *-win-x64-compat 安装包。",
     "update": {
       "status": "更新状态",
       "greenBuild": "免安装版",
+      "compatBuild": "兼容版",
       "currentVersion": "当前 v{{version}}",
       "latestVersion": "最新 v{{version}}",
       "checking": "检查中…",

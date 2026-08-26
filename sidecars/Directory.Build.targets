@@ -1,4 +1,18 @@
 <Project>
+  <!-- Evaluated after each sidecar csproj, so these win over project-level
+       Features=runtime-async=on and the net11 Microsoft.Data.Sqlite pin when
+       OPEN_COWORK_COMPAT_WORKER republishes the same sources as net8. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <Features></Features>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(OpenCoworkCompatWorker)' == 'true'">
+    <IlcInstructionSet>base</IlcInstructionSet>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackageReference Update="Microsoft.Data.Sqlite" Version="8.0.19" />
+  </ItemGroup>
+
   <!-- VS 2022's ARM64 linker (MSVC 14.44) fatals on large Native AOT objects
        with LNK1322 (Cortex-A53 errata 843419). The suggested /Gy flag is a
        C/C++ COMDAT switch and does not apply to ILCompiler output. Windows on

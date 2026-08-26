@@ -7,7 +7,6 @@ using Microsoft.Data.Sqlite;
 internal static class AgentRuntimeTaskExecutor
 {
     private const string IdAlphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    private const string TitleTerminalPunctuation = ":\uFF1A;\uFF1B,.\uFF0C\u3002!?\uFF01\uFF1F";
 
     private static readonly HashSet<string> TaskToolNames = new(StringComparer.Ordinal)
     {
@@ -44,39 +43,127 @@ internal static class AgentRuntimeTaskExecutor
             return EncodeError("No active session context for TaskCreate.");
         }
 
-        var subject = ResolveTaskTitle(input);
-        if (subject.Length == 0)
+        var drafts = ReadCreateDrafts(input, out var draftError);
+        if (draftError is not null)
         {
-            return EncodeError("TaskCreate requires a non-empty title.");
+            return EncodeError(draftError);
+        }
+        if (drafts.Count == 0)
+        {
+            return EncodeError("TaskCreate requires a non-empty title, or a tasks array.");
         }
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var task = new NativeTaskRow
-        {
-            Id = CreateTaskId(),
-            SessionId = sessionId,
-            Subject = subject,
-            Description = string.Empty,
-            ActiveForm = JsonHelpers.GetString(input, "activeForm"),
-            Status = "pending",
-            Owner = null,
-            Blocks = [],
-            BlockedBy = [],
-            MetadataJson = GetObjectRawJson(input, "metadata"),
-            SortOrder = 0,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
+        var created = new List<NativeTaskRow>(drafts.Count);
 
+        // One transaction and one CountSessionTasks for the whole batch, so sort_order stays
+        // dense and the persisted order matches the order the model wrote.
         using var connection = DbConnectionFactory.OpenReadWrite(parameters);
-        using var transaction = connection.BeginTransaction();
-        task.SortOrder = CountSessionTasks(connection, transaction, sessionId);
-        InsertTask(connection, transaction, task);
-        transaction.Commit();
+        using (var transaction = connection.BeginTransaction())
+        {
+            var sortOrder = CountSessionTasks(connection, transaction, sessionId);
+            foreach (var draft in drafts)
+            {
+                var task = new NativeTaskRow
+                {
+                    Id = CreateTaskId(),
+                    SessionId = sessionId,
+                    Subject = draft.Subject,
+                    Description = draft.Description,
+                    ActiveForm = draft.ActiveForm,
+                    Status = draft.Status,
+                    Owner = null,
+                    Blocks = [],
+                    BlockedBy = [],
+                    MetadataJson = draft.MetadataJson,
+                    SortOrder = sortOrder++,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                InsertTask(connection, transaction, task);
+                created.Add(task);
+            }
+            transaction.Commit();
+        }
 
         using var readConnection = DbConnectionFactory.OpenReadWrite(parameters);
         var tasks = LoadTasksBySession(readConnection, sessionId);
-        return EncodeTaskCreateResult(task, tasks);
+        return EncodeTaskCreateResult(created, tasks);
+    }
+
+    /// <summary>
+    /// Normalizes both TaskCreate shapes into one draft list: a `tasks` array (preferred) or
+    /// the single-task fields. When `tasks` is present the top-level fields are ignored.
+    /// </summary>
+    private static List<TaskDraft> ReadCreateDrafts(JsonElement input, out string? error)
+    {
+        var drafts = new List<TaskDraft>();
+        error = null;
+
+        if (input.ValueKind == JsonValueKind.Object &&
+            input.TryGetProperty("tasks", out var batch) &&
+            batch.ValueKind == JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var item in batch.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    error = $"TaskCreate tasks[{index}] must be an object.";
+                    return drafts;
+                }
+
+                var subject = ResolveCreateTitle(item);
+                if (subject.Length == 0)
+                {
+                    error = $"TaskCreate tasks[{index}] requires a non-empty title.";
+                    return drafts;
+                }
+
+                drafts.Add(new TaskDraft
+                {
+                    Subject = subject,
+                    Description = NormalizeTaskTitlePart(GetOptionalInputString(item, "description")),
+                    ActiveForm = JsonHelpers.GetString(item, "activeForm"),
+                    Status = ReadCreateStatus(item),
+                    MetadataJson = GetObjectRawJson(item, "metadata")
+                });
+                index++;
+            }
+
+            if (drafts.Count == 0)
+            {
+                error = "TaskCreate tasks must contain at least one task.";
+            }
+            else if (drafts.Count(static draft => draft.Status == "in_progress") > 1)
+            {
+                error = "TaskCreate accepts at most one in_progress task per batch.";
+                drafts.Clear();
+            }
+            return drafts;
+        }
+
+        var singleSubject = ResolveCreateTitle(input);
+        if (singleSubject.Length == 0)
+        {
+            error = "TaskCreate requires a non-empty title, or a tasks array.";
+            return drafts;
+        }
+
+        drafts.Add(new TaskDraft
+        {
+            Subject = singleSubject,
+            Description = NormalizeTaskTitlePart(GetOptionalInputString(input, "description")),
+            ActiveForm = JsonHelpers.GetString(input, "activeForm"),
+            Status = ReadCreateStatus(input),
+            MetadataJson = GetObjectRawJson(input, "metadata")
+        });
+        return drafts;
+    }
+
+    private static string ReadCreateStatus(JsonElement input)
+    {
+        return JsonHelpers.GetString(input, "status") == "in_progress" ? "in_progress" : "pending";
     }
 
     private static string ExecuteGet(JsonElement input, JsonElement parameters)
@@ -133,13 +220,34 @@ internal static class AgentRuntimeTaskExecutor
             changedFields.Add("status");
         }
 
-        if (HasAnyProperty(input, "title", "subject", "description"))
+        // Title and description are independent columns. Only fall back to the legacy
+        // "description becomes the title" behaviour when description is the sole text field
+        // supplied and the task still has no title.
+        if (HasAnyProperty(input, "title", "subject"))
         {
-            var nextTitle = ResolveTaskTitle(input, updated.Subject);
+            var nextTitle = NormalizeTaskTitlePart(
+                GetOptionalInputString(input, "title") ?? GetOptionalInputString(input, "subject"));
             if (nextTitle.Length > 0 && nextTitle != updated.Subject)
             {
                 updated.Subject = nextTitle;
                 changedFields.Add("subject");
+            }
+        }
+
+        if (input.TryGetProperty("description", out var descriptionValue))
+        {
+            var nextDescription = descriptionValue.ValueKind == JsonValueKind.Null
+                ? string.Empty
+                : NormalizeTaskTitlePart(descriptionValue.ToString());
+            if (updated.Subject.Length == 0 && nextDescription.Length > 0)
+            {
+                updated.Subject = nextDescription;
+                changedFields.Add("subject");
+            }
+            else if (nextDescription != updated.Description)
+            {
+                updated.Description = nextDescription;
+                changedFields.Add("description");
             }
         }
 
@@ -414,16 +522,21 @@ internal static class AgentRuntimeTaskExecutor
         return tasks;
     }
 
-    private static string EncodeTaskCreateResult(NativeTaskRow task, List<NativeTaskRow> tasks)
+    private static string EncodeTaskCreateResult(List<NativeTaskRow> created, List<NativeTaskRow> tasks)
     {
+        var first = created[0];
         return EncodeJsonObject(writer =>
         {
             writer.WriteBoolean("success", true);
-            writer.WriteString("task_id", task.Id);
-            writer.WriteString("title", task.Subject);
-            writer.WriteString("subject", task.Subject);
+            writer.WriteNumber("created", created.Count);
+            WriteStringArray(writer, "created_ids", created.Select(static task => task.Id).ToArray());
+            // task_id/title/subject describe the first created task so single-task callers and
+            // the chat task card keep the shape they already parse.
+            writer.WriteString("task_id", first.Id);
+            writer.WriteString("title", first.Subject);
+            writer.WriteString("subject", first.Subject);
             writer.WritePropertyName("task");
-            WriteTaskSnapshot(writer, task);
+            WriteTaskSnapshot(writer, first);
             WriteStandaloneSummary(writer, tasks, includeCompleted: true);
         });
     }
@@ -435,6 +548,7 @@ internal static class AgentRuntimeTaskExecutor
             writer.WriteString("id", task.Id);
             writer.WriteString("title", task.Subject);
             writer.WriteString("subject", task.Subject);
+            writer.WriteString("description", task.Description);
             writer.WriteString("status", task.Status);
             WriteNullableString(writer, "owner", task.Owner);
             WriteNullableString(writer, "activeForm", task.ActiveForm);
@@ -525,6 +639,12 @@ internal static class AgentRuntimeTaskExecutor
         writer.WriteString("id", task.Id);
         writer.WriteString("title", task.Subject);
         writer.WriteString("subject", task.Subject);
+        // Only when set: this snapshot is repeated for every task in the session on each
+        // create/update result, so empty keys are pure overhead.
+        if (!string.IsNullOrEmpty(task.Description))
+        {
+            writer.WriteString("description", task.Description);
+        }
         WriteNullableString(writer, "activeForm", task.ActiveForm);
         writer.WriteString("status", task.Status);
         WriteNullableString(writer, "owner", task.Owner);
@@ -537,6 +657,9 @@ internal static class AgentRuntimeTaskExecutor
         {
             case "subject":
                 writer.WriteString("subject", task.Subject);
+                break;
+            case "description":
+                writer.WriteString("description", task.Description);
                 break;
             case "activeForm":
                 WriteNullableString(writer, "activeForm", task.ActiveForm);
@@ -588,15 +711,20 @@ internal static class AgentRuntimeTaskExecutor
         writer.WriteEndArray();
     }
 
-    private static string ResolveTaskTitle(JsonElement input, string fallbackTitle = "")
+    /// <summary>
+    /// Title for a newly created task. `description` is stored in its own column, so it is never
+    /// folded into the title — doing so persisted the same text twice and forced every task to be
+    /// a single long string. Falls back to `description` only when no title was supplied at all.
+    /// </summary>
+    private static string ResolveCreateTitle(JsonElement input)
     {
-        var title = NormalizeTaskTitlePart(GetOptionalInputString(input, "title") ?? GetOptionalInputString(input, "subject"));
-        var description = NormalizeTaskTitlePart(GetOptionalInputString(input, "description"));
+        var title = NormalizeTaskTitlePart(
+            GetOptionalInputString(input, "title") ?? GetOptionalInputString(input, "subject"));
         if (title.Length > 0)
         {
-            return MergeTaskTitle(title, description);
+            return title;
         }
-        return description.Length > 0 ? description : NormalizeTaskTitlePart(fallbackTitle);
+        return NormalizeTaskTitlePart(GetOptionalInputString(input, "description"));
     }
 
     private static string NormalizeTaskTitlePart(string? value)
@@ -604,27 +732,6 @@ internal static class AgentRuntimeTaskExecutor
         return string.IsNullOrWhiteSpace(value)
             ? string.Empty
             : Regex.Replace(value, "\\s+", " ").Trim();
-    }
-
-    private static string MergeTaskTitle(string title, string description)
-    {
-        if (title.Length == 0)
-        {
-            return description;
-        }
-        if (description.Length == 0 || title == description || title.Contains(description, StringComparison.Ordinal))
-        {
-            return title;
-        }
-        if (description.Contains(title, StringComparison.Ordinal))
-        {
-            return description;
-        }
-
-        var last = title[^1];
-        return TitleTerminalPunctuation.Contains(last, StringComparison.Ordinal)
-            ? $"{title} {description}"
-            : $"{title}\uFF1A{description}";
     }
 
     private static bool HasAnyProperty(JsonElement input, params string[] names)
@@ -792,9 +899,14 @@ internal static class AgentRuntimeTaskExecutor
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    // Must accept every status ExecuteUpdate is allowed to write. Narrowing here silently
+    // downgrades blocked/in_review to pending on read-back, which teaches the model those
+    // states do not work.
     private static string NormalizeStatus(string status)
     {
-        return status is "pending" or "in_progress" or "completed" ? status : "pending";
+        return status is "pending" or "in_progress" or "blocked" or "in_review" or "completed"
+            ? status
+            : "pending";
     }
 
     private static string CreateTaskId()
@@ -841,6 +953,15 @@ internal static class AgentRuntimeTaskExecutor
                updated_at
           FROM tasks
         """;
+
+    private sealed class TaskDraft
+    {
+        public string Subject { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+        public string? ActiveForm { get; set; }
+        public string Status { get; set; } = "pending";
+        public string? MetadataJson { get; set; }
+    }
 
     private sealed class NativeTaskRow
     {

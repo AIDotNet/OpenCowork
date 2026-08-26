@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const rid = process.env.OPEN_COWORK_NATIVE_WORKER_RID?.trim()
+const compatWorker = process.env.OPEN_COWORK_COMPAT_WORKER === '1'
 const workerDirectory = join(repoRoot, 'resources', 'native-worker')
 const outputDirectory = join(repoRoot, 'cli-release-assets')
 
@@ -36,7 +37,9 @@ for (const requiredPath of [
 }
 
 mkdirSync(outputDirectory, { recursive: true })
-const archiveName = `OpenCowork-native-worker-${rid}.tgz`
+const archiveName = compatWorker
+  ? `OpenCowork-native-worker-${rid}-compat.tgz`
+  : `OpenCowork-native-worker-${rid}.tgz`
 const archivePath = join(outputDirectory, archiveName)
 const checksumPath = `${archivePath}.sha256`
 rmSync(archivePath, { force: true })

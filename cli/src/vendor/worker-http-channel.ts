@@ -49,8 +49,11 @@ export interface WorkerHttpChannelHooks {
   onFrame: (frame: unknown, source: 'control' | 'event', byteLength: number) => void
   /** The worker is unusable; the supervisor should tear it down. */
   onControlFailure: (error: Error) => void
-  /** The event stream dropped. Requests still work; the channel retries. */
-  onEventDisconnected: (error: Error) => void
+  /**
+   * An SSE lane dropped. Requests still work; the channel retries.
+   * `path` is `/events` or `/reverse` so the supervisor can tell them apart.
+   */
+  onEventDisconnected: (error: Error, path?: '/events' | '/reverse') => void
   onEventReconnected: () => void
 }
 
@@ -316,9 +319,13 @@ export class WorkerHttpChannel {
       await this.readEventStream(response.body, abort)
       throw new Error(`Native worker ${path} stream ended`)
     } catch (error) {
-      if (this.disposed || abort.signal.aborted) return
+      // Idle-timeout aborts this lane's controller to unstick `reader.read()`.
+      // That must still reconnect: treating abort as "caller gave up" left
+      // `/reverse` permanently detached, so the next AskUserQuestion / approval
+      // failed with "Worker reverse stream is unavailable".
+      if (this.disposed || !this.options.isActive()) return
       state.connected = false
-      this.options.hooks.onEventDisconnected(asError(error))
+      this.options.hooks.onEventDisconnected(asError(error), path)
       this.scheduleStreamReconnect(path)
     }
   }

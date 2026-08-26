@@ -1,4 +1,4 @@
-# OpenCowork CLI architecture
+﻿# OpenCowork CLI architecture
 
 Status: implementation baseline and target architecture, 2026-08-07.
 
@@ -64,7 +64,7 @@ and colors. It must never present itself as Anthropic or Claude Code.
 ```text
 ┌──────────────────────────── OpenCowork CLI ────────────────────────────┐
 │ keyboard decoder · editor · overlays · transcript · terminal renderer │
-│                 WorkerEventProjector (wire → UI state)                │
+│        WorkerEventProjector → UiEvent → CliState reducer              │
 └──────────────────────┬────────────────────────┬────────────────────────┘
                        │ POST /rpc · /cancel    │ GET /events (SSE)
                        │ request / response     │ stream / progress
@@ -107,7 +107,9 @@ turn is accepted and executed by `OpenCowork.Native.Worker`.
 cli/
 ├── src/
 │   ├── index.tsx                         Commander entry and Ink lifecycle
-│   ├── app.tsx                           terminal application state machine
+│   ├── app.tsx                           terminal controller and Ink composition
+│   ├── state/cli-state.ts                 CliState and explicit overlay priority
+│   ├── state/cli-reducer.ts               pure UiEvent → CliState projection
 │   ├── commands.ts                       UI-facing slash-command registry
 │   ├── types.ts                          terminal view model and UiEvent contract
 │   ├── runtime/
@@ -295,9 +297,19 @@ AgentStreamEnvelope
   → monotonic sequence validation
   → event projector
   → UiEvent queue
-  → React state reducer
+  → `cliReducer` → `CliState`
   → Ink/Yoga terminal frame
 ```
+
+The reducer is a terminal projection only: it owns transcript rows, turn activity, tasks, and
+reverse-request visibility, while Native Worker remains authoritative for canonical history,
+permissions, plans, and execution. `CliApp` coordinates runtime side effects and terminal layout;
+it does not implement a second agent loop.
+
+Overlay priority is explicit in `resolveActiveOverlay` and is consumed by the view as one active
+layer: AskUser, Plan, Permission, then idle panels (resume/provider/model/config/agents), then the
+prompt. A stale permission or AskUser cancellation only clears the matching request ID, so a newer
+Worker request cannot be hidden by an older event.
 
 Important mappings:
 

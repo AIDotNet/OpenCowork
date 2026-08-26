@@ -646,10 +646,16 @@ function requestModelLabel(value: unknown): string {
   return stringValue(value.modelName) || stringValue(value.modelId) || stringValue(value.model)
 }
 
+const TASK_STATUSES: readonly TaskItem['status'][] = [
+  'pending',
+  'in_progress',
+  'blocked',
+  'in_review',
+  'completed'
+]
+
 function normalizeTaskStatus(status: unknown): TaskItem['status'] {
-  if (status === 'completed') return 'completed'
-  if (status === 'in_progress' || status === 'in_review') return 'in_progress'
-  return 'pending'
+  return TASK_STATUSES.find((candidate) => candidate === status) ?? 'pending'
 }
 
 function findTasks(value: unknown): TaskItem[] | null {
@@ -671,15 +677,16 @@ function findTasks(value: unknown): TaskItem[] | null {
       const blockedBy = stringArrayValue(
         task.blockedBy ?? task.blocked_by ?? task.dependsOn ?? task.depends_on
       )
+      const title = stringValue(task.subject) || stringValue(task.title)
+      const description = stringValue(task.description)
       return {
         ...(activeForm ? { activeForm } : {}),
         ...(blockedBy.length > 0 ? { blockedBy } : {}),
+        // Only a detail line when it is not already the label (tasks created before the
+        // title/description split fell back to description as the title).
+        ...(description && description !== title ? { detail: description } : {}),
         id: stringValue(task.id) || stringValue(task.taskId) || randomUUID(),
-        label:
-          stringValue(task.subject) ||
-          stringValue(task.title) ||
-          stringValue(task.description) ||
-          'Untitled task',
+        label: title || description || 'Untitled task',
         ...(owner ? { owner } : {}),
         status: normalizeTaskStatus(task.status)
       }

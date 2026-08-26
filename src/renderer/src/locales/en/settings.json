@@ -317,9 +317,11 @@
     "autoUpdate": "Automatically check and update the app",
     "autoUpdateDesc": "Enabled by default. Checks for updates on startup and downloads newer versions automatically, then asks before restarting to install. When disabled, updates stay manual.",
     "autoUpdateGreenDesc": "The no-install build checks for new versions, but does not download or install them automatically. Download the latest version manually and replace the current folder.",
+    "autoUpdateCompatDesc": "The compatibility build (older CPUs without SSE4.2) does not use the official auto-update channel. Download the matching *-win-x64-compat installer from the GitHub Release.",
     "update": {
       "status": "Update status",
       "greenBuild": "No-install build",
+      "compatBuild": "Compatibility build",
       "currentVersion": "Current v{{version}}",
       "latestVersion": "Latest v{{version}}",
       "checking": "Checking…",

@@ -45,6 +45,12 @@ internal sealed class HttpWorkerServer
     private static readonly TimeSpan FirstClientTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan OwnerlessGracePeriod = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan EventStreamKeepAliveInterval = TimeSpan.FromSeconds(15);
+    /// <summary>
+    /// Host reconnects `/reverse` 250ms after a drop. Wait just past that so a
+    /// tool that fires during the gap does not fail as "unavailable".
+    /// </summary>
+    private static readonly TimeSpan ReverseAttachWait = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ReverseAttachPollInterval = TimeSpan.FromMilliseconds(50);
 
     private static readonly int MaxConcurrentRequests = ReadLimit(
         "OPEN_COWORK_NATIVE_MAX_CONCURRENT_REQUESTS",
@@ -820,12 +826,16 @@ internal sealed class HttpWorkerServer
     /// only the reverse stream, so a consumer that stops draining streamed output
     /// still receives approvals and hooks.
     /// </summary>
-    private ValueTask PublishControlEventAsync(
+    private async ValueTask PublishControlEventAsync(
         string eventName,
         Action<Utf8JsonWriter> writeParameters,
         CancellationToken cancellationToken)
     {
-        _ = cancellationToken;
+        if (!reverseLane.IsAttached)
+        {
+            await WaitForReverseAttachAsync(cancellationToken);
+        }
+
         if (!reverseLane.IsAttached)
         {
             throw new IOException(
@@ -835,7 +845,16 @@ internal sealed class HttpWorkerServer
         var json = WorkerJson.WriteEvent(eventName, writeParameters);
         reverseLane.Queue.Writer.TryWrite(new QueuedEvent(eventName, json));
         reverseLane.Signal();
-        return ValueTask.CompletedTask;
+    }
+
+    private async ValueTask WaitForReverseAttachAsync(CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + ReverseAttachWait;
+        while (!reverseLane.IsAttached && DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(ReverseAttachPollInterval, cancellationToken);
+        }
     }
 
     private static void LogDropped(StreamLane lane, string eventName, int length)

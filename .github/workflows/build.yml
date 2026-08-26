@@ -160,6 +160,12 @@ jobs:
             build_arch: x64
             artifact_arch: amd64
             native_worker_rid: win-x64
+          - os: windows-latest
+            platform: win
+            build_arch: x64
+            artifact_arch: amd64
+            native_worker_rid: win-x64
+            flavor: compat
           # VS 2022 ARM64 link.exe (MSVC 14.44) fatals Native AOT with LNK1322
           # (Cortex-A53 errata 843419) on the large worker object. Windows on ARM
           # PCs are not Cortex-A53; VS 2026 removed that linker check. Do not
@@ -198,6 +204,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup .NET 8 (compat worker)
+        if: matrix.flavor == 'compat'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
@@ -220,11 +232,13 @@ jobs:
         run: npm run native:publish
         env:
           OPEN_COWORK_NATIVE_WORKER_RID: ${{ matrix.native_worker_rid }}
+          OPEN_COWORK_COMPAT_WORKER: ${{ matrix.flavor == 'compat' && '1' || '' }}
 
       - name: Package CLI Native Worker (${{ matrix.native_worker_rid }})
         run: npm run cli:worker:package
         env:
           OPEN_COWORK_NATIVE_WORKER_RID: ${{ matrix.native_worker_rid }}
+          OPEN_COWORK_COMPAT_WORKER: ${{ matrix.flavor == 'compat' && '1' || '' }}
 
       - name: Upload CLI Native Worker to Release
         shell: bash
@@ -232,7 +246,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
-          for file in cli-release-assets/OpenCowork-native-worker-${{ matrix.native_worker_rid }}.tgz*; do
+          if [ "${{ matrix.flavor }}" = "compat" ]; then
+            pattern='cli-release-assets/OpenCowork-native-worker-${{ matrix.native_worker_rid }}-compat.tgz*'
+          else
+            pattern='cli-release-assets/OpenCowork-native-worker-${{ matrix.native_worker_rid }}.tgz*'
+          fi
+          for file in $pattern; do
             [ -f "$file" ] || continue
             echo "  ⬆️  $(basename "$file")"
             gh release upload "${TAG_NAME}" "$file" --clobber
@@ -245,11 +264,21 @@ jobs:
           path: out
 
       - name: Package (${{ matrix.platform }}-${{ matrix.artifact_arch }})
+        if: matrix.flavor != 'compat'
         run: npx electron-builder --${{ matrix.platform }} --${{ matrix.build_arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
           # Windows 代码签名 (可选)
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD || '' }}
+
+      - name: Package compat (win-x64)
+        if: matrix.flavor == 'compat'
+        run: npx electron-builder --win --x64 --publish never -c.extraMetadata.opencoworkDistribution=compat -c.directories.output=dist-compat
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD || '' }}
 
@@ -260,23 +289,29 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
+          out_dir=dist
+          suffix=
+          if [ "${{ matrix.flavor }}" = "compat" ]; then
+            out_dir=dist-compat
+            suffix=-compat
+          fi
 
-          exe_file=$(find dist -maxdepth 1 -type f -name '*.exe' ! -name '*.blockmap' | head -n 1)
-          blockmap_file=$(find dist -maxdepth 1 -type f -name '*.exe.blockmap' | head -n 1)
+          exe_file=$(find "$out_dir" -maxdepth 1 -type f -name '*.exe' ! -name '*.blockmap' | head -n 1)
+          blockmap_file=$(find "$out_dir" -maxdepth 1 -type f -name '*.exe.blockmap' | head -n 1)
 
           if [ -z "$exe_file" ]; then
             echo "❌ No Windows installer artifact found"
             exit 1
           fi
 
-          cp "$exe_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe"
+          cp "$exe_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup${suffix}.exe"
 
           if [ -n "$blockmap_file" ]; then
-            cp "$blockmap_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup.exe.blockmap"
+            cp "$blockmap_file" "release-assets/OpenCowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}-setup${suffix}.exe.blockmap"
           fi
 
       - name: Patch Windows update metadata
-        if: matrix.platform == 'win' && matrix.artifact_arch == 'amd64'
+        if: matrix.platform == 'win' && matrix.artifact_arch == 'amd64' && matrix.flavor != 'compat'
         shell: bash
         run: |
           if [ -f "dist/latest.yml" ]; then
@@ -295,7 +330,7 @@ jobs:
           fi
 
       - name: Upload Windows artifacts
-        if: matrix.platform == 'win'
+        if: matrix.platform == 'win' && matrix.flavor != 'compat'
         uses: actions/upload-artifact@v6
         with:
           name: open-cowork-${{ matrix.platform }}-${{ matrix.artifact_arch }}
@@ -303,6 +338,17 @@ jobs:
             release-assets/*.exe
             release-assets/*.exe.blockmap
             dist/latest*.yml
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows compat artifacts
+        if: matrix.flavor == 'compat'
+        uses: actions/upload-artifact@v6
+        with:
+          name: open-cowork-win-amd64-compat
+          path: |
+            release-assets/*.exe
+            release-assets/*.exe.blockmap
           if-no-files-found: error
           retention-days: 30
 
@@ -320,7 +366,7 @@ jobs:
             gh release upload "${TAG_NAME}" "$file" --clobber
           done
 
-          if [ "${{ matrix.artifact_arch }}" = "amd64" ]; then
+          if [ "${{ matrix.artifact_arch }}" = "amd64" ] && [ "${{ matrix.flavor }}" != "compat" ]; then
             for file in dist/latest*.yml; do
               [ -f "$file" ] || continue
               echo "  ⬆️  $(basename "$file")"

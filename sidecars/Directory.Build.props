@@ -6,4 +6,11 @@
   <PropertyGroup>
     <AppleMinOSVersion Condition="'$(AppleMinOSVersion)' == ''">13.0</AppleMinOSVersion>
   </PropertyGroup>
+  <!-- win-x64-compat: publish with /p:TargetFramework=net8.0 /p:OpenCoworkCompatWorker=true.
+       .NET 11's JIT/AOT floor is x86-64-v2; the compat SKU stays on net8 so Core 2 Duo
+       class CPUs can boot. Directory.Build.targets clears runtime-async and pins
+       Microsoft.Data.Sqlite to 8.x after the project file is evaluated. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
 </Project>

@@ -789,9 +789,10 @@ class NativeWorkerManager implements WorkerRuntimeClient {
         onControlFailure: (error) => {
           if (ownsWorker()) this.closeWorker(error)
         },
-        onEventDisconnected: (error) => {
+        onEventDisconnected: (error, path) => {
           if (!ownsWorker()) return
-          console.warn('[NativeWorker] event stream disconnected; jobs remain healthy', {
+          console.warn('[NativeWorker] stream disconnected; will reattach', {
+            path,
             error: error.message
           })
         },

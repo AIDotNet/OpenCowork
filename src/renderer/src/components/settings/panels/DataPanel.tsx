@@ -32,7 +32,10 @@ import { MigrationPanel } from '../MigrationPanel'
 import { SettingHint, SettingRow, SettingsPanel, SettingsSection } from '../settings-primitives'
 
 function normalizeDistribution(value: unknown): AppDistribution {
-  return value === 'green' ? 'green' : 'installer'
+  if (value === 'green' || value === 'compat') {
+    return value
+  }
+  return 'installer'
 }
 
 function normalizeReleaseUrl(value: unknown): string {
@@ -374,12 +377,25 @@ export function DataPanel(): React.JSX.Element {
         title={t('general.update.status')}
         description={`${t('general.update.currentVersion', { version: currentVersion })}${
           latestVersion ? ` · ${t('general.update.latestVersion', { version: latestVersion })}` : ''
-        }${distribution === 'green' ? ` · ${t('general.update.greenBuild')}` : ''}`}
+        }${
+          distribution === 'green'
+            ? ` · ${t('general.update.greenBuild')}`
+            : distribution === 'compat'
+              ? ` · ${t('general.update.compatBuild', { defaultValue: 'Compatibility build' })}`
+              : ''
+        }`}
       >
         <SettingRow
           label={t('general.autoUpdate')}
           description={
-            supportsAutoInstall ? t('general.autoUpdateDesc') : t('general.autoUpdateGreenDesc')
+            supportsAutoInstall
+              ? t('general.autoUpdateDesc')
+              : distribution === 'compat'
+                ? t('general.autoUpdateCompatDesc', {
+                    defaultValue:
+                      'The compatibility build (older CPUs without SSE4.2) does not use the official auto-update channel. Download the matching *-win-x64-compat installer from the GitHub Release.'
+                  })
+                : t('general.autoUpdateGreenDesc')
           }
           control={
             <Switch

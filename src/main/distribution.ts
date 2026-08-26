@@ -8,6 +8,7 @@ import {
 } from '../shared/app-distribution'
 
 const GREEN_DISTRIBUTION_METADATA = 'green'
+const COMPAT_DISTRIBUTION_METADATA = 'compat'
 
 let cachedDistribution: AppDistribution | null = null
 
@@ -25,7 +26,13 @@ function readDistributionMarker(): AppDistribution {
     const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
       opencoworkDistribution?: unknown
     }
-    return parsed.opencoworkDistribution === GREEN_DISTRIBUTION_METADATA ? 'green' : 'installer'
+    if (parsed.opencoworkDistribution === GREEN_DISTRIBUTION_METADATA) {
+      return 'green'
+    }
+    if (parsed.opencoworkDistribution === COMPAT_DISTRIBUTION_METADATA) {
+      return 'compat'
+    }
+    return 'installer'
   } catch (error) {
     console.warn('[Distribution] Failed to read packaged app metadata:', error)
     return 'installer'
@@ -45,7 +52,7 @@ export function getUpdateDistributionInfo(): UpdateDistributionInfo {
 
   return {
     distribution,
-    supportsAutoInstall: distribution !== 'green',
+    supportsAutoInstall: distribution === 'installer',
     releaseUrl: OPEN_COWORK_RELEASES_LATEST_URL
   }
 }

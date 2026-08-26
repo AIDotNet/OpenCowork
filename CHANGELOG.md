@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.21] - 2026-08-26
+
+### Fixed
+
+- Fixed consecutive Read tool cards staying on "receiving parameters" or looking hung. Parallel tool events are now committed in sequence order, the durable outbox no longer skips a hole, and the desktop stream holds later envelopes until the missing sequence arrives.
+
 ## [1.3.20] - 2026-08-26
 
 ### Added

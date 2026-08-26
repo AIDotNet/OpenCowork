@@ -54,8 +54,8 @@
     "postinstall": "node ./scripts/postinstall.mjs",
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
-    "build:win:green": "npm run build && electron-builder --win zip -c.extraMetadata.opencoworkDistribution=green -c.directories.output=dist-green --publish never",
-    "build:win:compat": "npm run build && OPEN_COWORK_COMPAT_WORKER=1 OPEN_COWORK_NATIVE_WORKER_RID=win-x64 npm run native:publish && electron-builder --win nsis --x64 --publish never -c.extraMetadata.opencoworkDistribution=compat -c.directories.output=dist-compat",
+    "build:win:green": "npm run build && electron-builder --win zip --config.extraMetadata.opencoworkDistribution=green --config.directories.output=dist-green --publish never",
+    "build:win:compat": "npm run build && OPEN_COWORK_COMPAT_WORKER=1 OPEN_COWORK_NATIVE_WORKER_RID=win-x64 npm run native:publish && electron-builder --win nsis --x64 --publish never --config.extraMetadata.opencoworkDistribution=compat --config.directories.output=dist-compat",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
   },

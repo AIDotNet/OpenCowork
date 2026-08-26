@@ -275,7 +275,10 @@ jobs:
 
       - name: Package compat (win-x64)
         if: matrix.flavor == 'compat'
-        run: npx electron-builder --win --x64 --publish never -c.extraMetadata.opencoworkDistribution=compat -c.directories.output=dist-compat
+        # Long --config.* form is required: short -c.directories.output=… is parsed as
+        # --config with a file named ".directories.output=…" on Windows cmd/PowerShell.
+        shell: bash
+        run: npx electron-builder --win --x64 --publish never --config.extraMetadata.opencoworkDistribution=compat --config.directories.output=dist-compat
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_BINARIES_MIRROR: https://cdn.npmmirror.com/binaries/electron-builder-binaries/

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.20] - 2026-08-26
+
+### Added
+
+- Added a Windows x64 compatibility installer (`*-win-x64-compat`). Its Native Worker publishes as .NET 8 AOT with the baseline instruction set, so machines without SSE4.2 can start without lowering the official .NET 11 SKU. Compat builds do not use the official auto-update channel; download the matching installer from the GitHub Release.
+
+### Changed
+
+- Consecutive read-only tools (file reads, directory listings, searches, memory lookups, web fetches, and status checks) now run concurrently up to the configured parallel-tool limit, instead of strictly one at a time. Writes, edits, and shell still run in the order listed.
+- Tool results now keep up to 64K characters to match the advertised `bounded-preview-64k` policy (was 16K). Read stops on a line boundary and tells the model the next offset, instead of cutting the middle of the file.
+- Session task tools (`TaskCreate` / `TaskGet` / `TaskUpdate` / `TaskList`) share one schema across desktop, hosted sessions, and CLI, so hosted runs can express dependencies and the `blocked` / `in_review` statuses the task board already shows.
+- Slow Worker RPC such as image generation now goes through the durable job client instead of an inline request that could time out.
+
 ## [1.3.19] - 2026-08-25
 
 ### Added

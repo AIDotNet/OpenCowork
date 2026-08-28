@@ -46,8 +46,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     MarkFirstToken(parseState, startedAt);
                     parseState.AssistantText.Append(delta);
                     parseState.EstimatedOutputTokens += EstimateTokenCount(delta);
-                    await EmitProjectedEventAsync(
-                        parseState,
+                    await AgentRuntimeTools.EmitProjectedAsync(
                         state,
                         context,
                         new AgentRuntimeStreamEvent("text_delta", Text: delta));
@@ -61,8 +60,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     MarkFirstToken(parseState, startedAt);
                     parseState.EmittedThinkingDelta = true;
                     parseState.ReasoningStreamedLive = true;
-                    await EmitProjectedEventAsync(
-                        parseState,
+                    await AgentRuntimeTools.EmitProjectedAsync(
                         state,
                         context,
                         new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
@@ -141,15 +139,13 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     throw new ResponsesWebSocketUnavailableException(
                         $"OpenAI Responses WebSocket transport unavailable: {root.GetRawText()}");
                 }
-                throw CreateResponsesStreamException(root, parseState);
+                throw CreateResponsesStreamException(root);
         }
 
         return false;
     }
 
-    private static AgentRuntimeProviderStreamException CreateResponsesStreamException(
-        JsonElement root,
-        ResponsesParseState parseState)
+    private static AgentRuntimeProviderStreamException CreateResponsesStreamException(JsonElement root)
     {
         var error = root;
         if (root.TryGetProperty("error", out var nestedError) &&
@@ -178,8 +174,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             "OpenAI Responses",
             code,
             message,
-            retryable,
-            parseState.ProjectedAnyOutput);
+            retryable);
     }
 
     private static async Task ProcessOutputItemAddedAsync(
@@ -239,8 +234,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             parseState.ToolBuffers[callId] = new ResponsesToolBuffer(callId, name);
         }
 
-        await EmitProjectedEventAsync(
-            parseState,
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -278,8 +272,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             buffer.ArgumentStream,
             out var partialInput))
         {
-            await EmitProjectedEventAsync(
-                parseState,
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -355,8 +348,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         WorkerLog.Debug(
             $"responses web_search {status} id={id ?? string.Empty} query='{query}' " +
             $"sources={(sources?.GetArrayLength() ?? 0)}");
-        await EmitProjectedEventAsync(
-            parseState,
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -567,8 +559,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             return;
         }
-        _ = EmitProjectedEventAsync(
-            parseState,
+        _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -595,8 +586,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         }
         parseState.EmittedThinkingDelta = true;
         MarkFirstToken(parseState, startedAt);
-        _ = EmitProjectedEventAsync(
-            parseState,
+        _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));

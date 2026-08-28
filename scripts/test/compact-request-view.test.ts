@@ -3,6 +3,8 @@ import test from 'node:test'
 import {
   applyLatestCompactRequestView,
   compactRequestFence,
+  isCompactSummaryLikeMessage,
+  isCompactSummaryMessage,
   parsePersistedMessageContent,
   parsePersistedMessageMeta,
   parsePersistedMessageUsage
@@ -131,6 +133,31 @@ test('persisted JSON content and meta are restored for compact marks', () => {
   )
   assert.equal(typeof content, 'string')
   assert.equal(meta?.compactSummary?.messagesSummarized, 3)
+})
+
+test('a user-role summary is classified as a compact artifact, not a user turn', () => {
+  const compact = {
+    id: 'summary',
+    role: 'user',
+    content: 'Generated summary without a legacy prefix.',
+    createdAt: 5_001,
+    meta: {
+      compactSummary: {
+        messagesSummarized: 4,
+        recentMessagesPreserved: false
+      }
+    }
+  }
+  const ordinary = {
+    id: 'user-message',
+    role: 'user',
+    content: 'A normal user message.',
+    createdAt: 5_002
+  }
+
+  assert.equal(isCompactSummaryMessage(compact), true)
+  assert.equal(isCompactSummaryLikeMessage(compact), true)
+  assert.equal(isCompactSummaryLikeMessage(ordinary), false)
 })
 
 test('persisted usage is restored for compression trigger tokens', () => {

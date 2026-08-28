@@ -82,18 +82,6 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         return (long)Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
     }
 
-    private static Task EmitProjectedEventAsync(
-        ResponsesParseState parseState,
-        AgentRuntimeTools.AgentRuntimeRunState state,
-        WorkerRequestContext context,
-        AgentRuntimeStreamEvent streamEvent)
-    {
-        // A transport replay is safe only until the provider has produced something the host
-        // could render or execute. Mark before awaiting because delivery may fail after dispatch.
-        parseState.ProjectedAnyOutput = true;
-        return AgentRuntimeTools.EmitAsync(state, context, streamEvent);
-    }
-
     private sealed class ResponsesParseState
     {
         public StringBuilder AssistantText { get; } = new();
@@ -115,7 +103,6 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         /// </summary>
         public bool ReasoningStreamedLive { get; set; }
         public bool ReceivedAnyMessage { get; set; }
-        public bool ProjectedAnyOutput { get; set; }
         public long? FirstTokenMs { get; set; }
         public int EstimatedOutputTokens { get; set; }
         public AgentRuntimeTokenUsage? Usage { get; set; }

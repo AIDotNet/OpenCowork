@@ -1,8 +1,9 @@
 import { memo, useState, useEffect, useMemo, useRef } from 'react'
-import { useTranslation } from 'react-i18next'
-import { BrainCircuit, ChevronRight, ChevronDown } from 'lucide-react'
+import { ChevronRight, ChevronDown } from 'lucide-react'
 import Markdown from 'react-markdown'
+import { cn } from '@renderer/lib/utils'
 import { MONO_FONT } from '@renderer/lib/constants'
+import { thoughtLabel } from '@renderer/lib/chat/execution-labels'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
   getLiveOutputComponentClass,
@@ -57,7 +58,6 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   startedAt,
   completedAt
 }: ThinkingBlockProps): React.JSX.Element | null {
-  const { t } = useTranslation('chat')
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
   const isThinking = isStreaming && !completedAt
   const liveComponentClassName = isThinking
@@ -107,27 +107,28 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   const expanded = !isThinking && hasThinkingContent && !collapsed
   const elapsedSeconds = Math.max(0, Math.round(elapsedMs / 1000))
   const hasDuration = isThinking || elapsedMs > 0
+  // The execution transcript reads in English in every locale — see `execution-labels`.
   const durationLabel = isThinking
     ? elapsedSeconds > 0
-      ? t('thinking.thinkingFor', { seconds: elapsedSeconds })
-      : t('thinking.thinkingEllipsis')
+      ? thoughtLabel(elapsedSeconds)
+      : '…'
     : hasDuration
-      ? t('thinking.thoughtFor', { seconds: Math.max(1, elapsedSeconds) })
-      : t('thinking.thoughts')
-  const headerLabel = isThinking
-    ? t('thinking.deepThinking', { defaultValue: 'Thinking deeply' })
-    : t('thinking.deepThought', { defaultValue: 'Thought deeply' })
-  const metaDisplay = isThinking
-    ? liveThinkingPreview || durationLabel
-    : hasDuration
-      ? t('thinking.thoughtFor', { seconds: Math.max(1, elapsedSeconds) })
+      ? thoughtLabel(Math.max(1, elapsedSeconds))
       : ''
+  const headerLabel = isThinking ? 'Thinking' : 'Thought'
+  const metaDisplay = isThinking ? liveThinkingPreview || durationLabel : durationLabel
   const headerTitle = liveThinkingPreview
     ? `${liveThinkingPreview} · ${durationLabel}`
     : durationLabel
 
   return (
-    <div className={`my-4 min-w-0${liveComponentClassName ? ` ${liveComponentClassName}` : ''}`}>
+    <div
+      className={cn(
+        'flex min-w-0 flex-col',
+        !expanded && 'execution-process-line',
+        liveComponentClassName
+      )}
+    >
       <button
         type="button"
         onClick={() => {
@@ -136,22 +137,14 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         }}
         title={headerTitle}
         aria-expanded={expanded}
-        className={`group inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-1 text-left text-[13px] text-muted-foreground/70 transition-colors hover:text-foreground${
-          isThinking && liveThinkingPreview ? ' w-full' : ''
-        }`}
+        className={cn(
+          'group flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-transparent px-1.5 py-0 text-left text-[12.5px] leading-snug text-muted-foreground/70 transition-colors hover:bg-transparent hover:text-foreground',
+          isThinking && liveThinkingPreview && 'w-full'
+        )}
       >
         <span
-          className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-violet-600 transition-colors group-hover:border-violet-500/30 group-hover:text-violet-500 dark:border-white/[0.08] dark:bg-white/[0.025] dark:text-violet-400 ${
-            isThinking
-              ? 'shadow-[0_0_0_1px_rgba(139,92,246,0.08)] animate-pulse'
-              : 'shadow-[0_0_0_1px_rgba(139,92,246,0.04)]'
-          }`}
-        >
-          <BrainCircuit className="size-3" />
-        </span>
-        <span
           className={`shrink-0 font-medium ${
-            isThinking ? getLiveOutputShimmerClass(liveOutputAnimationStyle) : ''
+            isThinking ? getLiveOutputShimmerClass(liveOutputAnimationStyle) : 'text-foreground/75'
           }`}
         >
           {headerLabel}
@@ -166,9 +159,9 @@ export const ThinkingBlock = memo(function ThinkingBlock({
           </span>
         ) : null}
         {expanded ? (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
         ) : (
-          <ChevronRight className="size-3 shrink-0 text-muted-foreground/55 transition-colors group-hover:text-foreground" />
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
         )}
       </button>
 

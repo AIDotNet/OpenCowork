@@ -1,10 +1,10 @@
 import * as React from 'react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { ChevronDown, Loader2, Check, X } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
+import { countLabel, filesLabel, matchesLabel } from '@renderer/lib/chat/execution-labels'
 import { inputSummary, summarizeSearchToolOutput } from './tool-call-summary'
 import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
@@ -39,20 +39,18 @@ function groupStatus(items: ToolCallGroupItem[]): ToolCallStatus | 'completed' {
   return 'running'
 }
 
-/** Generate a summary label for the collapsed group header */
-function groupSummaryLabel(
-  toolName: string,
-  items: ToolCallGroupItem[],
-  t: (key: string, opts?: Record<string, unknown>) => string
-): string {
+/**
+ * Summary for the collapsed group header. Like the rest of the execution transcript this
+ * reads in English in every locale — see `execution-labels`.
+ */
+function groupSummaryLabel(toolName: string, items: ToolCallGroupItem[]): string {
   const count = items.length
-  // Collect unique short summaries for display
-  const summaries = items.map((item) => inputSummary(item.name, item.input)).filter(Boolean)
-  const uniqueSummaries = [...new Set(summaries)]
 
   if (toolName === 'Read') {
-    const fileCount = uniqueSummaries.length
-    return t('toolGroup.readFiles', { count: fileCount })
+    const uniqueTargets = new Set(
+      items.map((item) => inputSummary(item.name, item.input)).filter(Boolean)
+    )
+    return `Read ${countLabel(uniqueTargets.size, 'file')}`
   }
   if (toolName === 'Grep' || toolName === 'Glob') {
     const summaries = items
@@ -63,28 +61,16 @@ function groupSummaryLabel(
       const matchCount = summaries.reduce((sum, item) => sum + item.matchCount, 0)
       const fileCount = summaries.reduce((sum, item) => sum + item.fileCount, 0)
       const hasWarnings = summaries.some((item) => item.truncated || item.timedOut || !!item.error)
+      const suffix = hasWarnings ? '+' : ''
       return toolName === 'Grep'
-        ? t('toolGroup.grepResults', {
-            matches: matchCount,
-            files: fileCount,
-            suffix: hasWarnings ? '+' : ''
-          })
-        : t('toolGroup.globResults', { count: matchCount, suffix: hasWarnings ? '+' : '' })
+        ? `${matchesLabel(matchCount, fileCount)}${suffix}`
+        : `${filesLabel(matchCount)}${suffix}`
     }
 
-    return toolName === 'Grep'
-      ? t('toolGroup.searchedPatterns', { count })
-      : t('toolGroup.globbedPatterns', { count })
+    return countLabel(count, 'search', 'searches')
   }
-  if (toolName === 'LS') {
-    return t('toolGroup.listedDirs', { count })
-  }
-  if (COMMAND_TOOL_NAMES.has(toolName)) {
-    return t('toolGroup.ranCommandsTitle', {
-      count,
-      defaultValue: t('toolGroup.ranCommands', { count })
-    })
-  }
+  if (toolName === 'LS') return countLabel(count, 'dir listing')
+  if (COMMAND_TOOL_NAMES.has(toolName)) return `Ran ${countLabel(count, 'command')}`
   return `${toolName} × ${count}`
 }
 
@@ -94,7 +80,6 @@ export function ToolCallGroup({
   children,
   collapsible = true
 }: ToolCallGroupProps): React.JSX.Element {
-  const { t } = useTranslation('chat')
   const status = groupStatus(items)
   const isActive = status === 'running' || status === 'streaming' || status === 'pending_approval'
   // Active tools no longer force the group open; only failures do.
@@ -115,57 +100,41 @@ export function ToolCallGroup({
     previousCollapsibleRef.current = collapsible
   }, [collapsible, shouldForceOpen])
 
-  const summaryLabel = groupSummaryLabel(toolName, items, t)
+  const summaryLabel = groupSummaryLabel(toolName, items)
   const contentVisible = !collapsible || expanded
-  const statusTone =
-    status === 'error'
-      ? 'text-destructive/90'
-      : isActive
-        ? 'text-sky-600 dark:text-sky-300'
-        : 'text-muted-foreground'
+  const statusTone = status === 'error' ? 'text-destructive/85' : 'text-muted-foreground'
 
   return (
-    <div className="my-1.5">
+    <div>
       {collapsible ? (
         <button
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
           className={cn(
-            'group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-all duration-150 hover:bg-muted/45 hover:text-foreground dark:hover:bg-white/[0.04]',
+            'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-0 text-left text-[12.5px] leading-snug transition-colors duration-150 hover:bg-muted/40 dark:hover:bg-white/[0.035]',
             statusTone
           )}
         >
           <span
             className={cn(
-              'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
-              status === 'error' || status === 'canceled'
-                ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
-                : isActive
-                  ? 'border-sky-500/35 bg-sky-500/[0.1] text-sky-600 dark:text-sky-300'
-                  : 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
+              'shrink-0 font-medium tracking-tight',
+              isActive
+                ? 'tool-name-live-pulse tool-name-live-pulse--running'
+                : status === 'error'
+                  ? 'text-destructive/85'
+                  : 'text-foreground/75'
             )}
           >
-            {isActive ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : status === 'error' || status === 'canceled' ? (
-              <X className="size-3 animate-in zoom-in-75 duration-200" />
-            ) : (
-              <Check className="size-3 animate-in zoom-in-75 duration-200" />
-            )}
-          </span>
-          <span className="shrink-0 font-mono text-[12px] font-medium tracking-tight text-foreground/85">
             {toolName}
           </span>
-          <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
+          <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/50">
             ×{items.length}
           </span>
-          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65">
-            ({summaryLabel})
-          </span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/60">{summaryLabel}</span>
           <ChevronDown
             className={cn(
-              'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+              'size-3 shrink-0 text-muted-foreground/35 transition-transform duration-200 group-hover:text-muted-foreground/70',
               !expanded && '-rotate-90'
             )}
           />
@@ -177,7 +146,7 @@ export function ToolCallGroup({
         enabled={collapsible}
         className={
           collapsible
-            ? 'ml-3.5 mt-1 overflow-hidden border-l border-border/50 pl-4.5 dark:border-white/[0.08]'
+            ? 'ml-2 mt-0.5 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]'
             : 'overflow-visible'
         }
       >

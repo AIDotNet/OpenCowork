@@ -1,4 +1,5 @@
 import type { ToolCallState, ToolCallStatus } from '../agent/types'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 
 const TOOL_STATUS_RANK: Record<ToolCallStatus | 'completed', number> = {
   streaming: 0,
@@ -32,7 +33,9 @@ export function mergeLiveToolCallMaps(
 function preferAdvancedToolCall(left: ToolCallState, right: ToolCallState): ToolCallState {
   const leftRank = TOOL_STATUS_RANK[left.status] ?? 0
   const rightRank = TOOL_STATUS_RANK[right.status] ?? 0
-  const advanced = rightRank > leftRank ? right : left
+  const rightSettledResultOverridesCanceled =
+    left.status === 'canceled' && (right.status === 'completed' || right.status === 'error')
+  const advanced = rightSettledResultOverridesCanceled || rightRank > leftRank ? right : left
   const other = advanced === left ? right : left
   return {
     ...other,
@@ -48,12 +51,27 @@ function preferAdvancedToolCall(left: ToolCallState, right: ToolCallState): Tool
 export function resolveLiveToolCallStatus(
   isStreaming: boolean | undefined,
   liveToolCall: ToolCallState | undefined,
-  result: { isError?: boolean } | undefined
+  result: { isError?: boolean } | undefined,
+  runStatus?: RunStatus | null,
+  fallbackStatus?: ToolCallStatus | 'completed'
 ): ToolCallStatus | 'completed' {
   // A persisted tool_result means the call already settled. Overlay/live state can
   // stay stuck on `streaming` after args finish (the projection never left that
   // status), so results must win or every card in a live run shows "receiving args".
   if (result) return result.isError ? 'error' : 'completed'
-  if (liveToolCall?.status) return liveToolCall.status
-  return isStreaming ? 'streaming' : 'canceled'
+
+  const liveStatus = liveToolCall?.status
+  if (liveStatus === 'completed') return 'completed'
+  if (liveStatus === 'error') return 'error'
+
+  // A terminal run is stronger than an active live status. A contradictory canceled
+  // overlay is treated as stale once the run completed or failed; an explicit abort
+  // status still wins when the run ended as canceled/interrupted.
+  if (runStatus === 'cancelled' || runStatus === 'interrupted') return 'canceled'
+  if (runStatus === 'error') return 'error'
+  if (runStatus === 'completed') return 'completed'
+
+  if (liveStatus === 'canceled') return 'canceled'
+  if (liveStatus) return liveStatus
+  return fallbackStatus ?? (isStreaming ? 'streaming' : 'completed')
 }

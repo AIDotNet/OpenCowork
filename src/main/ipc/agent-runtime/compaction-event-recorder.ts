@@ -34,6 +34,7 @@ export function recordCompactionEvents(sessionId: string, events: AgentStreamEve
         id: summaryMessage.id,
         role: summaryMessage.role,
         content: summaryMessage.content,
+        meta: summaryMessage.meta,
         createdAt: summaryMessage.createdAt
       },
       compactedMessageIds: event.compactedMessageIds ?? [],

@@ -1,16 +1,15 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-import { Brain, CircleAlert, FileText, ScrollText, icons } from 'lucide-react'
 
 import {
   decodeStructuredToolResult,
   formatToolErrorForDisplay
 } from '@renderer/lib/tools/tool-result-format'
 import { formatTokens, getBillableTotalTokens } from '@renderer/lib/format-tokens'
+import { countLabel, toolCallsLabel } from '@renderer/lib/chat/execution-labels'
 import { parseSubAgentMeta } from '@renderer/lib/agent/sub-agents/create-tool'
 import { resolveSubAgentPresentation } from '@renderer/lib/agent/sub-agents/presentation'
-import { subAgentRegistry } from '@renderer/lib/agent/sub-agents/registry'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import { useUIStore } from '@renderer/stores/ui-store'
@@ -32,15 +31,6 @@ interface SubAgentCardProps {
   liveStatus?: ToolCallStatus | 'completed'
   sessionId?: string | null
   isBackground?: boolean
-}
-
-function getSubAgentIcon(agentName: string): React.ReactNode {
-  const def = subAgentRegistry.get(agentName)
-  if (def?.icon && def.icon in icons) {
-    const IconComp = icons[def.icon as keyof typeof icons]
-    return <IconComp className="size-3.5" />
-  }
-  return <Brain className="size-3.5" />
 }
 
 function formatElapsed(ms: number): string {
@@ -73,13 +63,11 @@ function extractStructuredError(text: string): string {
 function SubAgentHoverContent({
   displayName,
   descriptionText,
-  promptText,
-  icon
+  promptText
 }: {
   displayName: string
   descriptionText: string
   promptText: string
-  icon: React.ReactNode
 }): React.JSX.Element {
   return (
     <HoverCardContent
@@ -88,21 +76,15 @@ function SubAgentHoverContent({
       className="w-[min(32rem,calc(100vw-3rem))] overflow-hidden border-border/70 bg-popover/98 p-0 text-popover-foreground shadow-xl backdrop-blur"
     >
       <div>
-        <div className="flex items-center gap-2.5 border-b border-border/60 px-3 py-2.5">
-          <div className="flex size-7 items-center justify-center rounded-full border border-border/70 text-foreground/75">
-            {icon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-medium text-foreground/90">{displayName}</div>
-            <div className="mt-0.5 text-[10px] text-muted-foreground">SubAgent</div>
-          </div>
+        <div className="border-b border-border/60 px-3 py-2.5">
+          <div className="truncate text-[13px] font-medium text-foreground/90">{displayName}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">SubAgent</div>
         </div>
 
         {descriptionText ? (
           <section className="space-y-1.5 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/75">
-              <FileText className="size-3" />
-              <span>Description</span>
+            <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/75">
+              Description
             </div>
             <div className="whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground/75">
               {descriptionText}
@@ -112,9 +94,8 @@ function SubAgentHoverContent({
 
         {promptText ? (
           <section className="space-y-1.5 border-t border-border/50 px-3 py-2.5">
-            <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/75">
-              <ScrollText className="size-3" />
-              <span>Prompt</span>
+            <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/75">
+              Prompt
             </div>
             <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-5 text-foreground/75">
               {promptText}
@@ -206,7 +187,7 @@ function SubAgentCardInner({
           error?.trim() ||
           historicalErrorMessage ||
           (liveStatus === 'error' ? histText.trim() : '') ||
-          t('subAgent.failureUnknown', { defaultValue: 'SubAgent execution failed' })
+          'SubAgent execution failed'
       )
     : ''
 
@@ -231,28 +212,28 @@ function SubAgentCardInner({
   const iterationCount = tracked?.iteration ?? histMeta?.iterations ?? 0
   const callCount = tracked?.toolCallCount ?? histMeta?.toolCalls.length ?? 0
   const totalTokens = usage ? formatTokens(getBillableTotalTokens(usage)) : null
+  // The execution transcript reads in English in every locale — see `execution-labels`.
   const statusText = isQueued
-    ? t('subAgent.queued', { defaultValue: 'Queued' })
+    ? 'Queued'
     : isRunning
       ? reportStatus === 'retrying'
-        ? t('subAgent.synthesizing', { defaultValue: 'Synthesizing report…' })
-        : t('subAgent.working')
+        ? 'Synthesizing report…'
+        : 'Running'
       : isError
         ? endReason === 'max_iterations'
-          ? t('subAgent.maxIterations', { defaultValue: 'iteration limit reached' })
+          ? 'Iteration limit reached'
           : endReason === 'aborted'
-            ? t('subAgent.aborted', { defaultValue: 'aborted' })
-            : t('subAgent.failed')
+            ? 'Aborted'
+            : 'Failed'
         : reportStatus === 'fallback'
-          ? t('subAgent.doneSynthesized', { defaultValue: 'Done (synthesized)' })
-          : t('subAgent.done')
+          ? 'Done (synthesized)'
+          : 'Done'
   const previewText = descriptionText || promptText.replace(/\s+/g, ' ').trim() || statusText
-  const icon = getSubAgentIcon(displayName)
   const metaText = [
     statusText,
     elapsed != null ? formatElapsed(elapsed) : '',
-    iterationCount > 0 ? t('subAgent.iter', { count: iterationCount }) : '',
-    callCount > 0 ? t('subAgent.calls', { count: callCount }) : '',
+    iterationCount > 0 ? countLabel(iterationCount, 'iteration') : '',
+    callCount > 0 ? toolCallsLabel(callCount) : '',
     totalTokens ? `${totalTokens} tok` : ''
   ]
     .filter(Boolean)
@@ -275,59 +256,39 @@ function SubAgentCardInner({
         isError && 'bg-destructive/[0.025] hover:bg-destructive/[0.045]'
       )}
     >
-      <span
-        className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded-full border text-muted-foreground transition-colors',
-          isQueued && 'border-amber-500/30 text-amber-600 dark:text-amber-300',
-          isRunning && 'border-sky-500/25 text-sky-600 dark:text-sky-300',
-          isError && 'border-destructive/25 text-destructive',
-          !isQueued &&
-            !isRunning &&
-            !isError &&
-            'border-lime-500/25 text-lime-600 dark:text-lime-400'
-        )}
-        aria-hidden="true"
-      >
-        {icon}
-      </span>
-
-      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-        <span className="shrink-0 font-mono text-[12px] font-medium text-foreground/82">
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span
+          className={cn(
+            'shrink-0 text-[12.5px] font-medium',
+            isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/75'
+          )}
+        >
           {displayName}
         </span>
         {isBackground ? (
-          <span className="hidden shrink-0 rounded-full border border-cyan-500/20 bg-cyan-500/[0.07] px-1.5 py-0.5 text-[9px] font-medium leading-none text-cyan-700 sm:inline-flex dark:text-cyan-300">
-            {t('subAgent.background', { defaultValue: 'Background' })}
+          <span className="hidden shrink-0 text-[11px] text-muted-foreground/45 sm:inline">
+            Background
           </span>
         ) : null}
-        <span className="min-w-0 truncate text-[12px] text-muted-foreground/55">
-          ({previewText})
+        <span className="min-w-0 truncate text-[12.5px] text-muted-foreground/60">
+          {previewText}
         </span>
       </span>
 
-      <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground/65">
-        <span
-          className={cn(
-            'size-1.5 rounded-full',
-            isQueued && 'bg-amber-500',
-            isRunning && 'animate-pulse bg-sky-500 motion-reduce:animate-none',
-            isError && 'bg-destructive',
-            !isQueued && !isRunning && !isError && 'bg-emerald-500'
-          )}
-          aria-hidden="true"
-        />
-        <span className="max-w-28 truncate">{statusText}</span>
+      <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground/50">
+        <span className={cn('max-w-28 truncate', isError && 'text-destructive/85')}>
+          {statusText}
+        </span>
         {elapsed != null ? (
-          <span className="tabular-nums text-muted-foreground/55">{formatElapsed(elapsed)}</span>
+          <span className="tabular-nums text-muted-foreground/40">{formatElapsed(elapsed)}</span>
         ) : null}
       </span>
 
       {errorText ? (
         <span
-          className="flex w-full min-w-0 items-start gap-1.5 pl-7 text-[11px] leading-4 text-destructive/85"
+          className="w-full min-w-0 text-[11px] leading-4 text-destructive/85"
           title={errorText}
         >
-          <CircleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
           <span className="line-clamp-2 break-words">{errorText}</span>
         </span>
       ) : null}
@@ -341,7 +302,6 @@ function SubAgentCardInner({
         displayName={displayName}
         descriptionText={descriptionText}
         promptText={promptText}
-        icon={icon}
       />
     </HoverCard>
   ) : (

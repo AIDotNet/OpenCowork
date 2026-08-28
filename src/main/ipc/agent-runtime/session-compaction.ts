@@ -23,6 +23,7 @@ export type RecordSessionCompactionInput = {
     id: string
     role?: string
     content: unknown
+    meta?: unknown
     createdAt?: number
   }
   compactedMessageIds: string[]
@@ -39,6 +40,17 @@ export type RecordSessionCompactionInput = {
 
 function serializeSummaryContent(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content ?? '')
+}
+
+function serializeSummaryMeta(meta: unknown): string | null {
+  if (meta == null) return null
+  if (typeof meta === 'string') return meta
+  try {
+    const serialized = JSON.stringify(meta)
+    return typeof serialized === 'string' ? serialized : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -107,6 +119,7 @@ export async function recordSessionCompaction(
         id: summaryId,
         role: input.summaryMessage.role || 'user',
         content: serializeSummaryContent(input.summaryMessage.content),
+        meta: serializeSummaryMeta(input.summaryMessage.meta),
         createdAt: input.summaryMessage.createdAt || Date.now()
       },
       compactedMessageIds: input.compactedMessageIds,

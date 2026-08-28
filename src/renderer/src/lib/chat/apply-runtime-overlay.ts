@@ -4,7 +4,8 @@ import type {
   AgentRuntimeProjection,
   RuntimeMessageOverlay,
   RuntimeRunOverlay,
-  RuntimeToolCallOverlay
+  RuntimeToolCallOverlay,
+  RunStatus
 } from '../../../../shared/runtime-contracts/generated/contracts'
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running'])
@@ -22,6 +23,7 @@ export type RuntimeOverlayView = {
   streamingMessageId: string | null
   targetMessageId: string | null
   liveToolCallMap: Map<string, ToolCallState> | null
+  runStatus: RunStatus | null
   isActive: boolean
 }
 
@@ -56,6 +58,7 @@ export function applyRuntimeOverlayToMessages(
       streamingMessageId,
       targetMessageId: streamingMessageId,
       liveToolCallMap,
+      runStatus: run.status,
       isActive
     }
   }
@@ -75,6 +78,7 @@ export function applyRuntimeOverlayToMessages(
       streamingMessageId,
       targetMessageId: targetId,
       liveToolCallMap,
+      runStatus: run.status,
       isActive
     }
   }
@@ -93,6 +97,7 @@ export function applyRuntimeOverlayToMessages(
       streamingMessageId: isActive ? merged.id : streamingMessageId,
       targetMessageId: merged.id,
       liveToolCallMap,
+      runStatus: run.status,
       isActive
     }
   }
@@ -103,6 +108,7 @@ export function applyRuntimeOverlayToMessages(
       streamingMessageId,
       targetMessageId: streamingMessageId,
       liveToolCallMap,
+      runStatus: run.status,
       isActive
     }
   }
@@ -113,6 +119,7 @@ export function applyRuntimeOverlayToMessages(
       streamingMessageId,
       targetMessageId: overlayMessage?.messageId ?? null,
       liveToolCallMap,
+      runStatus: run.status,
       isActive
     }
   }
@@ -123,6 +130,7 @@ export function applyRuntimeOverlayToMessages(
     streamingMessageId: virtual.id,
     targetMessageId: virtual.id,
     liveToolCallMap,
+    runStatus: run.status,
     isActive
   }
 }
@@ -136,6 +144,7 @@ function passthrough(
     streamingMessageId,
     targetMessageId: streamingMessageId,
     liveToolCallMap: null,
+    runStatus: null,
     isActive: false
   }
 }

@@ -1,6 +1,7 @@
 import * as React from 'react'
 import type { ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import type { ToolCallState } from '@renderer/lib/agent/types'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 import { cn } from '@renderer/lib/utils'
 import { MessageItem } from './MessageItem'
 import {
@@ -15,6 +16,7 @@ interface TranscriptMessageListProps {
   revisionKey?: string
   sessionId?: string | null
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
   autoScrollToBottom?: boolean
 }
 
@@ -28,6 +30,7 @@ interface TranscriptMessageRowProps {
   toolResults?: ToolResultsLookup
   sessionId?: string | null
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
 }
 
 function isToolOnlyAssistantMessage(message: UnifiedMessage): boolean {
@@ -54,7 +57,8 @@ const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
   isLastAssistantMessage,
   toolResults,
   sessionId,
-  liveToolCallMap
+  liveToolCallMap,
+  runStatus
 }: TranscriptMessageRowProps): React.JSX.Element {
   const isToolOnly = isToolOnlyAssistantMessage(message)
 
@@ -70,6 +74,7 @@ const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
         disableAnimation
         toolResults={toolResults}
         liveToolCallMap={liveToolCallMap}
+        runStatus={runStatus}
         renderMode="transcript"
       />
     </div>
@@ -83,6 +88,7 @@ function TranscriptMessageListInner({
   revisionKey,
   sessionId = null,
   liveToolCallMap = null,
+  runStatus = null,
   autoScrollToBottom = false
 }: TranscriptMessageListProps): React.JSX.Element {
   const scrollRef = React.useRef<HTMLDivElement>(null)
@@ -135,6 +141,7 @@ function TranscriptMessageListInner({
             toolResults={toolResultsLookup.get(message.id)}
             sessionId={sessionId}
             liveToolCallMap={liveToolCallMap}
+            runStatus={runStatus}
           />
         )
       })}
@@ -153,6 +160,7 @@ function areTranscriptMessageListPropsEqual(
     prev.revisionKey === next.revisionKey &&
     prev.sessionId === next.sessionId &&
     prev.liveToolCallMap === next.liveToolCallMap &&
+    prev.runStatus === next.runStatus &&
     prev.autoScrollToBottom === next.autoScrollToBottom
   )
 }

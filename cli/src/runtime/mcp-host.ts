@@ -58,7 +58,13 @@ export interface CliMcpServerState {
 }
 
 const CONNECT_TIMEOUT_MS = 30_000
-const CALL_TIMEOUT_MS = 120_000
+const CALL_TIMEOUT_MS = resolveMcpCallTimeoutMs()
+
+function resolveMcpCallTimeoutMs(): number {
+  const raw = process.env.OPEN_COWORK_MCP_CALL_TIMEOUT_MS?.trim()
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 120_000
+}
 
 export function mcpToolWireName(serverId: string, toolName: string): string {
   return `${MCP_TOOL_PREFIX}${serverId}__${toolName}`
@@ -300,8 +306,12 @@ class CliMcpServerConnection {
       throw new Error(`MCP server "${this.config.name}" is not connected`)
     }
     return await withTimeout(
-      this.client.callTool({ name: toolName, arguments: args }),
-      CALL_TIMEOUT_MS,
+      this.client.callTool(
+        { name: toolName, arguments: args },
+        undefined,
+        { timeout: CALL_TIMEOUT_MS }
+      ),
+      CALL_TIMEOUT_MS + 5_000,
       `MCP tool ${toolName} on "${this.config.name}"`
     )
   }
@@ -311,8 +321,8 @@ class CliMcpServerConnection {
       throw new Error(`MCP server "${this.config.name}" is not connected`)
     }
     return await withTimeout(
-      this.client.readResource({ uri }),
-      CALL_TIMEOUT_MS,
+      this.client.readResource({ uri }, { timeout: CALL_TIMEOUT_MS }),
+      CALL_TIMEOUT_MS + 5_000,
       `MCP resource ${uri} on "${this.config.name}"`
     )
   }

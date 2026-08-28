@@ -1,9 +1,9 @@
-﻿import * as React from 'react'
+import * as React from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Loader2 } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import type { ContentBlock, ToolResultContent, UnifiedMessage } from '@renderer/lib/api/types'
 import {
@@ -38,6 +38,7 @@ import {
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { DB_MESSAGES_LIST_LOCATOR_MSGPACK_CHANNEL } from '../../../../shared/messagepack/binary-ipc'
 import { isRunScopedAssistantMessageId } from '../../../../shared/runtime-projection/reducer'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 import { applyRuntimeOverlayToMessages } from '@renderer/lib/chat/apply-runtime-overlay'
 import { useSessionRuntimeProjection } from '@renderer/lib/chat/use-session-runtime-projection'
 
@@ -59,6 +60,7 @@ type MessageListRow = { type: 'message'; key: string; data: RenderableMessage }
 
 type AutoScrollMode = 'off' | 'user' | 'stream'
 type MessageWindowPhase = 'loading' | 'positioning' | 'ready' | 'error'
+type OlderLoadIntent = 'history' | 'fill'
 
 interface AskUserQuestionPresence {
   assistantMessageId: string
@@ -227,6 +229,7 @@ interface MessageRowProps {
   highlightMessageId?: string | null
   requestRetryState?: RequestRetryState | null
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
   renderMode?: 'default' | 'transcript' | 'static'
   showChangeSummary?: boolean
   fullWidth?: boolean
@@ -551,6 +554,7 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
     prev.highlightMessageId === next.highlightMessageId &&
     prev.renderMode === next.renderMode &&
     prev.liveToolCallMap === next.liveToolCallMap &&
+    prev.runStatus === next.runStatus &&
     prev.showChangeSummary === next.showChangeSummary &&
     areRequestRetryStatesEqual(prev.requestRetryState, next.requestRetryState) &&
     prev.onRetry === next.onRetry &&
@@ -564,10 +568,7 @@ function getDistanceToBottom(ref: HTMLDivElement): number {
   return Math.max(0, ref.scrollHeight - ref.scrollTop - ref.clientHeight)
 }
 
-function measureRenderedTurnHeight(
-  list: HTMLElement,
-  lastUserMessageId: string
-): number | null {
+function measureRenderedTurnHeight(list: HTMLElement, lastUserMessageId: string): number | null {
   const userEl = list.querySelector<HTMLElement>(
     `[data-message-id="${CSS.escape(lastUserMessageId)}"]`
   )
@@ -696,7 +697,8 @@ const EMPTY_INLINE_COMPACT_SUMMARY_STATE: InlineCompactSummaryState = {
  */
 function useInlineCompactSummaryState(
   messages: readonly UnifiedMessage[],
-  compactSummary: SessionCompactSummary | null | undefined
+  compactSummary: SessionCompactSummary | null | undefined,
+  streamingMessageId: string | null = null
 ): InlineCompactSummaryState {
   const recordedSummaryId = compactSummary?.messageId ?? null
   // Sessions compacted before the cut was recorded only know their summary from
@@ -710,9 +712,21 @@ function useInlineCompactSummaryState(
     () => (summaryId ? (messages.find((message) => message.id === summaryId) ?? null) : null),
     [messages, summaryId]
   )
+  const liveAnchorId = React.useMemo(() => {
+    if (!summaryId || !streamingMessageId) return null
+    const assistantIndex = messages.findIndex(
+      (message) => message.id === streamingMessageId && message.role === 'assistant'
+    )
+    const summaryIndex = messages.findIndex((message) => message.id === summaryId)
+    // A summary persisted after the assistant that is still streaming is the
+    // current run's compaction artifact. This fallback heals a missed/stale cut
+    // lookup without moving an older summary into an unrelated later turn.
+    return assistantIndex >= 0 && summaryIndex > assistantIndex ? streamingMessageId : null
+  }, [messages, streamingMessageId, summaryId])
   const recordedAnchorId =
     summary?.meta?.compactSummary?.displayAnchor?.assistantMessageId ??
-    (recordedSummaryId ? (compactSummary?.anchorAssistantMessageId ?? null) : null)
+    (recordedSummaryId ? (compactSummary?.anchorAssistantMessageId ?? null) : null) ??
+    liveAnchorId
   const anchorId = React.useMemo(() => {
     if (!recordedAnchorId) return null
     // Cuts recorded before the host translated the Worker's run handle into a
@@ -737,12 +751,23 @@ function useInlineCompactSummaryState(
   }, [messages, recordedAnchorId, summaryId])
 
   return React.useMemo(() => {
-    if (!summary || !anchorId) return EMPTY_INLINE_COMPACT_SUMMARY_STATE
+    if (!summary || !recordedAnchorId) return EMPTY_INLINE_COMPACT_SUMMARY_STATE
+    const summaryIds = new Set([summary.id])
+    // A tail-persisted summary must never fall back to its storage position once
+    // it has a real transcript anchor. If that assistant row is outside the
+    // resident window, hide the divider until the row is loaded rather than let
+    // newer streaming output appear above a false "compression happened here".
+    if (!anchorId) {
+      return {
+        byAssistantId: new Map(),
+        summaryIds
+      }
+    }
     return {
       byAssistantId: new Map([[anchorId, [summary]]]),
-      summaryIds: new Set([summary.id])
+      summaryIds
     }
-  }, [anchorId, summary])
+  }, [anchorId, recordedAnchorId, summary])
 }
 
 function shouldShowAssistantRailMarker(
@@ -1163,6 +1188,7 @@ const MessageRow = React.memo(function MessageRow({
   highlightMessageId,
   requestRetryState,
   liveToolCallMap,
+  runStatus,
   renderMode,
   showChangeSummary = true,
   fullWidth = false,
@@ -1207,6 +1233,7 @@ const MessageRow = React.memo(function MessageRow({
         hiddenToolUseIds={hiddenToolUseIds}
         requestRetryState={requestRetryState}
         liveToolCallMap={liveToolCallMap}
+        runStatus={runStatus}
       />
       {showChangeSummary && message.role === 'assistant' && !isStreaming && sessionId ? (
         <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-300">
@@ -1339,6 +1366,7 @@ export function StaticMessageTranscript({
               highlightMessageId={null}
               renderMode="transcript"
               requestRetryState={null}
+              runStatus={null}
               showChangeSummary={false}
             />
           )
@@ -1408,6 +1436,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
             streamingMessageId: storeStreamingMessageId,
             targetMessageId: storeStreamingMessageId,
             liveToolCallMap: null,
+            runStatus: null,
             isActive: false
           },
     [overlayEnabled, storeMessages, runtimeProjection, storeStreamingMessageId, activeSessionId]
@@ -1416,6 +1445,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const streamingMessageId = overlayView.streamingMessageId
   const overlayLiveToolCallMap = overlayView.liveToolCallMap
   const overlayTargetMessageId = overlayView.targetMessageId
+  const overlayRunStatus = overlayView.runStatus
   const isMainChatSession =
     !sessionId && Boolean(activeSessionId) && activeSessionId === currentActiveSessionId
   const isDetachedSessionView = Boolean(sessionId && activeSessionId)
@@ -1528,6 +1558,13 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   const [isLoadingNewerMessages, setIsLoadingNewerMessages] = React.useState(false)
   const [loadingMessageContentId, setLoadingMessageContentId] = React.useState<string | null>(null)
   const hydratingMessageIdsRef = React.useRef(new Set<string>())
+  const isLoadingOlderMessagesRef = React.useRef(false)
+  const suppressBottomFollowRef = React.useRef(false)
+  const loadedRangeStartRef = React.useRef(loadedRangeStart)
+  loadedRangeStartRef.current = loadedRangeStart
+  const loadOlderMessagesRef = React.useRef<(intent?: OlderLoadIntent) => Promise<number>>(
+    async () => 0
+  )
   const [messageWindowPhase, setMessageWindowPhase] = React.useState<MessageWindowPhase>(
     activeSessionId ? 'loading' : 'ready'
   )
@@ -1585,7 +1622,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       ),
     [continueAssistantMessageId, streamingMessageId, transcriptAnalysis]
   )
-  const inlineCompactSummaryState = useInlineCompactSummaryState(messages, compactSummary)
+  const inlineCompactSummaryState = useInlineCompactSummaryState(
+    messages,
+    compactSummary,
+    streamingMessageId
+  )
   const assistantChangeTargets = React.useMemo(
     () =>
       messages
@@ -1734,6 +1775,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }, [lastUserMessageId, rows])
 
   const canAutoScroll = React.useCallback(() => {
+    if (suppressBottomFollowRef.current) return false
     const mode = autoScrollModeRef.current
     return (
       mode === 'user' || (mode === 'stream' && canSessionTriggerStreamingAutoScroll && isAtBottom)
@@ -1826,6 +1868,9 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       !activeSessionLoaded ||
       activeSessionMessageCount > 0 ||
       loadedRangeStart > 0)
+  const isInitialMessageWindowLoading =
+    Boolean(activeSessionId) &&
+    (messageWindowPhase === 'loading' || messageWindowPhase === 'positioning')
 
   const lastMessageRowIndex = rows.length - 1
 
@@ -1962,118 +2007,141 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     })
   }, [syncActiveAssistantRail])
 
-  const loadOlderMessages = React.useCallback(async (): Promise<number> => {
-    if (
-      !activeSessionId ||
-      messageWindowPhase !== 'ready' ||
-      isLoadingOlderMessages ||
-      !hasOlder ||
-      loadedRangeStart <= 0
-    ) {
-      return 0
-    }
+  const loadOlderMessages = React.useCallback(
+    async (intent: OlderLoadIntent = 'history'): Promise<number> => {
+      if (
+        !activeSessionId ||
+        messageWindowPhase !== 'ready' ||
+        isLoadingOlderMessagesRef.current ||
+        !hasOlder ||
+        loadedRangeStart <= 0
+      ) {
+        return 0
+      }
 
-    const ref = listRef.current
-    const previousScrollHeight = ref?.scrollHeight ?? 0
-    const previousScrollTop = ref?.scrollTop ?? 0
-    const wasFollowingBottom =
-      autoScrollModeRef.current !== 'off' &&
-      Boolean(ref && getDistanceToBottom(ref) <= AUTO_SCROLL_BOTTOM_THRESHOLD)
-    let anchorMessageId: string | null = null
-    let anchorOffset = 0
-    if (ref) {
-      const refRect = ref.getBoundingClientRect()
-      const visible = Array.from(ref.querySelectorAll<HTMLElement>('[data-message-id]')).find(
-        (element) => {
-          const rect = element.getBoundingClientRect()
-          return rect.bottom > refRect.top && rect.top < refRect.bottom
+      const ref = listRef.current
+      const previousScrollHeight = ref?.scrollHeight ?? 0
+      const previousScrollTop = ref?.scrollTop ?? 0
+      const viewingHistory = intent === 'history'
+      // A short window can be at the top and the bottom at once. Clicking
+      // "load earlier" is a request to read history, not to keep pinning the tail.
+      const keepFollowingBottom =
+        !viewingHistory &&
+        autoScrollModeRef.current !== 'off' &&
+        Boolean(ref && getDistanceToBottom(ref) <= AUTO_SCROLL_BOTTOM_THRESHOLD)
+      let anchorMessageId: string | null = null
+      let anchorOffset = 0
+      if (ref) {
+        const refRect = ref.getBoundingClientRect()
+        const visible = Array.from(ref.querySelectorAll<HTMLElement>('[data-message-id]')).find(
+          (element) => {
+            const rect = element.getBoundingClientRect()
+            return rect.bottom > refRect.top && rect.top < refRect.bottom
+          }
+        )
+        if (visible?.dataset.messageId) {
+          anchorMessageId = visible.dataset.messageId
+          anchorOffset = visible.getBoundingClientRect().top - refRect.top
         }
-      )
-      if (visible?.dataset.messageId) {
-        anchorMessageId = visible.dataset.messageId
-        anchorOffset = visible.getBoundingClientRect().top - refRect.top
       }
-    }
 
-    const startBefore = loadedRangeStart
-    const loadStartedAt = window.performance.now()
-    autoScrollModeRef.current = 'off'
-    setIsLoadingOlderMessages(true)
-    try {
-      const loaded = await useChatStore.getState().loadOlderSessionMessages(activeSessionId)
-      // loadOlderSessionMessages reports the rows it read from the DB, but a
-      // running session's tail-trim can splice those same rows straight back off
-      // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
-      // window didn't actually grow older" as a stall so callers stop retrying.
-      const startAfter =
-        useChatStore.getState().sessions.find((s) => s.id === activeSessionId)?.loadedRangeStart ??
-        startBefore
-      if (loaded <= 0 || startAfter >= startBefore) {
-        stalledOlderLoadStartRef.current = startBefore
-        return loaded > 0 ? loaded : 0
+      const startBefore = loadedRangeStart
+      const loadStartedAt = window.performance.now()
+      isLoadingOlderMessagesRef.current = true
+      if (viewingHistory) {
+        suppressBottomFollowRef.current = true
+        autoScrollModeRef.current = 'off'
+        setIsAtBottom(false)
       }
-      stalledOlderLoadStartRef.current = null
+      setIsLoadingOlderMessages(true)
+      try {
+        const loaded = await useChatStore.getState().loadOlderSessionMessages(activeSessionId)
+        // loadOlderSessionMessages reports the rows it read from the DB, but a
+        // running session's tail-trim can splice those same rows straight back off
+        // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
+        // window didn't actually grow older" as a stall so callers stop retrying.
+        const startAfter =
+          useChatStore.getState().sessions.find((s) => s.id === activeSessionId)?.loadedRangeStart ??
+          startBefore
+        if (loaded <= 0 || startAfter >= startBefore) {
+          stalledOlderLoadStartRef.current = startBefore
+          return loaded > 0 ? loaded : 0
+        }
+        stalledOlderLoadStartRef.current = null
 
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => resolve())
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => resolve())
+          })
         })
-      })
 
-      const nextRef = listRef.current
-      if (nextRef) {
-        let restored = false
-        if (anchorMessageId) {
-          const anchorElement = Array.from(
-            nextRef.querySelectorAll<HTMLElement>('[data-message-id]')
-          ).find((element) => element.dataset.messageId === anchorMessageId)
-          if (anchorElement) {
-            const nextOffset =
-              anchorElement.getBoundingClientRect().top - nextRef.getBoundingClientRect().top
-            const delta = nextOffset - anchorOffset
-            if (Math.abs(delta) > BOTTOM_SCROLL_CORRECTION_EPSILON) {
-              markProgrammaticScroll()
-              nextRef.scrollTop = Math.max(0, nextRef.scrollTop + delta)
+        const nextRef = listRef.current
+        if (nextRef) {
+          let restored = false
+          if (anchorMessageId) {
+            const anchorElement = Array.from(
+              nextRef.querySelectorAll<HTMLElement>('[data-message-id]')
+            ).find((element) => element.dataset.messageId === anchorMessageId)
+            if (anchorElement) {
+              const nextOffset =
+                anchorElement.getBoundingClientRect().top - nextRef.getBoundingClientRect().top
+              const delta = nextOffset - anchorOffset
+              if (Math.abs(delta) > BOTTOM_SCROLL_CORRECTION_EPSILON) {
+                markProgrammaticScroll()
+                nextRef.scrollTop = Math.max(0, nextRef.scrollTop + delta)
+              }
+              restored = true
             }
-            restored = true
+          }
+          const scrollDelta = nextRef.scrollHeight - previousScrollHeight
+          if (!restored && scrollDelta !== 0) {
+            markProgrammaticScroll()
+            nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+          }
+          if (keepFollowingBottom) {
+            autoScrollModeRef.current = 'user'
+            setIsAtBottom(true)
+            markProgrammaticScroll()
+            nextRef.scrollTop = Math.max(0, nextRef.scrollHeight - nextRef.clientHeight)
           }
         }
-        const scrollDelta = nextRef.scrollHeight - previousScrollHeight
-        if (!restored && scrollDelta !== 0) {
-          markProgrammaticScroll()
-          nextRef.scrollTop = Math.max(0, previousScrollTop + scrollDelta)
+        syncBottomState()
+        requestAssistantRailSync()
+        if (import.meta.env.DEV) {
+          console.debug('[MessageList] older load settled', {
+            sessionId: activeSessionId,
+            elapsedMs: Math.max(0, window.performance.now() - loadStartedAt),
+            loaded,
+            loadedRangeStart: startAfter
+          })
         }
-        if (wasFollowingBottom) {
-          autoScrollModeRef.current = 'user'
-          setIsAtBottom(true)
-          markProgrammaticScroll()
-          nextRef.scrollTop = Math.max(0, nextRef.scrollHeight - nextRef.clientHeight)
+        return loaded
+      } finally {
+        isLoadingOlderMessagesRef.current = false
+        setIsLoadingOlderMessages(false)
+        if (viewingHistory) {
+          const sessionAtLoad = activeSessionId
+          window.requestAnimationFrame(() => {
+            if (renderedSessionIdRef.current !== sessionAtLoad) return
+            if (isLoadingOlderMessagesRef.current) return
+            suppressBottomFollowRef.current = false
+          })
+        } else {
+          suppressBottomFollowRef.current = false
         }
       }
-      syncBottomState()
-      requestAssistantRailSync()
-      if (import.meta.env.DEV) {
-        console.debug('[MessageList] older load settled', {
-          sessionId: activeSessionId,
-          elapsedMs: Math.max(0, window.performance.now() - loadStartedAt),
-          loaded,
-          loadedRangeStart: startAfter
-        })
-      }
-      return loaded
-    } finally {
-      setIsLoadingOlderMessages(false)
-    }
-  }, [
-    activeSessionId,
-    hasOlder,
-    isLoadingOlderMessages,
-    loadedRangeStart,
-    markProgrammaticScroll,
-    messageWindowPhase,
-    requestAssistantRailSync,
-    syncBottomState
-  ])
+    },
+    [
+      activeSessionId,
+      hasOlder,
+      loadedRangeStart,
+      markProgrammaticScroll,
+      messageWindowPhase,
+      requestAssistantRailSync,
+      syncBottomState
+    ]
+  )
+  loadOlderMessagesRef.current = loadOlderMessages
 
   const loadNewerMessages = React.useCallback(async (): Promise<number> => {
     if (!activeSessionId || messageWindowPhase !== 'ready' || isLoadingNewerMessages || !hasNewer) {
@@ -2195,16 +2263,15 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     if (
       ref &&
       messageWindowPhase === 'ready' &&
-      !isLoadingOlderMessages &&
+      !isLoadingOlderMessagesRef.current &&
       hasOlder &&
       loadedRangeStart > 0 &&
       stalledOlderLoadStartRef.current !== loadedRangeStart &&
       ref.scrollTop <= OLDER_MESSAGE_LOAD_SCROLL_THRESHOLD
     ) {
-      void loadOlderMessages()
+      void loadOlderMessages('history')
     }
   }, [
-    isLoadingOlderMessages,
     isLoadingNewerMessages,
     loadNewerMessages,
     loadOlderMessages,
@@ -2296,6 +2363,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     programmaticScrollUntilRef.current = 0
     measuredMessageHeightsRef.current.clear()
     stalledOlderLoadStartRef.current = null
+    suppressBottomFollowRef.current = false
+    isLoadingOlderMessagesRef.current = false
     lastPinnedUserMessageIdRef.current = undefined
     setTurnSpacerHeight(0)
     setAssistantRailMeasureVersion((version) => version + 1)
@@ -2377,8 +2446,17 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
 
     if (lastUserMessageId === lastPinnedUserMessageIdRef.current) return
 
+    const previousId = lastPinnedUserMessageIdRef.current
     lastPinnedUserMessageIdRef.current = lastUserMessageId
     if (!lastUserMessageId) return
+    if (suppressBottomFollowRef.current) return
+
+    // Loading earlier history can evict the previous tail user message from the
+    // resident window. That is not a new send — do not yank the viewport to the
+    // (now different) tail.
+    if (previousId && !messageLookup.has(previousId)) {
+      return
+    }
 
     autoScrollModeRef.current = isSessionOutputting ? 'stream' : 'user'
     setIsAtBottom(true)
@@ -2388,13 +2466,14 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   }, [
     isSessionOutputting,
     lastUserMessageId,
+    messageLookup,
     messageWindowPhase,
     requestScrollToBottom,
     scrollToBottomImmediate,
     syncTurnSpacer
   ])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const viewport = listRef.current
     const content = virtualContentRef.current
     if (!activeSessionId || !viewport || !content) return
@@ -2415,11 +2494,20 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         syncTurnSpacer()
         scrollToBottomImmediate()
         const settledAtBottom = getDistanceToBottom(viewport) <= BOTTOM_SCROLL_CORRECTION_EPSILON
-        if (
-          (initialPositionStableFramesRef.current >= WINDOW_STABLE_FRAME_COUNT &&
-            settledAtBottom) ||
-          initialPositionFrameCountRef.current >= 120
-        ) {
+        const reachedStablePosition =
+          initialPositionStableFramesRef.current >= WINDOW_STABLE_FRAME_COUNT && settledAtBottom
+        const reachedFrameLimit = initialPositionFrameCountRef.current >= 120
+        if (reachedFrameLimit && !settledAtBottom) {
+          scrollToBottomImmediate()
+          frame = window.requestAnimationFrame(settleInitialPosition)
+          return
+        }
+        if (reachedStablePosition || reachedFrameLimit) {
+          scrollToBottomImmediate()
+          if (getDistanceToBottom(viewport) > BOTTOM_SCROLL_CORRECTION_EPSILON) {
+            frame = window.requestAnimationFrame(settleInitialPosition)
+            return
+          }
           pendingInitialScrollSessionIdRef.current = null
           setMessageWindowPhase('ready')
           const startedAt = initialPositionStartedAtRef.current
@@ -2507,6 +2595,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     return () => observer.disconnect()
   }, [activeSessionId, messageWindowPhase, messages])
 
+  // Reconnecting whenever loadedRangeStart changes immediately re-fires the
+  // sentinel and would keep paging. The callback reads live refs instead.
   React.useEffect(() => {
     const viewport = listRef.current
     const sentinel = topSentinelRef.current
@@ -2525,22 +2615,15 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return
-        if (isLoadingOlderMessages) return
-        if (stalledOlderLoadStartRef.current === loadedRangeStart) return
-        void loadOlderMessages()
+        if (isLoadingOlderMessagesRef.current) return
+        if (stalledOlderLoadStartRef.current === loadedRangeStartRef.current) return
+        void loadOlderMessagesRef.current('history')
       },
       { root: viewport, rootMargin: '160px 0px 0px 0px', threshold: 0 }
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [
-    activeSessionId,
-    hasOlder,
-    isLoadingOlderMessages,
-    loadOlderMessages,
-    loadedRangeStart,
-    messageWindowPhase
-  ])
+  }, [activeSessionId, hasOlder, messageWindowPhase]) // eslint-disable-line react-hooks/exhaustive-deps -- live refs
 
   React.useEffect(() => {
     if (
@@ -2561,7 +2644,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     // undoing the load). Stop hammering — real progress moves loadedRangeStart,
     // which re-arms this guard.
     if (stalledOlderLoadStartRef.current === loadedRangeStart) return
-    void loadOlderMessages()
+    void loadOlderMessages('fill')
   }, [
     activeSessionId,
     isAwaitingInitialMessages,
@@ -2754,6 +2837,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                 requestRetryState={
                   row.isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
                 }
+                runStatus={null}
                 fullWidth={fullWidth}
                 onRetry={onRetry}
                 onContinue={onContinue}
@@ -2775,7 +2859,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         data-message-content
         style={{
           overflowAnchor: 'none',
-          visibility: messageWindowPhase === 'positioning' ? 'hidden' : 'visible'
+          visibility: isInitialMessageWindowLoading ? 'hidden' : 'visible'
         }}
         onScroll={handleListScroll}
       >
@@ -2816,7 +2900,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                       whileHover={animationsEnabled ? { y: -1 } : undefined}
                       whileTap={animationsEnabled ? { scale: 0.98 } : undefined}
                       className="rounded-full border border-border/70 bg-background/92 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:text-foreground disabled:cursor-wait disabled:opacity-70"
-                      onClick={() => void loadOlderMessages()}
+                      onClick={() => void loadOlderMessages('history')}
                       disabled={isLoadingOlderMessages}
                     >
                       {isLoadingOlderMessages
@@ -2857,6 +2941,10 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                       (isStreaming || messageId === overlayTargetMessageId)
                         ? overlayLiveToolCallMap
                         : undefined
+                    const rowRunStatus =
+                      overlayRunStatus && (isStreaming || messageId === overlayTargetMessageId)
+                        ? overlayRunStatus
+                        : null
 
                     return (
                       <>
@@ -2889,6 +2977,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
                             isLastAssistantMessage ? (sessionRequestRetryState ?? null) : null
                           }
                           liveToolCallMap={rowLiveToolCallMap}
+                          runStatus={rowRunStatus}
                           fullWidth={fullWidth}
                           onRetry={onRetry}
                           onContinue={onContinue}
@@ -2948,6 +3037,22 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
           </div>
         ) : null}
       </div>
+
+      {isInitialMessageWindowLoading ? (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-background"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2
+            className={`size-5 text-muted-foreground ${animationsEnabled ? 'animate-spin' : ''}`}
+            aria-hidden="true"
+          />
+          <span className="sr-only">
+            {t('messageList.loading', { defaultValue: 'Loading conversation…' })}
+          </span>
+        </div>
+      ) : null}
 
       <AssistantReplyRail
         key={activeSessionId ?? 'no-session'}

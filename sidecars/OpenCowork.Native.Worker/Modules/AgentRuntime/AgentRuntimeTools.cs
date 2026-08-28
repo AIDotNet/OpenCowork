@@ -354,16 +354,35 @@ internal static class AgentRuntimeTools
     {
         return exception switch
         {
-            AgentRuntimeProviderTransportException transport => transport.Fault.Kind switch
-            {
-                WorkerHttpFaultKind.TlsCertificate or
-                WorkerHttpFaultKind.TlsHandshake => "network_tls",
-                WorkerHttpFaultKind.Proxy => "network_proxy",
-                _ => "network_transport"
-            },
+            AgentRuntimeProviderTransportException transport => ResolveFaultErrorType(transport.Fault),
+            AgentRuntimeProviderStreamTransportException stream => ResolveFaultErrorType(stream.Fault),
             TimeoutException => "network_timeout",
             _ => exception.GetType().Name
         };
+    }
+
+    private static string ResolveFaultErrorType(WorkerHttpFault fault)
+    {
+        return fault.Kind switch
+        {
+            WorkerHttpFaultKind.TlsCertificate or
+            WorkerHttpFaultKind.TlsHandshake => "network_tls",
+            WorkerHttpFaultKind.Proxy => "network_proxy",
+            _ => "network_transport"
+        };
+    }
+
+    /// <summary>
+    /// Emits provider output the host will render or execute. Marks the turn as unsafe to replay
+    /// before dispatching, because delivery can fail after the event has already left.
+    /// </summary>
+    internal static Task EmitProjectedAsync(
+        AgentRuntimeRunState state,
+        WorkerRequestContext context,
+        params AgentRuntimeStreamEvent[] events)
+    {
+        state.MarkProviderOutputProjected();
+        return EmitAsync(state, context, events);
     }
 
     internal static async Task EmitAsync(
@@ -590,6 +609,7 @@ internal static class AgentRuntimeTools
         private long seq;
         private int queuedMessageCount;
         private int stopRequested;
+        private int providerOutputProjected;
         private bool messageQueueClosed;
         private readonly CancellationTokenRegistration externalCancellationRegistration;
 
@@ -637,6 +657,27 @@ internal static class AgentRuntimeTools
         public bool SuppressTransportEvents { get; set; }
 
         public Func<AgentRuntimeStreamEvent[], ValueTask>? EventObserver { get; set; }
+
+        /// <summary>
+        /// True once the current provider turn has streamed something the host can render or
+        /// execute. Replaying the turn after that would duplicate text and tool calls, because
+        /// the renderer appends deltas and cannot discard a partial message.
+        /// </summary>
+        public bool ProviderOutputProjected => Volatile.Read(ref providerOutputProjected) != 0;
+
+        public void MarkProviderOutputProjected()
+        {
+            Volatile.Write(ref providerOutputProjected, 1);
+        }
+
+        /// <summary>
+        /// Clears the projection mark at the start of a provider turn attempt. Only the retry
+        /// policy calls this: it owns replay, so it owns the window the mark describes.
+        /// </summary>
+        public void ResetProviderOutputProjection()
+        {
+            Volatile.Write(ref providerOutputProjected, 0);
+        }
 
         public void ReplaceParameters(JsonElement parameters)
         {

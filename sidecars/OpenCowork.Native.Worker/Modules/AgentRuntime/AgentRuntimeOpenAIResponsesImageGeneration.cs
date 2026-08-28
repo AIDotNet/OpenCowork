@@ -16,8 +16,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             return;
         }
         parseState.ImageGenerationStarted = true;
-        await EmitProjectedEventAsync(
-            parseState,
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent("image_generation_started"));
@@ -41,8 +40,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         var outputFormat = JsonHelpers.GetString(item, "output_format") ??
             GetConfiguredImageOutputFormat(state.Parameters);
         var imageBlock = AgentRuntimeProviderSupport.CreateImageBlockElement(rawImage, outputFormat);
-        await EmitProjectedEventAsync(
-            parseState,
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -75,8 +73,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             MarkFirstToken(parseState, startedAt);
             emittedImage = true;
             parseState.ImageGenerationStarted = false;
-            await EmitProjectedEventAsync(
-                parseState,
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -101,8 +98,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 parseState.EmittedImageOutputItemIds.Add(itemId);
             }
             parseState.ImageGenerationStarted = false;
-            await EmitProjectedEventAsync(
-                parseState,
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -124,8 +120,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         }
         MarkFirstToken(parseState, startedAt);
         parseState.ImageGenerationStarted = false;
-        await EmitProjectedEventAsync(
-            parseState,
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(

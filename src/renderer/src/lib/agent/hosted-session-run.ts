@@ -3,6 +3,14 @@ import type {
   StartRunResult
 } from '../../../../shared/runtime-contracts/generated/contracts'
 
+export function resolveHostedTriggerMessageId(...ids: Array<string | null | undefined>): string {
+  for (const id of ids) {
+    const trimmed = id?.trim()
+    if (trimmed) return trimmed
+  }
+  return ''
+}
+
 export function shouldUseHostedSessionRun(args: {
   source?: string
   isPlanMode: boolean

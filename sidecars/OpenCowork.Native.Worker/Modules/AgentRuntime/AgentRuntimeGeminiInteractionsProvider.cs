@@ -88,6 +88,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             reader,
             provider,
             "Gemini Interactions",
+            url,
             state.CancellationToken)) is not null)
         {
             if (line.Length == 0)
@@ -501,7 +502,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         {
             parseState.ReasoningStreamed = true;
             parseState.EstimatedOutputTokens += EstimateTokens(text);
-            await AgentRuntimeTools.EmitAsync(
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent("thinking_delta", Thinking: text));
@@ -510,7 +511,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
 
         parseState.AssistantText.Append(text);
         parseState.EstimatedOutputTokens += EstimateTokens(text);
-        await AgentRuntimeTools.EmitAsync(
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent("text_delta", Text: text));
@@ -530,7 +531,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
         }
 
         parseState.FirstTokenMs ??= ElapsedMs(startedAt);
-        await AgentRuntimeTools.EmitAsync(
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -552,7 +553,7 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             return;
         }
 
-        _ = AgentRuntimeTools.EmitAsync(
+        _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -692,14 +693,14 @@ internal static class AgentRuntimeGeminiInteractionsProvider
             RawArguments: rawArguments,
             ParseError: parseError));
 
-        await AgentRuntimeTools.EmitAsync(
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
                 "tool_use_streaming_start",
                 ToolCallId: callId,
                 ToolName: name));
-        await AgentRuntimeTools.EmitAsync(
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(

@@ -1,12 +1,5 @@
 import * as React from 'react'
-import {
-  ChevronDown,
-  ChevronUp,
-  CircleDotDashed,
-  CircleSlash,
-  ListChecks,
-  Loader2
-} from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import { cn } from '@renderer/lib/utils'
@@ -46,40 +39,24 @@ function teamTaskToItem(task: TeamTask): TaskItem {
   }
 }
 
+/** Task state reads as a plain dot — filled when done, ringed while it still needs work. */
 function StatusDot({ status }: { status: TaskItem['status'] }): React.JSX.Element {
-  switch (status) {
-    case 'completed':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2.5 rounded-full bg-green-500" />
-        </span>
-      )
-    case 'in_progress':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <Loader2 className="size-3.5 animate-spin text-blue-500" />
-        </span>
-      )
-    case 'blocked':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <CircleSlash className="size-3.5 text-amber-500" />
-        </span>
-      )
-    case 'in_review':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <CircleDotDashed className="size-3.5 text-violet-500" />
-        </span>
-      )
-    case 'pending':
-    default:
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2.5 rounded-full border border-muted-foreground/30" />
-        </span>
-      )
-  }
+  const marker =
+    status === 'completed'
+      ? 'bg-muted-foreground/70'
+      : status === 'in_progress'
+        ? 'animate-pulse bg-foreground/70'
+        : status === 'blocked'
+          ? 'border border-amber-500/70'
+          : status === 'in_review'
+            ? 'border border-muted-foreground/60'
+            : 'border border-muted-foreground/30'
+
+  return (
+    <span className="relative flex size-3.5 shrink-0 items-center justify-center">
+      <span className={cn('size-2 rounded-full', marker)} />
+    </span>
+  )
 }
 
 function getTaskPrimaryText(task: TaskItem): string {
@@ -308,9 +285,8 @@ export function TaskCard({
 
   return (
     <div className={cn(embedded ? 'min-w-0 space-y-0.5' : 'my-5 min-w-0')}>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ListChecks className="size-3.5 shrink-0" />
-        <span>{t('todo.tasksDone', { completed, total })}</span>
+      <div className="px-1.5 text-[12.5px] text-muted-foreground/70">
+        {t('todo.tasksDone', { completed, total })}
       </div>
 
       <div className="mt-1.5 space-y-0.5 pl-1">
@@ -430,9 +406,8 @@ export function TodoStatusList({
 
   return (
     <div className={cn(embedded ? 'min-w-0 space-y-0.5' : 'my-5 min-w-0', className)}>
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ListChecks className="size-3.5 shrink-0" />
-        <span>{t('todo.tasksDone', { completed, total })}</span>
+      <div className="px-1.5 text-[12.5px] text-muted-foreground/70">
+        {t('todo.tasksDone', { completed, total })}
       </div>
 
       <div className="mt-1.5 space-y-0.5 pl-1">

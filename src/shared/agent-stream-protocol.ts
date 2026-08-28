@@ -414,6 +414,7 @@ export interface SubAgentResultWire {
   success: boolean
   output: string
   reportSubmitted?: boolean
+  reportStatus?: 'pending' | 'queued' | 'submitted' | 'retrying' | 'fallback' | 'missing'
   toolCallCount: number
   iterations: number
   endReason?: LoopEndReasonWire

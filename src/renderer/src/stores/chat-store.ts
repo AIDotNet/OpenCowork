@@ -143,6 +143,15 @@ export interface SessionCompactSummary {
   anchorAssistantMessageId?: string | null
 }
 
+function getCompactSummaryStateKey(summary: SessionCompactSummary | null | undefined): string {
+  if (!summary) return 'none'
+  return [
+    summary.messageId,
+    summary.compactedMessageCount,
+    summary.anchorAssistantMessageId ?? ''
+  ].join('\u0000')
+}
+
 export interface Session {
   id: string
   title: string
@@ -1730,13 +1739,12 @@ function resetSessionListCursorForScope(
   // next request start from the head again instead of appending to a stale
   // cursor. In-flight callers are rejected by the generation token maintained
   // by the mutation site.
-  const wasLoaded = page.loaded
   page.generation = getSessionListPageGeneration(scope)
   page.cursor = null
   // Keep the last known hasMore. Forcing true here makes the sidebar advertise
   // "Load more sessions" after every title or timestamp update, even when the
   // latest fetch already reported the list as exhausted.
-  page.loaded = wasLoaded
+  page.loaded = false
   page.loading = false
   page.error = null
 }
@@ -3902,10 +3910,16 @@ export const useChatStore = create<ChatStore>()(
     },
 
     refreshSessionCompactSummary: async (sessionId) => {
+      const startedWith = get().sessions.find((session) => session.id === sessionId)?.compactSummary
+      const startedWithKey = getCompactSummaryStateKey(startedWith)
       const compaction = await readSessionCompaction(sessionId)
       set((state) => {
         const target = state.sessions.find((s) => s.id === sessionId)
         if (!target) return
+        // The read crosses an IPC boundary. A live context_compressed event may
+        // adopt a newer summary while it is in flight; never let this stale
+        // response erase that anchor and send the divider back to the tail.
+        if (getCompactSummaryStateKey(target.compactSummary) !== startedWithKey) return
         const next = compaction
           ? {
               messageId: compaction.summaryMessageId,
@@ -4464,15 +4478,14 @@ export const useChatStore = create<ChatStore>()(
             error: null
           }
           for (const project of projects) {
-            if (!state.sessionListPageState[project.id]) {
-              state.sessionListPageState[project.id] = {
-                cursor: null,
-                hasMore: false,
-                loading: false,
-                loaded: false,
-                generation: getSessionListPageGeneration(project.id),
-                error: null
-              }
+            state.projectSessionLoadState[project.id] = 'idle'
+            state.sessionListPageState[project.id] = {
+              cursor: null,
+              hasMore: false,
+              loading: false,
+              loaded: false,
+              generation: getSessionListPageGeneration(project.id),
+              error: null
             }
           }
           state._loaded = true
@@ -5779,10 +5792,12 @@ export const useChatStore = create<ChatStore>()(
         releaseDormantSessionMemory(state)
       })
       if (!shouldPersist) return
-      if (get().streamingMessages[sessionId]) {
+      if (get().streamingMessages[sessionId] && msg.source !== 'quoted') {
         // Streaming turns can create many tool-result messages in quick bursts.
         // Batch them with the other deferred adds and flush at periodic checkpoints
         // or at stream finalization, instead of upserting on every tool result.
+        // Quoted prompts are the next hosted-session trigger and must land in
+        // SQLite immediately so the following turn can session-send.
         _deferredMessageAdds.push({ sessionId, msg, sortOrder })
         return
       }

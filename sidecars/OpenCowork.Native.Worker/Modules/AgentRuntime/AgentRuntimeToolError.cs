@@ -240,6 +240,7 @@ internal static class AgentRuntimeToolError
         AlreadyExists,
         PathIsDirectory,
         Cancelled,
+        Timeout,
         Generic
     }
 
@@ -250,6 +251,17 @@ internal static class AgentRuntimeToolError
             var path = requestedPath
                 ?? (candidate as FileNotFoundException)?.FileName
                 ?? TryExtractPath(candidate.Message);
+
+            if (candidate is TimeoutException ||
+                (candidate is OperationCanceledException && LooksLikeTimeoutText(candidate.Message)))
+            {
+                return new ClassifiedError(
+                    ToolErrorKind.Timeout,
+                    path,
+                    string.IsNullOrWhiteSpace(candidate.Message)
+                        ? "The tool timed out."
+                        : candidate.Message);
+            }
 
             if (candidate is OperationCanceledException)
             {
@@ -329,6 +341,11 @@ internal static class AgentRuntimeToolError
             return new ClassifiedError(ToolErrorKind.AccessDenied, path, trimmed);
         }
 
+        if (LooksLikeTimeoutText(trimmed))
+        {
+            return new ClassifiedError(ToolErrorKind.Timeout, path, trimmed);
+        }
+
         return new ClassifiedError(ToolErrorKind.Generic, path, trimmed);
     }
 
@@ -398,6 +415,9 @@ internal static class AgentRuntimeToolError
                 ? "Expected a file but found a directory."
                 : $"Expected a file but found a directory: {path}",
             ToolErrorKind.Cancelled => "The tool call was cancelled.",
+            ToolErrorKind.Timeout => string.IsNullOrWhiteSpace(classified.Friendly)
+                ? "The tool timed out."
+                : classified.Friendly,
             _ => string.IsNullOrWhiteSpace(classified.Friendly)
                 ? string.IsNullOrEmpty(toolName)
                     ? "The tool failed."
@@ -428,6 +448,8 @@ internal static class AgentRuntimeToolError
                 $"{quoted} is a directory. Use LS to list it, then Read a file inside it.",
             ToolErrorKind.Cancelled =>
                 "The tool call was cancelled. Do not retry the same call unless the user asks again.",
+            ToolErrorKind.Timeout =>
+                $"{display} Do not retry the same call unchanged. Narrow the query, or fall back to Grep, Glob, and Read. You must still write a final report from the evidence you already have.",
             _ => string.IsNullOrEmpty(toolName)
                 ? display
                 : display.Contains(toolName, StringComparison.Ordinal)
@@ -596,6 +618,19 @@ internal static class AgentRuntimeToolError
             message.Contains("operation not permitted", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("EACCES", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("EPERM", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeTimeoutText(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        return message.Contains("-32001", StringComparison.Ordinal) ||
+            message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("deadline exceeded", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? FirstNonEmpty(params string?[] values)

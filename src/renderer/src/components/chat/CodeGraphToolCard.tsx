@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
 import Markdown from 'react-markdown'
-import { Copy, FileCode2, Loader2, TriangleAlert, Waypoints } from 'lucide-react'
+import { Copy } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
 import {
@@ -10,6 +10,7 @@ import {
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { filesLabel, toolStatusLabel } from '@renderer/lib/chat/execution-labels'
 import { useUIStore } from '@renderer/stores/ui-store'
 import type { CompactToolHeaderModel } from './CompactToolCallHeader'
 import { CompactToolCallHeader } from './CompactToolCallHeader'
@@ -156,55 +157,11 @@ function elapsedLabel(startedAt?: number, completedAt?: number): string | null {
   return `${seconds.toFixed(1)}s`
 }
 
-function statusLabel(
-  status: ToolCallStatus | 'completed',
-  t: (key: string, options?: Record<string, unknown>) => string
-): string | null {
-  if (status === 'streaming') return t('toolCall.receivingArgs')
-  if (status === 'running') return t('toolCall.executing')
-  if (status === 'pending_approval') return t('permission.title')
-  if (status === 'error') return t('error.label')
-  if (status === 'canceled') return t('toolCall.canceled', { defaultValue: 'Canceled' })
-  return null
-}
-
 // Tiny animated node-graph shown while the worker resolves the query.
 function CodeGraphScanIndicator({ label }: { label: string }): React.JSX.Element {
   return (
-    <div className="flex items-center gap-2.5 rounded-md border border-dashed border-sky-500/30 bg-sky-500/[0.03] px-2.5 py-2 text-xs text-muted-foreground">
-      <svg viewBox="0 0 44 24" className="h-5 w-9 shrink-0 text-sky-500/70" aria-hidden="true">
-        <line x1="6" y1="12" x2="22" y2="5" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-        <line x1="6" y1="12" x2="22" y2="19" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-        <line x1="22" y1="5" x2="38" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-        <line x1="22" y1="19" x2="38" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4" />
-        <circle cx="6" cy="12" r="3" fill="currentColor" className="animate-pulse" />
-        <circle
-          cx="22"
-          cy="5"
-          r="2.5"
-          fill="currentColor"
-          className="animate-pulse"
-          style={{ animationDelay: '160ms' }}
-        />
-        <circle
-          cx="22"
-          cy="19"
-          r="2.5"
-          fill="currentColor"
-          className="animate-pulse"
-          style={{ animationDelay: '320ms' }}
-        />
-        <circle
-          cx="38"
-          cy="12"
-          r="3"
-          fill="currentColor"
-          className="animate-pulse"
-          style={{ animationDelay: '480ms' }}
-        />
-      </svg>
+    <div className="rounded-md border border-dashed border-border/60 bg-muted/20 px-2.5 py-2 text-xs text-muted-foreground">
       <span className="tool-name-live-pulse tool-name-live-pulse--running">{label}</span>
-      <Loader2 className="ml-auto size-3.5 animate-spin text-sky-500/70" />
     </div>
   )
 }
@@ -245,8 +202,7 @@ export function CodeGraphToolCard({
     stringValue(input.file) ||
     stringValue(input.path)
   const projectPath = stringValue(input.projectPath) || stringValue(input.workingFolder)
-  const actionKey = toolActionKey(name)
-  const actionLabel = t(`toolCall.codegraph.tools.${actionKey}`, { defaultValue: actionKey })
+  const actionLabel = toolActionKey(name)
 
   // Collapsed by default even while running; users expand manually.
   const [manualOpen, setManualOpen] = useState(false)
@@ -256,33 +212,16 @@ export function CodeGraphToolCard({
 
   const badges: CompactToolHeaderModel['badges'] = []
   if (notIndexed) {
-    badges.push({
-      label: t('toolCall.codegraph.notIndexedBadge', { defaultValue: 'indexing' }),
-      tone: 'amber'
-    })
+    badges.push({ label: 'Indexing', tone: 'amber' })
   } else {
-    if (fileRefs.length > 0) {
-      badges.push({
-        label: t('toolCall.codegraph.filesCount', {
-          count: fileRefs.length,
-          defaultValue: `${fileRefs.length} files`
-        }),
-        tone: 'blue'
-      })
-    }
+    if (fileRefs.length > 0) badges.push({ label: filesLabel(fileRefs.length) })
     if (symbolCount > 0) {
-      badges.push({
-        label: t('toolCall.codegraph.symbolsCount', {
-          count: symbolCount,
-          defaultValue: `${symbolCount} symbols`
-        })
-      })
+      badges.push({ label: `${symbolCount} ${symbolCount === 1 ? 'symbol' : 'symbols'}` })
     }
   }
 
   const model: CompactToolHeaderModel = {
-    icon: <Waypoints className="size-3.5" />,
-    toolLabel: t('toolCall.codegraph.title', { defaultValue: 'CodeGraph' }),
+    toolLabel: 'CodeGraph',
     primary: query || actionLabel,
     secondary: [actionLabel, projectPath ? pathFileName(projectPath) : '']
       .filter(Boolean)
@@ -314,7 +253,7 @@ export function CodeGraphToolCard({
         <CompactToolCallHeader
           model={model}
           status={status}
-          statusLabel={statusLabel(status, t)}
+          statusLabel={toolStatusLabel(status)}
           hasError={hasError}
           errorTitle={displayError}
           elapsed={elapsedLabel(startedAt, completedAt)}
@@ -329,23 +268,16 @@ export function CodeGraphToolCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={CONTENT_TRANSITION}
-            className="ml-3.5 mt-1 border-l border-border/50 pl-4.5 overflow-hidden dark:border-white/[0.08]"
+            className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
           >
-            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
+            <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
               {isRunning ? (
-                <CodeGraphScanIndicator
-                  label={t('toolCall.codegraph.executing', {
-                    defaultValue: 'Querying the code graph...'
-                  })}
-                />
+                <CodeGraphScanIndicator label="Querying the code graph…" />
               ) : null}
 
               {displayError ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
-                  <div className="flex items-start gap-2">
-                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                    <span className="break-words whitespace-pre-wrap">{displayError}</span>
-                  </div>
+                  <span className="break-words whitespace-pre-wrap">{displayError}</span>
                 </div>
               ) : null}
 
@@ -381,7 +313,6 @@ export function CodeGraphToolCard({
                               : 'cursor-default'
                           }`}
                         >
-                          <FileCode2 className="size-3 shrink-0 text-sky-600/80 dark:text-sky-400/80" />
                           <span className="truncate font-mono">{pathFileName(ref.path)}</span>
                           {ref.count > 1 ? (
                             <span className="shrink-0 tabular-nums text-muted-foreground/60">

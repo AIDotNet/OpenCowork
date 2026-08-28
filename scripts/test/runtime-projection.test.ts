@@ -496,6 +496,61 @@ test('a sub-agent lifecycle lands on its own overlay row', () => {
   assert.ok(sub?.completedAt)
 })
 
+test('a synthesized fallback report stays fallback after sub-agent end', () => {
+  const engine = new RuntimeProjectionEngine('epoch-a', 'worker-a', { ids: sequentialIds() })
+  engine.applyStreamEnvelope({
+    runId: 'run-1',
+    sessionId: 'session-1',
+    seq: 1,
+    events: [
+      { type: 'loop_start' },
+      {
+        type: 'sub_agent_start',
+        subAgentName: 'researcher',
+        toolUseId: 'task-1',
+        input: {},
+        promptMessage: { id: 'p', role: 'user', content: 'go', createdAt: 1 }
+      },
+      {
+        type: 'sub_agent_report_update',
+        subAgentName: 'researcher',
+        toolUseId: 'task-1',
+        report: '',
+        status: 'retrying'
+      },
+      {
+        type: 'sub_agent_report_update',
+        subAgentName: 'researcher',
+        toolUseId: 'task-1',
+        report: 'synthesized from transcript',
+        status: 'fallback'
+      },
+      {
+        type: 'sub_agent_end',
+        subAgentName: 'researcher',
+        toolUseId: 'task-1',
+        result: {
+          success: false,
+          output: 'synthesized from transcript',
+          reportSubmitted: true,
+          reportStatus: 'fallback',
+          toolCallCount: 3,
+          iterations: 4,
+          endReason: 'error',
+          usage: { inputTokens: 10, outputTokens: 5 },
+          error: 'Sub-agent finished without a final report.'
+        }
+      }
+    ]
+  })
+
+  const sub = engine.snapshot.subAgents[0]
+  assert.equal(sub?.phase, 'completed')
+  assert.equal(sub?.success, false)
+  assert.equal(sub?.report, 'synthesized from transcript')
+  assert.equal(sub?.reportStatus, 'fallback')
+})
+
 test('a report arriving after a sub-agent finished does not revive it', () => {
   const engine = new RuntimeProjectionEngine('epoch-a', 'worker-a', { ids: sequentialIds() })
   engine.applyStreamEnvelope({

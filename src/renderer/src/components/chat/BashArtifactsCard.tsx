@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next'
-import { FileOutput, FolderOpen } from 'lucide-react'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
 
 interface BashArtifact {
@@ -54,18 +53,16 @@ export function BashArtifactsCard({
               </div>
               <button
                 type="button"
-                className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 onClick={() => void ipcClient.invoke('shell:showItemInFolder', artifact.path)}
               >
-                <FolderOpen className="size-3" />
                 {t('artifacts.reveal', { defaultValue: 'Reveal in Finder' })}
               </button>
               <button
                 type="button"
-                className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                className="rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 onClick={() => void ipcClient.invoke('shell:openPath', artifact.path)}
               >
-                <FileOutput className="size-3" />
                 {t('artifacts.open', { defaultValue: 'Open' })}
               </button>
             </div>

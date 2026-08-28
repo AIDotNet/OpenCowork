@@ -44,3 +44,39 @@ test('mergeLiveToolCallMaps prefers completed store status over overlay streamin
   assert.equal(merged?.get('t1')?.output, 'done')
   assert.equal((merged?.get('t1')?.input as { path?: string }).path, 'a.ts')
 })
+
+test('ended tools without results do not default to canceled', () => {
+  assert.equal(resolveLiveToolCallStatus(false, undefined, undefined), 'completed')
+  assert.equal(
+    resolveLiveToolCallStatus(false, live('t1', 'Read', 'running'), undefined, 'completed'),
+    'completed'
+  )
+})
+
+test('explicit cancellation and terminal run failures remain visible', () => {
+  assert.equal(
+    resolveLiveToolCallStatus(false, live('t1', 'Read', 'canceled'), undefined),
+    'canceled'
+  )
+  assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'cancelled'), 'canceled')
+  assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'interrupted'), 'canceled')
+  assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'error'), 'error')
+})
+
+test('settled store results override a stale overlay cancellation', () => {
+  const canceledOverlay = new Map([['t1', live('t1', 'Read', 'canceled')]])
+  const completedStore = new Map([['t1', live('t1', 'Read', 'completed', { output: 'done' })]])
+  const failedStore = new Map([['t1', live('t1', 'Read', 'error', { error: 'failed' })]])
+
+  assert.equal(
+    mergeLiveToolCallMaps(canceledOverlay, completedStore)?.get('t1')?.status,
+    'completed'
+  )
+  assert.equal(mergeLiveToolCallMaps(canceledOverlay, failedStore)?.get('t1')?.status, 'error')
+  assert.equal(
+    mergeLiveToolCallMaps(canceledOverlay, new Map([['t1', live('t1', 'Read', 'running')]]))?.get(
+      't1'
+    )?.status,
+    'canceled'
+  )
+})

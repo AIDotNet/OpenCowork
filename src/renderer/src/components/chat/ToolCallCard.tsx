@@ -5,41 +5,7 @@ import {
   MARKDOWN_REHYPE_PLUGINS,
   MARKDOWN_REMARK_PLUGINS
 } from '@renderer/lib/preview/viewers/markdown-components'
-import {
-  Waypoints,
-  ChevronDown,
-  CheckCircle2,
-  XCircle,
-  Copy,
-  Check,
-  Square,
-  FileCode,
-  Search,
-  FolderTree,
-  SquareTerminal,
-  Trash2,
-  ListTodo,
-  CalendarClock,
-  Bell,
-  Globe2,
-  MousePointerClick,
-  Keyboard,
-  ScrollText,
-  Camera,
-  Monitor,
-  Box,
-  Database,
-  Target,
-  LogIn,
-  LogOut,
-  HelpCircle,
-  Code2,
-  Folder,
-  File,
-  Clock,
-  Bot,
-  FileText
-} from 'lucide-react'
+import { ChevronDown, Copy, Check, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
@@ -70,7 +36,17 @@ import {
   type CompactToolHeaderModel
 } from './CompactToolCallHeader'
 import { parseExtensionToolResult } from '@renderer/lib/extensions/extension-result'
-import { isMcpTool, parseMcpToolName } from '@renderer/lib/mcp/mcp-tools'
+import { isMcpTool } from '@renderer/lib/mcp/mcp-tools'
+import { toolDisplayName } from '@renderer/lib/chat/tool-display-name'
+import {
+  entriesLabel,
+  filesLabel,
+  linesLabel,
+  matchesLabel,
+  toolStatusLabel
+} from '@renderer/lib/chat/execution-labels'
+
+const RECEIVING_ARGS_LABEL = 'Receiving arguments'
 
 interface ToolCallCardProps {
   toolUseId?: string
@@ -99,43 +75,6 @@ function shallowEqualRecord(prev: Record<string, unknown>, next: Record<string, 
     if (!Object.is(prev[key], next[key])) return false
   }
   return true
-}
-
-function formatMcpToolDisplayName(name: string): string {
-  const parsed = parseMcpToolName(name)
-  const toolName = parsed?.toolName ?? name
-  const label = toolName
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .join(' ')
-  return label ? label.charAt(0).toUpperCase() + label.slice(1) : toolName
-}
-
-function McpToolIcon(): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      className="size-3.5 text-white/90"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M7.2 15.8 10.8 12.2" />
-      <path d="M8.8 17.4 12.4 13.8" />
-      <path d="M10.4 10.8 13.2 8" />
-      <path d="M13.8 14.2 16.6 11.4" />
-      <path d="M9.8 11.2 12.8 14.2 15.2 11.8 12.2 8.8Z" fill="currentColor" stroke="none" />
-      <path
-        d="M7.2 15.8c-.6.6-.6 1.6 0 2.2s1.6.6 2.2 0l.6-.6-2.2-2.2Z"
-        fill="currentColor"
-        stroke="none"
-      />
-    </svg>
-  )
 }
 
 function toolResultContentEqual(
@@ -821,9 +760,8 @@ function ReadOutputBlock({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <FileCode className="size-3.5 text-sky-500 dark:text-sky-400" />
           <span
-            className="cursor-pointer truncate font-mono text-xs font-medium text-sky-600 transition-colors hover:text-sky-700 dark:text-sky-400 dark:hover:text-sky-300"
+            className="cursor-pointer truncate font-mono text-xs font-medium text-foreground/75 transition-colors hover:text-foreground"
             title={t('toolCall.clickToInsert', { path: filePath })}
             onClick={() => {
               const short = filePath.split(/[\\/]/).slice(-2).join('/')
@@ -1356,35 +1294,16 @@ function getSearchVisualState(meta: SearchOutputMeta, matchCount: number): Searc
 }
 
 function SearchStateBadge({ state }: { state: SearchVisualState }): React.JSX.Element {
-  const { t } = useTranslation('chat')
   const config =
     state === 'error'
-      ? {
-          label: t('toolCall.searchState.error'),
-          className: 'border-destructive/30 bg-destructive/10 text-destructive'
-        }
+      ? { label: 'Search failed', className: 'text-destructive/85' }
       : state === 'warning'
-        ? {
-            label: t('toolCall.searchState.warning'),
-            className: 'border-amber-400/30 bg-amber-400/10 text-amber-500'
-          }
+        ? { label: 'Partial', className: 'text-amber-600/90 dark:text-amber-400/80' }
         : state === 'found'
-          ? {
-              label: t('toolCall.searchState.found'),
-              className: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-500'
-            }
-          : {
-              label: t('toolCall.searchState.noMatches'),
-              className: 'border-muted-foreground/20 bg-muted/40 text-muted-foreground'
-            }
+          ? { label: 'Found', className: 'text-muted-foreground/50' }
+          : { label: 'No matches', className: 'text-muted-foreground/50' }
 
-  return (
-    <span
-      className={cn('rounded-full border px-1.5 py-0.5 text-[9px] font-medium', config.className)}
-    >
-      {config.label}
-    </span>
-  )
+  return <span className={cn('shrink-0 text-[11px]', config.className)}>{config.label}</span>
 }
 
 function SearchEmptyState(): React.JSX.Element {
@@ -1577,7 +1496,6 @@ function GrepOutputBlock({
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <Search className="size-3.5 text-amber-500 dark:text-amber-400" />
           <p className="text-[11px] font-medium text-foreground/80">{t('toolCall.grepResults')}</p>
           <SearchStateBadge state={visualState} />
           {engineLabel && (
@@ -1734,7 +1652,6 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-1.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <FolderTree className="size-3.5 text-amber-500 dark:text-amber-400" />
           <p className="text-[11px] font-medium text-foreground/80">
             {t('toolCall.directoryListing')}
           </p>
@@ -1749,18 +1666,14 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
         style={{ fontFamily: MONO_FONT }}
       >
         {dirs.map((e) => (
-          <div
-            key={e.name}
-            className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400"
-          >
-            <Folder className="size-3 shrink-0" />
+          <div key={e.name} className="flex items-center gap-1.5 text-foreground/70">
             <span>{e.name}/</span>
           </div>
         ))}
         {files.map((e) => (
           <div
             key={e.name}
-            className="flex cursor-pointer items-center gap-1.5 text-foreground/75 transition-colors hover:text-sky-600 dark:text-zinc-300 dark:hover:text-sky-300"
+            className="flex cursor-pointer items-center gap-1.5 text-muted-foreground transition-colors hover:text-foreground"
             title={t('toolCall.clickToInsert', { path: e.path || e.name })}
             onClick={() => {
               const short = (e.path || e.name).split(/[\\/]/).slice(-2).join('/')
@@ -1769,7 +1682,6 @@ function LSOutputBlock({ output }: { output: string }): React.JSX.Element {
               )
             }}
           >
-            <File className="size-3 shrink-0 text-muted-foreground/50" />
             <span>{e.name}</span>
           </div>
         ))}
@@ -2025,13 +1937,12 @@ function StructuredInput({
     return (
       <div className="space-y-0.5">
         <div className="flex items-center gap-1.5 text-xs">
-          <FileCode className="size-3 text-blue-400" />
           <span className="font-mono text-[11px] break-all" style={{ fontFamily: MONO_FONT }}>
             {filePath}
           </span>
         </div>
         {(offset || limit) && (
-          <div className="flex items-center gap-2 pl-[18px]">
+          <div className="flex items-center gap-2">
             {offset && (
               <span className="text-[10px] text-muted-foreground/55">offset: {offset}</span>
             )}
@@ -2107,7 +2018,6 @@ function StructuredInput({
     const path = String(input.path ?? '')
     return (
       <div className="flex items-center gap-1.5 text-xs">
-        <Folder className="size-3 text-amber-400" />
         <span className="font-mono text-[11px]" style={{ fontFamily: MONO_FONT }}>
           {path}
         </span>
@@ -2151,16 +2061,15 @@ function StructuredInput({
     return (
       <div className="space-y-0.5">
         <div className="flex items-center gap-1.5 text-xs">
-          <Search className="size-3 text-amber-500 dark:text-amber-400" />
           <span
-            className="font-mono text-[11px] text-amber-600/80 dark:text-amber-400/80"
+            className="font-mono text-[11px] text-foreground/80"
             style={{ fontFamily: MONO_FONT }}
           >
             /{pattern}/
           </span>
         </div>
         {(path || include) && (
-          <div className="flex items-center gap-2 pl-[18px]">
+          <div className="flex items-center gap-2">
             {path && (
               <span
                 className="text-[10px] text-muted-foreground/55 font-mono"
@@ -2222,7 +2131,6 @@ function StructuredInput({
     return (
       <div className="space-y-1">
         <div className="flex items-center gap-1.5 text-xs">
-          <Clock className="size-3 text-blue-400" />
           {schedule?.expr && (
             <span
               className="font-mono text-[11px] text-blue-400/80"
@@ -2267,17 +2175,16 @@ function StructuredInput({
             <span className="text-[9px] text-muted-foreground/55">{schedule.tz}</span>
           )}
         </div>
-        {jobName && <p className="text-xs text-muted-foreground/60 italic pl-[18px]">{jobName}</p>}
+        {jobName && <p className="text-xs text-muted-foreground/60 italic">{jobName}</p>}
         {prompt && (
-          <div className="pl-[18px] flex items-center gap-1.5">
-            <Bot className="size-2.5 text-violet-400" />
-            <span className="text-[10px] text-violet-400/70 truncate max-w-[260px]">
+          <div className="flex items-center gap-1.5">
+            <span className="max-w-[260px] truncate text-[10px] text-muted-foreground/70">
               {prompt.slice(0, 100)}
             </span>
           </div>
         )}
         {agentId && agentId !== 'CronAgent' && (
-          <div className="pl-[18px]">
+          <div>
             <span className="text-[9px] px-1 rounded bg-violet-500/10 text-violet-400">
               agent: {agentId}
             </span>
@@ -2292,8 +2199,10 @@ function StructuredInput({
     const jobId = String(input.jobId ?? '')
     return (
       <div className="flex items-center gap-1.5 text-xs">
-        <Clock className="size-3 text-blue-400/70" />
-        <span className="font-mono text-[11px] text-blue-400/70" style={{ fontFamily: MONO_FONT }}>
+        <span
+          className="font-mono text-[11px] text-muted-foreground/70"
+          style={{ fontFamily: MONO_FONT }}
+        >
           {jobId}
         </span>
         <span className="text-[9px] text-muted-foreground/50">patch</span>
@@ -2306,7 +2215,6 @@ function StructuredInput({
     const jobId = String(input.jobId ?? '')
     return (
       <div className="flex items-center gap-1.5 text-xs">
-        <Clock className="size-3 text-muted-foreground/50" />
         <span
           className="font-mono text-[11px] text-muted-foreground/70"
           style={{ fontFamily: MONO_FONT }}
@@ -2320,7 +2228,6 @@ function StructuredInput({
   if (name === 'CronList') {
     return (
       <div className="flex items-center gap-1.5 text-xs">
-        <Clock className="size-3 text-muted-foreground/50" />
         <span className="text-muted-foreground/60">list all scheduled cron jobs</span>
       </div>
     )
@@ -2351,54 +2258,6 @@ function StructuredInput({
       })}
     </div>
   )
-}
-
-export function ToolStatusDot({
-  status
-}: {
-  status: ToolCallCardProps['status']
-}): React.JSX.Element {
-  switch (status) {
-    case 'completed':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2.5 rounded-full bg-green-500" />
-        </span>
-      )
-    case 'running':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2.5 rounded-full bg-blue-500/30 animate-ping" />
-          <span className="size-2.5 rounded-full bg-blue-500" />
-        </span>
-      )
-    case 'error':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2.5 rounded-full bg-destructive" />
-        </span>
-      )
-    case 'pending_approval':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2.5 rounded-full bg-amber-500/30 animate-ping" />
-          <span className="size-2.5 rounded-full bg-amber-500" />
-        </span>
-      )
-    case 'streaming':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2.5 rounded-full bg-violet-500/30 animate-ping" />
-          <span className="size-2.5 rounded-full bg-violet-500" />
-        </span>
-      )
-    default:
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2.5 rounded-full border border-muted-foreground/30" />
-        </span>
-      )
-  }
 }
 
 const COMMAND_TOOL_NAMES = new Set(['Bash', 'Shell', 'PowerShell'])
@@ -2449,42 +2308,24 @@ const COMPACT_BUILTIN_TOOL_NAMES = new Set([
   'visualize_show_widget'
 ])
 
-function compactStatusLabel(
-  status: ToolCallCardProps['status'],
-  t: (key: string, options?: Record<string, unknown>) => string
-): string | null {
-  if (status === 'streaming') return t('toolCall.receivingArgs')
-  if (status === 'running') return t('toolCall.executing')
-  if (status === 'pending_approval') return t('permission.title')
-  if (status === 'error') return t('error.label')
-  if (status === 'canceled') return t('toolCall.canceled', { defaultValue: 'Canceled' })
-  return null
-}
-
-function lineRangeBadge(
-  input: Record<string, unknown>,
-  t: (key: string, options?: Record<string, unknown>) => string
-): string | null {
+function lineRangeBadge(input: Record<string, unknown>): string | null {
   const rawOffset = input.offset
   const rawLimit = input.limit
   const offset = typeof rawOffset === 'number' && Number.isFinite(rawOffset) ? rawOffset : null
   const limit = typeof rawLimit === 'number' && Number.isFinite(rawLimit) ? rawLimit : null
   if (offset === null) return null
-  if (limit === null || limit <= 0) return t('toolCall.lineRangeFrom', { start: offset })
-  return t('toolCall.lineRange', { start: offset, end: offset + limit - 1 })
+  if (limit === null || limit <= 0) return `L${offset}+`
+  return `L${offset}-${offset + limit - 1}`
 }
 
-function searchScopeText(
-  input: Record<string, unknown>,
-  t: (key: string, options?: Record<string, unknown>) => string
-): string {
+function searchScopeText(input: Record<string, unknown>): string {
   const path = getStringInput(input, ['path'])
   const include = getStringInput(input, ['include'])
   const exclude = getStringInput(input, ['exclude'])
   return [
-    path ? t('toolCall.searchInPath', { path: compactPath(path, 3) }) : null,
-    include ? t('toolCall.includeGlob', { include }) : null,
-    exclude ? t('toolCall.excludeGlob', { exclude }) : null
+    path ? `in ${compactPath(path, 3)}` : null,
+    include ? `include ${include}` : null,
+    exclude ? `exclude ${exclude}` : null
   ]
     .filter((item): item is string => !!item)
     .join(' · ')
@@ -2544,49 +2385,20 @@ function compactToolPathSummary(value: string): {
 }
 
 function genericCompactToolHeaderModel({
-  icon,
   primary,
   secondary,
   displayName
 }: {
-  icon: React.ReactNode
   primary?: string
   secondary?: string
   displayName: string
 }): CompactToolHeaderModel {
   return {
-    icon,
     primary: primary || displayName,
     secondary,
     badges: [],
     title: [primary, secondary].filter(Boolean).join('\n') || displayName
   }
-}
-
-function getBuiltinToolIcon(name: string): React.ReactNode {
-  if (['Write', 'SavePlan'].includes(name)) return <FileCode className="size-3.5" />
-  if (['Edit', 'NotebookEdit'].includes(name)) return <FileCode className="size-3.5" />
-  if (name === 'Delete') return <Trash2 className="size-3.5" />
-  if (name.startsWith('Task')) return <ListTodo className="size-3.5" />
-  if (name.startsWith('Cron')) return <CalendarClock className="size-3.5" />
-  if (name === 'Notify') return <Bell className="size-3.5" />
-  if (name === 'AskUserQuestion') return <HelpCircle className="size-3.5" />
-  if (name === 'visualize_show_widget') return <Code2 className="size-3.5" />
-  if (name === 'WebSearch' || name === 'WebFetch' || name.startsWith('Browser')) {
-    if (name === 'BrowserClick') return <MousePointerClick className="size-3.5" />
-    if (name === 'BrowserType') return <Keyboard className="size-3.5" />
-    if (name === 'BrowserScroll') return <ScrollText className="size-3.5" />
-    if (name === 'BrowserScreenshot') return <Camera className="size-3.5" />
-    if (name === 'BrowserSnapshot') return <Monitor className="size-3.5" />
-    return <Globe2 className="size-3.5" />
-  }
-  if (name === 'Monitor') return <SquareTerminal className="size-3.5" />
-  if (name === 'EnterPlanMode') return <LogIn className="size-3.5" />
-  if (name === 'ExitPlanMode') return <LogOut className="size-3.5" />
-  if (name === 'Skill') return <FileText className="size-3.5" />
-  if (name.endsWith('goal')) return <Target className="size-3.5" />
-  if (name.startsWith('Memory')) return <Database className="size-3.5" />
-  return <Box className="size-3.5" />
 }
 
 function getToolNamespace(name: string): string {
@@ -2610,8 +2422,7 @@ function buildCompactToolHeaderModel({
   output,
   outputText,
   displayName,
-  summary,
-  t
+  summary
 }: {
   name: string
   input: Record<string, unknown>
@@ -2619,25 +2430,25 @@ function buildCompactToolHeaderModel({
   outputText?: string
   displayName: string
   summary?: string | null
-  t: (key: string, options?: Record<string, unknown>) => string
 }): CompactToolHeaderModel {
   if (COMMAND_TOOL_NAMES.has(name)) {
     const command = compactWhitespace(getStringInput(input, ['command', 'command_preview']))
     const description = getStringInput(input, ['description'])
     const stats = bashOutputStats(outputText)
     const badges: CompactToolHeaderBadge[] = []
-    if (stats.exitCode !== null)
-      badges.push({ label: t('toolCall.exitCode', { code: stats.exitCode }) })
-    if (stats.lines !== null) {
-      badges.push({ label: t('toolCall.outputLineCount', { count: stats.lines }), tone: 'blue' })
+    if (stats.exitCode !== null) {
+      badges.push({
+        label: `exit ${stats.exitCode}`,
+        tone: stats.exitCode === 0 ? 'default' : 'red'
+      })
     }
+    if (stats.lines !== null) badges.push({ label: linesLabel(stats.lines) })
     const commandLines = typeof input.command_lines === 'number' ? input.command_lines : null
     if (commandLines !== null && stats.lines === null) {
-      badges.push({ label: t('toolCall.lineCount', { count: commandLines }), tone: 'blue' })
+      badges.push({ label: linesLabel(commandLines) })
     }
     return {
-      icon: <SquareTerminal className="size-3.5" />,
-      primary: command || summary || t('toolCall.receivingArgs'),
+      primary: command || summary || RECEIVING_ARGS_LABEL,
       secondary: description || undefined,
       badges,
       title: command || summary || displayName
@@ -2649,15 +2460,9 @@ function buildCompactToolHeaderModel({
     const query = compactWhitespace(getStringInput(input, ['query', 'symbol', 'file']))
     const projectPath = getStringInput(input, ['projectPath', 'workingFolder'])
     const badges: CompactToolHeaderBadge[] = []
-    if (outputText) {
-      badges.push({
-        label: t('toolCall.outputLineCount', { count: outputText.split('\n').length }),
-        tone: 'blue'
-      })
-    }
+    if (outputText) badges.push({ label: linesLabel(outputText.split('\n').length) })
     return {
-      icon: <Waypoints className="size-3.5" />,
-      primary: query || summary || t('toolCall.receivingArgs'),
+      primary: query || summary || RECEIVING_ARGS_LABEL,
       secondary: projectPath ? pathFileName(projectPath) || projectPath : undefined,
       badges,
       title: [query, projectPath].filter(Boolean).join('\n') || displayName
@@ -2667,15 +2472,13 @@ function buildCompactToolHeaderModel({
   if (name === 'Read') {
     const filePath = getStringInput(input, ['file_path', 'path'])
     const lines = getReadOutputLineCount(outputText)
-    const range = lineRangeBadge(input, t)
+    const range = lineRangeBadge(input)
     const badges: CompactToolHeaderBadge[] = []
-    if (lines !== null)
-      badges.push({ label: t('toolCall.lineCount', { count: lines }), tone: 'blue' })
+    if (lines !== null) badges.push({ label: linesLabel(lines) })
     if (range) badges.push({ label: range })
-    if (hasImageBlocks(output)) badges.push({ label: t('toolCall.imageFile'), tone: 'blue' })
+    if (hasImageBlocks(output)) badges.push({ label: 'Image' })
     return {
-      icon: <FileCode className="size-3.5" />,
-      primary: pathFileName(filePath) || summary || t('toolCall.receivingArgs'),
+      primary: pathFileName(filePath) || summary || RECEIVING_ARGS_LABEL,
       secondary: filePath ? pathParent(filePath) || compactPath(filePath, 2) : undefined,
       badges,
       title: filePath || summary || displayName
@@ -2696,19 +2499,18 @@ function buildCompactToolHeaderModel({
             )
           : null
     const editCount = Array.isArray(input.edits) ? input.edits.length : null
-    if (editCount !== null) badges.push({ label: t('toolCall.pathCount', { count: editCount }) })
-    if (lineTotal !== null) {
-      badges.push({ label: t('toolCall.lineCount', { count: lineTotal }), tone: 'blue' })
+    if (editCount !== null) {
+      badges.push({ label: `${editCount} ${editCount === 1 ? 'edit' : 'edits'}` })
     }
+    if (lineTotal !== null) badges.push({ label: linesLabel(lineTotal) })
     if (
       input.content_truncated === true ||
       input.old_string_truncated === true ||
       input.new_string_truncated === true
     ) {
-      badges.push({ label: t('toolCall.preview'), tone: 'amber' })
+      badges.push({ label: 'Preview', tone: 'amber' })
     }
     return {
-      icon: getBuiltinToolIcon(name),
       primary: pathSummary.primary || summary || displayName,
       secondary: pathSummary.secondary,
       badges,
@@ -2723,20 +2525,16 @@ function buildCompactToolHeaderModel({
     const fileCount = parsed ? new Set(parsed.matches.map((match) => match.file)).size : null
     const badges: CompactToolHeaderBadge[] = []
     if (matchCount !== null && fileCount !== null) {
-      badges.push({
-        label: t('toolCall.matchesInFiles', { matches: matchCount, files: fileCount }),
-        tone: matchCount > 0 ? 'amber' : 'default'
-      })
+      badges.push({ label: matchesLabel(matchCount, fileCount) })
     }
     return {
-      icon: <Search className="size-3.5" />,
-      primary: pattern ? `/${pattern}/` : summary || t('toolCall.receivingArgs'),
-      secondary: searchScopeText(input, t) || undefined,
+      primary: pattern ? `/${pattern}/` : summary || RECEIVING_ARGS_LABEL,
+      secondary: searchScopeText(input) || undefined,
       badges,
       statusBadge: parsed ? (
         <SearchStateBadge state={getSearchVisualState(parsed.meta, parsed.matches.length)} />
       ) : undefined,
-      title: [pattern ? `/${pattern}/` : '', searchScopeText(input, t)].filter(Boolean).join('\n')
+      title: [pattern ? `/${pattern}/` : '', searchScopeText(input)].filter(Boolean).join('\n')
     }
   }
 
@@ -2745,16 +2543,10 @@ function buildCompactToolHeaderModel({
     const path = getStringInput(input, ['path'])
     const parsed = outputText ? parseGlobOutput(outputText) : null
     const badges: CompactToolHeaderBadge[] = []
-    if (parsed) {
-      badges.push({
-        label: t('toolCall.pathCount', { count: parsed.matches.length }),
-        tone: parsed.matches.length > 0 ? 'green' : 'default'
-      })
-    }
+    if (parsed) badges.push({ label: filesLabel(parsed.matches.length) })
     return {
-      icon: <Search className="size-3.5" />,
-      primary: pattern || summary || t('toolCall.receivingArgs'),
-      secondary: path ? t('toolCall.searchInPath', { path: compactPath(path, 3) }) : undefined,
+      primary: pattern || summary || RECEIVING_ARGS_LABEL,
+      secondary: path ? `in ${compactPath(path, 3)}` : undefined,
       badges,
       statusBadge: parsed ? (
         <SearchStateBadge state={getSearchVisualState(parsed.meta, parsed.matches.length)} />
@@ -2769,12 +2561,9 @@ function buildCompactToolHeaderModel({
     const dirs = parsed?.filter((entry) => entry.type === 'directory').length ?? null
     const files = parsed?.filter((entry) => entry.type === 'file').length ?? null
     const badges: CompactToolHeaderBadge[] = []
-    if (dirs !== null && files !== null) {
-      badges.push({ label: t('toolCall.foldersAndFiles', { folders: dirs, files }) })
-    }
+    if (dirs !== null && files !== null) badges.push({ label: entriesLabel(dirs, files) })
     return {
-      icon: <FolderTree className="size-3.5" />,
-      primary: compactPath(path, 3) || summary || t('toolCall.receivingArgs'),
+      primary: compactPath(path, 3) || summary || RECEIVING_ARGS_LABEL,
       secondary: path && compactPath(path, 3) !== path ? path : undefined,
       badges,
       title: path || summary || displayName
@@ -2786,7 +2575,6 @@ function buildCompactToolHeaderModel({
     const taskId = firstStringInput(input, ['taskId', 'task_id', 'id'])
     const taskStatus = firstStringInput(input, ['status', 'state'])
     return genericCompactToolHeaderModel({
-      icon: getBuiltinToolIcon(name),
       primary: taskTitle || (taskId ? `#${taskId}` : summary || displayName),
       secondary: taskStatus || undefined,
       displayName
@@ -2797,7 +2585,6 @@ function buildCompactToolHeaderModel({
     const cronName = firstStringInput(input, ['name', 'title', 'id', 'cronId'])
     const schedule = firstStringInput(input, ['expr', 'cron', 'schedule', 'rrule'])
     return genericCompactToolHeaderModel({
-      icon: getBuiltinToolIcon(name),
       primary: cronName || summary || displayName,
       secondary: schedule || undefined,
       displayName
@@ -2807,9 +2594,10 @@ function buildCompactToolHeaderModel({
   if (name === 'AskUserQuestion') {
     const questions = Array.isArray(input.questions) ? input.questions.length : null
     return {
-      icon: getBuiltinToolIcon(name),
       primary: summary || displayName,
-      secondary: questions ? t('toolCall.pathCount', { count: questions }) : undefined,
+      secondary: questions
+        ? `${questions} ${questions === 1 ? 'question' : 'questions'}`
+        : undefined,
       badges: [],
       title: summary || displayName
     }
@@ -2818,7 +2606,6 @@ function buildCompactToolHeaderModel({
   if (name === 'Skill') {
     const skillName = getSkillNameFromInput(input)
     return {
-      icon: getBuiltinToolIcon(name),
       primary: skillName || summary || displayName,
       badges: [],
       title: skillName || summary || displayName
@@ -2834,10 +2621,8 @@ function buildCompactToolHeaderModel({
           ? input.widget_code.length
           : null
     return {
-      icon: getBuiltinToolIcon(name),
       primary: title || summary || displayName,
-      badges:
-        chars !== null ? [{ label: t('toolCall.charCount', { count: chars }), tone: 'blue' }] : [],
+      badges: chars !== null ? [{ label: `${chars} chars` }] : [],
       title: title || summary || displayName
     }
   }
@@ -2845,7 +2630,6 @@ function buildCompactToolHeaderModel({
   if (name.startsWith('Browser') || name === 'WebFetch' || name === 'WebSearch') {
     const target = firstStringInput(input, ['url', 'query', 'selector', 'text'])
     return genericCompactToolHeaderModel({
-      icon: getBuiltinToolIcon(name),
       primary: target || summary || displayName,
       displayName
     })
@@ -2876,14 +2660,12 @@ function buildCompactToolHeaderModel({
       'reason'
     ])
     return genericCompactToolHeaderModel({
-      icon: getBuiltinToolIcon(name),
       primary: primary || summary || displayName,
       displayName
     })
   }
 
   return {
-    icon: getBuiltinToolIcon(name),
     primary: summary || displayName,
     badges: [],
     title: summary || displayName
@@ -2955,13 +2737,7 @@ function ToolCallCardInner({
     () => inputSummary(name, input, outputText),
     [input, name, outputText]
   )
-  const displayName = React.useMemo(
-    () =>
-      isMcpTool(name)
-        ? formatMcpToolDisplayName(name)
-        : t(`permission.toolLabels.${name}`, { defaultValue: name }),
-    [name, t]
-  )
+  const displayName = React.useMemo(() => toolDisplayName(name), [name])
   const headerSummary = React.useMemo(() => {
     if (name !== 'TaskList') return summary
     if (!outputText) return null
@@ -3003,16 +2779,15 @@ function ToolCallCardInner({
       output,
       outputText,
       displayName,
-      summary,
-      t
+      summary
     })
     return {
       ...model,
       toolLabel: displayName,
       namespace: getToolNamespace(name)
     }
-  }, [displayName, input, name, output, outputText, summary, t])
-  const compactStatus = compactStatusLabel(status, t)
+  }, [displayName, input, name, output, outputText, summary])
+  const compactStatus = toolStatusLabel(status)
   const compactHeaderError = Boolean(displayError) || (status === 'error' && !!outputError)
   const bashHasFocusedOutput =
     shouldRenderOutputPanels &&
@@ -3044,9 +2819,9 @@ function ToolCallCardInner({
   return (
     <div
       className={cn(
-        useCompactToolHeader || isMcpToolCall
-          ? 'my-1 min-w-0 overflow-hidden'
-          : 'my-5 min-w-0 overflow-hidden'
+          useCompactToolHeader || isMcpToolCall
+            ? 'my-0 min-w-0 overflow-hidden'
+            : 'my-5 min-w-0 overflow-hidden'
       )}
     >
       {/* Header — click to toggle */}
@@ -3054,9 +2829,9 @@ function ToolCallCardInner({
         onClick={toggleOpen}
         className={cn(
           useCompactToolHeader
-            ? 'group w-full rounded-lg p-0 text-left transition-colors'
+            ? 'group w-full cursor-pointer rounded-lg bg-transparent p-0 text-left transition-colors hover:bg-transparent'
             : isMcpToolCall
-              ? 'group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-[13px] text-foreground/92 transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]'
+              ? 'group flex w-full cursor-pointer items-center gap-2 rounded-md bg-transparent px-1.5 py-1 text-left text-[13px] text-foreground/92 transition-colors hover:bg-transparent hover:text-foreground'
               : 'flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
         )}
       >
@@ -3072,14 +2847,6 @@ function ToolCallCardInner({
           />
         ) : isMcpToolCall ? (
           <>
-            <span
-              className={cn(
-                'flex size-5 shrink-0 items-center justify-center rounded-full border border-white/18 bg-transparent text-white/90',
-                isProcessing && 'animate-pulse'
-              )}
-            >
-              <McpToolIcon />
-            </span>
             <span className={cn('min-w-0 shrink truncate font-medium', toolNamePulseClass)}>
               {displayName}
             </span>
@@ -3102,7 +2869,6 @@ function ToolCallCardInner({
           </>
         ) : (
           <>
-            <ToolStatusDot status={status} />
             <span className={cn('font-medium', toolNamePulseClass)}>{displayName}</span>
             {isProcessing && !error && (
               <>
@@ -3114,7 +2880,7 @@ function ToolCallCardInner({
                       .slice(-2)
                       .join('/')}
                     {typeof input.content_lines === 'number'
-                      ? ` (${t('toolCall.lineCount', { count: input.content_lines })})`
+                      ? ` (${linesLabel(input.content_lines)})`
                       : ''}
                   </span>
                 ) : name === 'Edit' && (input.file_path || input.path) ? (
@@ -3127,16 +2893,14 @@ function ToolCallCardInner({
                   </span>
                 ) : (
                   <span className={cn('text-[11px]', toolNamePulseClass)}>
-                    {status === 'streaming'
-                      ? t('toolCall.receivingArgs')
-                      : headerSummary || t('toolCall.executing')}
+                    {status === 'streaming' ? RECEIVING_ARGS_LABEL : headerSummary || 'Running'}
                   </span>
                 )}
               </>
             )}
             {error && status === 'streaming' && (
               <span className="text-red-500/80 text-[10px] animate-pulse dark:text-red-400/70">
-                {t('error.label')}
+                Failed
               </span>
             )}
             {status !== 'streaming' && headerSummary && !open && (
@@ -3163,14 +2927,14 @@ function ToolCallCardInner({
         className={cn(
           'min-w-0 overflow-hidden',
           useCompactToolHeader
-            ? 'ml-3.5 mt-1 border-l border-border/50 pl-4.5 dark:border-white/[0.08]'
+            ? 'ml-2 mt-1 border-l border-border/45 pl-3 dark:border-white/[0.07]'
             : 'mt-1.5 pl-5'
         )}
         contentClassName={cn(
           'space-y-2 pb-0.5',
           useCompactToolHeader &&
             !isCommandTool &&
-            'rounded-xl border border-border/60 bg-muted/20 px-3.5 py-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]'
+            'rounded-lg border border-border/50 bg-muted/15 px-3 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.02]'
         )}
       >
         {hideLivePayload ? (
@@ -3247,19 +3011,13 @@ function ToolCallCardInner({
                 return (
                   <div className="flex items-center gap-1.5 text-xs">
                     {success ? (
-                      <>
-                        <CheckCircle2 className="size-3 text-green-500" />
-                        <span className="text-green-500/70">
-                          {t('toolCall.appliedSuccessfully')}
-                        </span>
-                      </>
+                      <span className="text-emerald-600/80 dark:text-emerald-400/80">
+                        {t('toolCall.appliedSuccessfully')}
+                      </span>
                     ) : (
-                      <>
-                        <XCircle className="size-3 text-destructive" />
-                        <span className="text-destructive/70 font-mono truncate">
-                          {s.slice(0, 100)}
-                        </span>
-                      </>
+                      <span className="truncate font-mono text-destructive/80">
+                        {s.slice(0, 100)}
+                      </span>
                     )}
                   </div>
                 )

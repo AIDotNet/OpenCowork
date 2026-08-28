@@ -72,6 +72,8 @@ export interface SubAgentResult {
   output: string
   /** Whether a non-empty final report was captured from the sub-agent's last text output. */
   reportSubmitted?: boolean
+  /** How the report was obtained. `fallback` is a Worker-synthesized transcript summary. */
+  reportStatus?: 'pending' | 'queued' | 'submitted' | 'retrying' | 'fallback' | 'missing'
   /** Number of tool calls executed */
   toolCallCount: number
   /** Number of LLM iterations */

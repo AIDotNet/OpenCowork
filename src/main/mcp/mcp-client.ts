@@ -15,6 +15,15 @@ function buildProcessEnv(): Record<string, string> {
   return base
 }
 
+/** SDK default is 60s; semantic search and similar MCP tools routinely exceed that. */
+export const DEFAULT_MCP_CALL_TIMEOUT_MS = 120_000
+
+export function resolveMcpCallTimeoutMs(): number {
+  const raw = process.env.OPEN_COWORK_MCP_CALL_TIMEOUT_MS?.trim()
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MCP_CALL_TIMEOUT_MS
+}
+
 function isNpmCommand(command: string): boolean {
   const name = basename(command)
     .toLowerCase()
@@ -242,7 +251,11 @@ export class McpClientWrapper {
     if (!this.client || this._status !== 'connected') {
       throw new Error(`MCP server "${this.config.name}" is not connected`)
     }
-    const result = await this.client.callTool({ name: toolName, arguments: args })
+    const result = await this.client.callTool(
+      { name: toolName, arguments: args },
+      undefined,
+      { timeout: resolveMcpCallTimeoutMs() }
+    )
     return result
   }
 
@@ -251,7 +264,10 @@ export class McpClientWrapper {
     if (!this.client || this._status !== 'connected') {
       throw new Error(`MCP server "${this.config.name}" is not connected`)
     }
-    const result = await this.client.readResource({ uri })
+    const result = await this.client.readResource(
+      { uri },
+      { timeout: resolveMcpCallTimeoutMs() }
+    )
     return result
   }
 

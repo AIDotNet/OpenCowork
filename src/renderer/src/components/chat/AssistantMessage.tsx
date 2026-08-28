@@ -21,8 +21,6 @@ import {
   Trash2,
   RotateCcw,
   Play,
-  Loader2,
-  CheckCircle2,
   Ellipsis,
   Eraser,
   Languages,
@@ -89,6 +87,7 @@ import {
   getLiveOutputShimmerClass
 } from '@renderer/lib/live-output-animation'
 import type { RequestRetryState, ToolCallState, ToolCallStatus } from '@renderer/lib/agent/types'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 import {
   DESKTOP_CLICK_TOOL_NAME,
   DESKTOP_SCREENSHOT_TOOL_NAME,
@@ -98,7 +97,11 @@ import {
   IMAGE_GENERATE_TOOL_NAME
 } from '@renderer/lib/app-plugin/types'
 import { isBrowserToolName } from '@renderer/lib/app-plugin/browser-tool-names'
-import { mergeLiveToolCallMaps } from '@renderer/lib/chat/live-tool-call-status'
+import {
+  mergeLiveToolCallMaps,
+  resolveLiveToolCallStatus
+} from '@renderer/lib/chat/live-tool-call-status'
+import { activeToolsLabel, countLabel, toolCallsLabel } from '@renderer/lib/chat/execution-labels'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/components/ui/hover-card'
@@ -146,6 +149,7 @@ interface AssistantMessageProps {
   usage?: TokenUsage
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
   inlineCompactSummaries?: readonly UnifiedMessage[]
   /** Recorded cut, so an inlined summary can label how much it stands for. */
   compactSummary?: SessionCompactSummary | null
@@ -203,21 +207,27 @@ function formatRetryDelay(delayMs: number): string {
 function resolveToolCallStatus(
   isStreaming: boolean | undefined,
   liveToolCall: ToolCallState | undefined,
-  result?: { isError?: boolean }
+  result?: { isError?: boolean },
+  runStatus?: RunStatus | null,
+  fallbackStatus?: ToolCallStatus | 'completed'
 ): ToolCallStatus | 'completed' {
-  if (result) return result.isError ? 'error' : 'completed'
-  if (liveToolCall?.status) return liveToolCall.status
-  return isStreaming ? 'streaming' : 'canceled'
+  return resolveLiveToolCallStatus(isStreaming, liveToolCall, result, runStatus, fallbackStatus)
 }
 
 function resolvePendingToolCallStatus(
   isRunningFallback: boolean | undefined,
   liveToolCall: ToolCallState | undefined,
-  result?: { isError?: boolean; content?: ToolResultContent }
+  result?: { isError?: boolean; content?: ToolResultContent },
+  runStatus?: RunStatus | null,
+  fallbackStatus?: ToolCallStatus | 'completed'
 ): ToolCallStatus | 'completed' {
-  if (result) return result.isError ? 'error' : 'completed'
-  if (liveToolCall?.status) return liveToolCall.status
-  return isRunningFallback ? 'running' : 'canceled'
+  return resolveToolCallStatus(
+    isRunningFallback,
+    liveToolCall,
+    result,
+    runStatus,
+    fallbackStatus ?? (isRunningFallback ? 'running' : undefined)
+  )
 }
 
 function getWidgetRenderCode(input?: Record<string, unknown>): string {
@@ -274,6 +284,7 @@ function buildToolCallRenderState(
     isStreaming?: boolean
     toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
     liveToolCallMap?: Map<string, ToolCallState> | null
+    runStatus?: RunStatus | null
     executionItem?: ToolExecutionItem
   }
 ): ToolCallRenderState {
@@ -281,9 +292,13 @@ function buildToolCallRenderState(
   const liveToolCall = options.liveToolCallMap?.get(block.id)
   const liveInput = liveToolCall?.input
   const effectiveInput = liveInput && Object.keys(liveInput).length > 0 ? liveInput : block.input
-  const status =
-    options.executionItem?.status ??
-    resolveToolCallStatus(options.isStreaming, liveToolCall, result)
+  const status = resolveToolCallStatus(
+    options.isStreaming,
+    liveToolCall,
+    result,
+    options.runStatus,
+    options.executionItem?.status
+  )
   return {
     id: block.id,
     toolUseId: block.id,
@@ -335,7 +350,6 @@ function isWorkspaceCollapsibleTool(name: string): boolean {
 
 function summarizeWorkspaceTools(
   blocks: ContentBlock[] | null,
-  t: (key: string, options?: Record<string, unknown>) => string,
   options: {
     aggregatedChanges?: AggregatedFileChange[]
     toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
@@ -439,51 +453,31 @@ function summarizeWorkspaceTools(
   const deletedCount = deletedPaths.size
   const changedFileCount = createdCount + editedCount + deletedCount
 
-  if (createdCount > 0) {
-    parts.push(t('assistantMessage.createdFiles', { count: createdCount }))
-  }
-  if (editedCount > 0) {
-    parts.push(t('assistantMessage.editedFiles', { count: editedCount }))
-  }
-  if (deletedCount > 0) {
-    parts.push(t('assistantMessage.deletedFiles', { count: deletedCount }))
-  }
+  if (createdCount > 0) parts.push(`Created ${countLabel(createdCount, 'file')}`)
+  if (editedCount > 0) parts.push(`Edited ${countLabel(editedCount, 'file')}`)
+  if (deletedCount > 0) parts.push(`Deleted ${countLabel(deletedCount, 'file')}`)
   if (parts.length === 0 && changedFileCount > 0) {
-    parts.push(t('assistantMessage.changedFiles', { count: changedFileCount }))
+    parts.push(`Changed ${countLabel(changedFileCount, 'file')}`)
   }
 
   const commandCount =
     (counts.get('Bash') ?? 0) + (counts.get('Shell') ?? 0) + (counts.get('PowerShell') ?? 0)
-  if (commandCount > 0) parts.push(t('assistantMessage.ranCommandsInline', { count: commandCount }))
+  if (commandCount > 0) parts.push(`Ran ${countLabel(commandCount, 'command')}`)
 
   const readCount = counts.get('Read') ?? 0
-  if (readCount > 0) {
-    parts.push(t('toolGroup.readActions', { count: readCount, defaultValue: '读取 {{count}} 次' }))
-  }
+  if (readCount > 0) parts.push(`Read ${countLabel(readCount, 'file')}`)
 
   const searchCount = (counts.get('Grep') ?? 0) + (counts.get('Glob') ?? 0)
-  if (searchCount > 0) {
-    parts.push(
-      t('toolGroup.searchActions', { count: searchCount, defaultValue: '搜索 {{count}} 次' })
-    )
-  }
+  if (searchCount > 0) parts.push(countLabel(searchCount, 'search', 'searches'))
 
   const listDirCount = counts.get('LS') ?? 0
-  if (listDirCount > 0) {
-    parts.push(
-      t('toolGroup.listDirActions', { count: listDirCount, defaultValue: '列目录 {{count}} 次' })
-    )
-  }
+  if (listDirCount > 0) parts.push(countLabel(listDirCount, 'dir listing'))
 
   const mcpCallCount = [...counts.entries()].reduce(
     (total, [name, count]) => total + (isMcpTool(name) ? count : 0),
     0
   )
-  if (mcpCallCount > 0) {
-    parts.push(
-      t('toolGroup.mcpCalls', { count: mcpCallCount, defaultValue: '调用 MCP {{count}} 次' })
-    )
-  }
+  if (mcpCallCount > 0) parts.push(countLabel(mcpCallCount, 'MCP call'))
 
   const coveredTools = new Set([
     'Write',
@@ -505,18 +499,10 @@ function summarizeWorkspaceTools(
   parts.push(...fallbackEntries.map(([name, count]) => `${name}${count > 1 ? ` x${count}` : ''}`))
 
   const visibleParts = parts.slice(0, 3)
-  const summary = visibleParts.join(t('assistantMessage.summarySeparator', { defaultValue: ', ' }))
+  const summary = visibleParts.join(', ')
   const hiddenKinds = parts.length - visibleParts.length
 
-  return hiddenKinds > 0
-    ? `${summary}${t('assistantMessage.summarySeparator', { defaultValue: ', ' })}${t(
-        'assistantMessage.moreKinds',
-        {
-          count: hiddenKinds,
-          defaultValue: `+${hiddenKinds}`
-        }
-      )}`
-    : summary
+  return hiddenKinds > 0 ? `${summary}, +${hiddenKinds}` : summary
 }
 
 function stripThinkTagMarkers(text: string): string {
@@ -913,6 +899,9 @@ function ActionIconButton({
   )
 }
 
+/** Consecutive Thought / Explored rows stack like body text; other blocks keep space-y-2. */
+const EXECUTION_STACK_CLASS = 'execution-stack space-y-2'
+
 function GenerationProcessLine({
   active,
   label,
@@ -936,35 +925,32 @@ function GenerationProcessLine({
     <>
       <span
         className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded-full border bg-transparent',
-          active
-            ? 'border-sky-500/25 text-sky-600 dark:text-sky-300'
-            : 'border-lime-500/25 text-lime-600 dark:text-lime-400'
+          'shrink-0 font-medium',
+          active ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/75'
         )}
       >
-        {active ? <Loader2 className="size-3 animate-spin" /> : <CheckCircle2 className="size-3" />}
+        {label}
       </span>
-      <span className="shrink-0 font-mono font-medium text-foreground/82">{label}</span>
       {detail ? (
-        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">({detail})</span>
-      ) : (
-        <span className="min-w-0 flex-1" />
-      )}
+        <span className="min-w-0 truncate text-muted-foreground/60">{detail}</span>
+      ) : null}
       {elapsed ? (
-        <span className="shrink-0 tabular-nums text-muted-foreground/60">{elapsed}</span>
+        <span className="shrink-0 text-[11px] leading-none tabular-nums text-muted-foreground/40">
+          {elapsed}
+        </span>
       ) : null}
       {collapsible ? (
         expanded ? (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
         ) : (
-          <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground" />
+          <ChevronRight className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
         )
       ) : null}
     </>
   )
 
   const className =
-    'group flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[12px] text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground dark:hover:bg-white/[0.035]'
+    'execution-process-line group flex w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0 text-left text-[12.5px] leading-snug text-muted-foreground transition-colors'
 
   if (collapsible) {
     return (
@@ -973,7 +959,7 @@ function GenerationProcessLine({
         onClick={onClick}
         aria-expanded={expanded}
         aria-label={ariaLabel}
-        className={className}
+        className={`${className} cursor-pointer`}
       >
         {content}
       </button>
@@ -1714,6 +1700,7 @@ export function AssistantMessage({
   usage,
   toolResults,
   liveToolCallMap,
+  runStatus,
   inlineCompactSummaries = EMPTY_INLINE_COMPACT_SUMMARIES,
   compactSummary,
   msgId,
@@ -2006,6 +1993,7 @@ export function AssistantMessage({
         isStreaming,
         toolResults,
         liveToolCallMap: effectiveLiveToolCallMap,
+        runStatus,
         boundaryAfterBlockIndices: toolRunBoundaryAfterBlockIndices,
         boundaryAfterToolUseIds: toolRunBoundaryAfterToolUseIds,
         hiddenToolUseIds: outlineHiddenToolUseIds,
@@ -2014,6 +2002,7 @@ export function AssistantMessage({
     [
       effectiveLiveToolCallMap,
       normalizedContent,
+      runStatus,
       isStreaming,
       outlineHiddenToolUseIds,
       t,
@@ -2032,7 +2021,7 @@ export function AssistantMessage({
         .filter((block): block is ContentBlock => !!block)
       summaryById.set(
         run.id,
-        summarizeWorkspaceTools(runBlocks, t, {
+        summarizeWorkspaceTools(runBlocks, {
           toolResults,
           liveToolCallMap: effectiveLiveToolCallMap,
           shouldIncludeTool: (block) => ordinaryIds.has(block.id)
@@ -2043,7 +2032,6 @@ export function AssistantMessage({
   }, [
     effectiveLiveToolCallMap,
     normalizedContent,
-    t,
     toolExecutionOutline.itemByToolUseId,
     toolExecutionOutline.runs,
     toolResults
@@ -2362,7 +2350,7 @@ export function AssistantMessage({
 
       if (!hasThink) {
         return (
-          <div className="space-y-2">
+          <div className={EXECUTION_STACK_CLASS}>
             {isStreaming ? (
               <ModelThinkingIndicator
                 modelName={thinkingModel.modelName}
@@ -2392,7 +2380,7 @@ export function AssistantMessage({
       const showOuterCursor = isStreaming && !(lastSegment?.type === 'think' && !lastSegment.closed)
 
       return (
-        <div className="space-y-2">
+        <div className={EXECUTION_STACK_CLASS}>
           {isStreaming && !hasActiveThink ? (
             <ModelThinkingIndicator
               modelName={thinkingModel.modelName}
@@ -2454,9 +2442,13 @@ export function AssistantMessage({
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
         const shouldUsePendingFallback = isLastAssistantMessage && !result && !liveTc
-        const statusValue = shouldUsePendingFallback
-          ? resolvePendingToolCallStatus(true, liveTc, result)
-          : (executionItem?.status ?? resolvePendingToolCallStatus(isStreaming, liveTc, result))
+        const statusValue = resolvePendingToolCallStatus(
+          shouldUsePendingFallback ? true : isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <AskUserQuestionCard
@@ -2473,9 +2465,13 @@ export function AssistantMessage({
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
         const shouldUsePendingFallback = isLastAssistantMessage && !result && !liveTc
-        const statusValue = shouldUsePendingFallback
-          ? resolvePendingToolCallStatus(true, liveTc, result)
-          : (executionItem?.status ?? resolvePendingToolCallStatus(isStreaming, liveTc, result))
+        const statusValue = resolvePendingToolCallStatus(
+          shouldUsePendingFallback ? true : isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <PlanReviewCard
@@ -2491,8 +2487,13 @@ export function AssistantMessage({
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
         const widgetInput = mergeWidgetToolInput(block.input, liveTc?.input)
-        const statusValue =
-          executionItem?.status ?? resolvePendingToolCallStatus(isStreaming, liveTc, result)
+        const statusValue = resolvePendingToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <WidgetOutputBlock input={widgetInput} status={statusValue} />
@@ -2501,20 +2502,36 @@ export function AssistantMessage({
       }
       if (TEAM_TOOL_NAMES.has(block.name)) {
         const result = toolResults?.get(block.id)
+        const liveTc = effectiveLiveToolCallMap?.get(block.id)
+        const statusValue = resolveToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <FadeIn key={key} className={liveFadeInClassName}>
             <TeamEventCard
               name={block.name}
               input={block.input}
               output={result?.content}
-              status={executionItem?.status}
-              error={executionItem?.error}
+              status={statusValue}
+              error={executionItem?.error ?? liveTc?.error}
             />
           </FadeIn>
         )
       }
       if (block.name === TASK_TOOL_NAME) {
         const result = toolResults?.get(block.id)
+        const liveTc = effectiveLiveToolCallMap?.get(block.id)
+        const statusValue = resolveToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <React.Fragment key={key}>
             {orchestrationRun?.kind === 'team' && blockIndex === orchestrationAnchorIndex ? (
@@ -2527,16 +2544,10 @@ export function AssistantMessage({
                 name={block.name}
                 toolUseId={block.id}
                 input={block.input}
-                output={result?.content ?? effectiveLiveToolCallMap?.get(block.id)?.output}
-                error={
-                  executionItem?.error ??
-                  effectiveLiveToolCallMap?.get(block.id)?.error ??
-                  undefined
-                }
+                output={result?.content ?? liveTc?.output}
+                error={executionItem?.error ?? liveTc?.error}
                 isLive={!!isStreaming}
-                liveStatus={
-                  executionItem?.status ?? effectiveLiveToolCallMap?.get(block.id)?.status
-                }
+                liveStatus={statusValue}
                 sessionId={sessionId}
                 isBackground={block.input.run_in_background === true}
               />
@@ -2547,8 +2558,13 @@ export function AssistantMessage({
       if (['Write', 'Edit', 'Delete'].includes(block.name)) {
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue =
-          executionItem?.status ?? resolveToolCallStatus(isStreaming, liveTc, result)
+        const statusValue = resolveToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <FileChangeCard
@@ -2568,8 +2584,13 @@ export function AssistantMessage({
       if (block.name === IMAGE_GENERATE_TOOL_NAME) {
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue =
-          executionItem?.status ?? resolveToolCallStatus(isStreaming, liveTc, result)
+        const statusValue = resolveToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <ImagePluginToolCard
@@ -2588,6 +2609,7 @@ export function AssistantMessage({
           isStreaming,
           toolResults,
           liveToolCallMap: effectiveLiveToolCallMap,
+          runStatus,
           executionItem
         })
         return (
@@ -2608,6 +2630,7 @@ export function AssistantMessage({
           isStreaming,
           toolResults,
           liveToolCallMap: effectiveLiveToolCallMap,
+          runStatus,
           executionItem
         })
         return (
@@ -2634,8 +2657,13 @@ export function AssistantMessage({
       ) {
         const result = toolResults?.get(block.id)
         const liveTc = effectiveLiveToolCallMap?.get(block.id)
-        const statusValue =
-          executionItem?.status ?? resolveToolCallStatus(isStreaming, liveTc, result)
+        const statusValue = resolveToolCallStatus(
+          isStreaming,
+          liveTc,
+          result,
+          runStatus,
+          executionItem?.status
+        )
         return (
           <ScaleIn key={key} className={liveScaleInClassName}>
             <DesktopActionToolCard
@@ -2654,6 +2682,7 @@ export function AssistantMessage({
           isStreaming,
           toolResults,
           liveToolCallMap: effectiveLiveToolCallMap,
+          runStatus,
           executionItem
         })
         return (
@@ -2677,6 +2706,7 @@ export function AssistantMessage({
           isStreaming,
           toolResults,
           liveToolCallMap: effectiveLiveToolCallMap,
+          runStatus,
           executionItem
         })
         const bashArtifacts = decodeBashArtifacts(toolCallState.output)
@@ -2708,6 +2738,7 @@ export function AssistantMessage({
         isStreaming,
         toolResults,
         liveToolCallMap: effectiveLiveToolCallMap,
+        runStatus,
         executionItem
       })
       return (
@@ -2736,9 +2767,9 @@ export function AssistantMessage({
         run.activeSummary ||
         toolRunSummaryById.get(run.id) ||
         (run.activeCount > 0
-          ? t('assistantMessage.activeTools', { count: run.activeCount })
+          ? activeToolsLabel(run.activeCount)
           : run.ordinaryItemCount > 0
-            ? t('assistantMessage.toolExecutions', { count: run.ordinaryItemCount })
+            ? toolCallsLabel(run.ordinaryItemCount)
             : null)
 
       const renderedTools = run.itemIds
@@ -2758,11 +2789,17 @@ export function AssistantMessage({
       if (!run.showToggle && renderedTools.length === 0) return null
 
       return (
-        <React.Fragment key={run.id}>
+        <div
+          key={run.id}
+          className={cn(
+            'flex min-w-0 flex-col',
+            run.showToggle && collapsed && 'execution-process-line'
+          )}
+        >
           {run.showToggle ? (
             <GenerationProcessLine
               active={run.activeCount > 0}
-              label={t('assistantMessage.processTools')}
+              label="Explored"
               detail={detail}
               collapsible={run.showToggle}
               expanded={!collapsed}
@@ -2776,7 +2813,7 @@ export function AssistantMessage({
           ) : (
             renderedTools
           )}
-        </React.Fragment>
+        </div>
       )
     }
 
@@ -2951,9 +2988,6 @@ export function AssistantMessage({
       return renderToolRun(item.runId)
     }
 
-    const processHeaderLabel = t('assistantMessage.processSummary', {
-      defaultValue: 'Processed'
-    })
     const processElapsed =
       typeof usage?.totalDurationMs === 'number' && usage.totalDurationMs > 0
         ? formatDurationMs(usage.totalDurationMs)
@@ -2961,7 +2995,7 @@ export function AssistantMessage({
     const processToolCount = toolExecutionOutline.totalItemCount
 
     return (
-      <div className="space-y-2">
+      <div className={EXECUTION_STACK_CLASS}>
         {orchestrationRun?.kind === 'team' && orchestrationAnchorIndex < 0 ? (
           <OrchestrationBlock run={orchestrationRun} />
         ) : null}
@@ -2970,12 +3004,8 @@ export function AssistantMessage({
             {processSection.summaries.map(renderRenderItem)}
             <GenerationProcessLine
               active={false}
-              label={processHeaderLabel}
-              detail={
-                processToolCount > 0
-                  ? t('assistantMessage.toolExecutions', { count: processToolCount })
-                  : null
-              }
+              label="Worked"
+              detail={processToolCount > 0 ? toolCallsLabel(processToolCount) : null}
               elapsed={processElapsed}
               collapsible
               expanded={processExpanded}
@@ -2987,7 +3017,9 @@ export function AssistantMessage({
               onClick={toggleProcessExpanded}
             />
             <CollapsibleHeightPanel open={processExpanded} className="overflow-hidden">
-              <div className="space-y-2">{processSection.intermediate.map(renderRenderItem)}</div>
+              <div className={EXECUTION_STACK_CLASS}>
+                {processSection.intermediate.map(renderRenderItem)}
+              </div>
             </CollapsibleHeightPanel>
             {renderRenderItem(processSection.finalItem)}
           </>

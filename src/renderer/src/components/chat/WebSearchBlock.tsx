@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronRight, Globe, Loader2 } from 'lucide-react'
-import { Badge } from '@renderer/components/ui/badge'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { cn } from '@renderer/lib/utils'
+import { countLabel } from '@renderer/lib/chat/execution-labels'
 import type { WebSearchBlock as WebSearchBlockData } from '@renderer/lib/api/types'
 
 /** Best-effort host label for a web search source link (falls back to the raw URL). */
@@ -23,7 +23,6 @@ function formatWebSearchHost(url?: string): string {
  * shared card + Badge design system (semantic tokens only).
  */
 export function WebSearchBlock({ block }: { block: WebSearchBlockData }): React.JSX.Element {
-  const { t } = useTranslation('chat')
   const [expanded, setExpanded] = useState(false)
   const isSearching = block.status === 'searching'
   const sources = (block.sources ?? []).filter((s) => !!s.url)
@@ -35,36 +34,35 @@ export function WebSearchBlock({ block }: { block: WebSearchBlockData }): React.
     .filter(Boolean)
 
   return (
-    <div className="my-1 max-w-full rounded-lg border border-border/55 bg-background/55 px-3 py-2.5 text-xs dark:border-white/[0.08] dark:bg-[#0d0d0e]">
+    <div className="my-1 max-w-full px-1.5 py-1 text-xs">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        {isSearching ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-        ) : (
-          <Globe className="size-3.5 shrink-0 text-primary" />
-        )}
-        <span className="shrink-0 font-medium text-foreground">
-          {isSearching ? t('webSearch.searching') : t('webSearch.label')}
+        <span
+          className={cn(
+            'shrink-0 text-[12.5px] font-medium',
+            isSearching
+              ? 'tool-name-live-pulse tool-name-live-pulse--running'
+              : 'text-foreground/75'
+          )}
+        >
+          {isSearching ? 'Searching web' : 'Searched web'}
         </span>
         {queries.map((query, i) => (
-          <Badge
+          <span
             key={`${query}-${i}`}
-            variant="outline"
-            className="max-w-[240px] gap-1 font-normal text-muted-foreground"
+            className="max-w-[240px] truncate text-[12.5px] text-muted-foreground/60"
             title={query}
           >
-            <span className="min-w-0 truncate">{query}</span>
-          </Badge>
+            {query}
+          </span>
         ))}
         {sources.length > 0 && (
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/55 transition-colors hover:bg-muted/40 hover:text-foreground"
           >
-            <span>
-              {t('webSearch.sources')} ({sources.length})
-            </span>
+            <span>{countLabel(sources.length, 'source')}</span>
             {expanded ? (
               <ChevronDown className="size-3.5" />
             ) : (
@@ -74,26 +72,18 @@ export function WebSearchBlock({ block }: { block: WebSearchBlockData }): React.
         )}
       </div>
       {expanded && sources.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="ml-2 mt-1.5 flex flex-col gap-1 border-l border-border/45 pl-3 dark:border-white/[0.07]">
           {sources.map((source, i) => (
-            <Badge
+            <a
               key={`${source.url}-${i}`}
-              variant="outline"
-              asChild
-              className="max-w-[220px] gap-1 font-normal text-primary"
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              title={source.title || source.url}
+              className="max-w-full truncate text-[12px] text-muted-foreground/70 transition-colors hover:text-foreground"
             >
-              <a
-                href={source.url}
-                target="_blank"
-                rel="noreferrer"
-                title={source.title || source.url}
-              >
-                <Globe className="shrink-0 opacity-70" />
-                <span className="min-w-0 truncate">
-                  {source.title || formatWebSearchHost(source.url)}
-                </span>
-              </a>
-            </Badge>
+              {source.title || formatWebSearchHost(source.url)}
+            </a>
           ))}
         </div>
       )}

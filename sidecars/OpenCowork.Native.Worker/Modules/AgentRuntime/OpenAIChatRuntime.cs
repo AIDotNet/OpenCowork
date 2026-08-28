@@ -85,6 +85,7 @@ internal static class OpenAIChatRuntime
         var completed = false;
         var fullCompressionApplied = false;
         var runtimePlanModeContextInjected = wireConversation.Any(MessageHasPlanModeContext);
+        var iterationsSinceTaskTool = 0;
         // Error-driven compression guards: a provider "context window exceeded" rejection
         // triggers at most MaxOverflowCompressionAttemptsPerRun compressions per run, and an
         // overflow that recurs immediately after a successful compression is surfaced instead
@@ -298,6 +299,21 @@ internal static class OpenAIChatRuntime
                 wireConversation.Add(planModeWireMessage);
                 uncompressedWireConversation?.Add(planModeWireMessage.Clone());
                 runtimePlanModeContextInjected = true;
+            }
+            iterationsSinceTaskTool = turn.ToolCalls.Any(call => AgentRuntimeTaskExecutor.IsTaskTool(call.Name))
+                ? 0
+                : iterationsSinceTaskTool + 1;
+            if (iterationsSinceTaskTool >= AgentRuntimeTaskExecutor.ReminderDriftIterations)
+            {
+                iterationsSinceTaskTool = 0;
+                var driftReminder = AgentRuntimeTaskExecutor.BuildDriftReminder(parameters);
+                if (driftReminder is not null)
+                {
+                    conversation.Add(new AgentRuntimeChatMessage("user", driftReminder, [], []));
+                    var driftWireMessage = CreateUserTextWireMessage(driftReminder);
+                    wireConversation.Add(driftWireMessage);
+                    uncompressedWireConversation?.Add(driftWireMessage.Clone());
+                }
             }
             // Checkpoint the hosted session now that the batch is fully answered, so a
             // crash before loop end cannot roll the history back past these tool calls.
@@ -886,6 +902,7 @@ internal static class OpenAIChatRuntime
             reader,
             provider,
             "OpenAI-compatible chat",
+            url,
             state.CancellationToken)) is not null)
         {
             if (state.CancellationToken.IsCancellationRequested)
@@ -1048,7 +1065,7 @@ internal static class OpenAIChatRuntime
                 markFirstTokenMs(ElapsedMs(startedAt));
                 markReasoningStreamed();
                 addEstimatedOutputTokens(EstimateTokenCount(reasoning));
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent("thinking_delta", Thinking: reasoning));
@@ -1060,7 +1077,7 @@ internal static class OpenAIChatRuntime
                 markFirstTokenMs(ElapsedMs(startedAt));
                 addEstimatedOutputTokens(EstimateTokenCount(text));
                 assistantText.Append(text);
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent("text_delta", Text: text));
@@ -1142,7 +1159,7 @@ internal static class OpenAIChatRuntime
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
                 markReasoningStreamed();
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent("thinking_delta", Thinking: reasoning));
@@ -1154,7 +1171,7 @@ internal static class OpenAIChatRuntime
                 markFirstTokenMs(ElapsedMs(startedAt));
                 addEstimatedOutputTokens(EstimateTokenCount(text));
                 assistantText.Append(text);
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent("text_delta", Text: text));
@@ -1218,7 +1235,7 @@ internal static class OpenAIChatRuntime
         if (!buffer.Started && !string.IsNullOrEmpty(buffer.Id) && !string.IsNullOrEmpty(buffer.Name))
         {
             buffer.Started = true;
-            await AgentRuntimeTools.EmitAsync(
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -1233,7 +1250,7 @@ internal static class OpenAIChatRuntime
                 buffer.ArgumentStream,
                 out var partialInput))
         {
-            await AgentRuntimeTools.EmitAsync(
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -3020,6 +3037,12 @@ internal static class OpenAIChatRuntime
         }
 
         AppendRequestContextTexts(result, parameters);
+
+        var taskReminder = AgentRuntimeTaskExecutor.BuildTurnReminder(parameters);
+        if (!string.IsNullOrWhiteSpace(taskReminder))
+        {
+            result.Add(taskReminder);
+        }
 
         var slashCommandText = BuildSlashCommandText(parameters, userMessage);
         if (!string.IsNullOrWhiteSpace(slashCommandText))

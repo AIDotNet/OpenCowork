@@ -1,19 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
-import {
-  ChevronDown,
-  Keyboard,
-  Loader2,
-  Monitor,
-  MousePointerClick,
-  MoveVertical,
-  Clock3,
-  TriangleAlert
-} from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { toolTitleFromName } from '@renderer/lib/chat/tool-display-name'
 import { cn } from '@renderer/lib/utils'
 import { ImagePreview } from './ImagePreview'
 
@@ -51,14 +43,6 @@ function parseStructuredOutput(
   if (typeof output !== 'string') return null
   const parsed = decodeStructuredToolResult(output)
   return parsed && !Array.isArray(parsed) ? parsed : null
-}
-
-function getToolIcon(name: string): React.JSX.Element {
-  if (name === 'DesktopScreenshot') return <Monitor className="size-4" />
-  if (name === 'DesktopClick') return <MousePointerClick className="size-4" />
-  if (name === 'DesktopScroll') return <MoveVertical className="size-4" />
-  if (name === 'DesktopWait') return <Clock3 className="size-4" />
-  return <Keyboard className="size-4" />
 }
 
 export function DesktopActionToolCard({
@@ -134,26 +118,8 @@ export function DesktopActionToolCard({
     >
       <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3.5 py-2 dark:border-white/[0.06]">
         <div className="flex items-center gap-2">
-          <motion.span
-            className="flex size-7 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary"
-            animate={
-              isRunning
-                ? {
-                    scale: [1, 1.06, 1],
-                    rotate: [0, -4, 4, 0]
-                  }
-                : { scale: 1, rotate: 0 }
-            }
-            transition={
-              isRunning ? { duration: 1.8, repeat: Infinity, ease: 'easeInOut' } : ITEM_TRANSITION
-            }
-          >
-            {getToolIcon(name)}
-          </motion.span>
           <div>
-            <p className="font-mono text-xs font-medium text-foreground/85">
-              {t(`toolCall.desktop.${name}.title`)}
-            </p>
+            <p className="text-xs font-medium text-foreground/85">{toolTitleFromName(name)}</p>
             <motion.p
               key={`${name}-${status}-${hasError ? 'error' : 'ok'}`}
               initial={{ opacity: 0, y: 4 }}
@@ -164,11 +130,7 @@ export function DesktopActionToolCard({
                 isRunning && 'tool-name-live-pulse tool-name-live-pulse--running'
               )}
             >
-              {isRunning
-                ? t('toolCall.desktop.running')
-                : hasError
-                  ? t('toolCall.desktop.failed')
-                  : t('toolCall.desktop.completed')}
+              {isRunning ? 'Running' : hasError ? 'Failed' : 'Completed'}
             </motion.p>
           </div>
         </div>
@@ -228,10 +190,7 @@ export function DesktopActionToolCard({
                   transition={ITEM_TRANSITION}
                   className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive"
                 >
-                  <div className="flex items-center gap-2">
-                    <TriangleAlert className="size-4" />
-                    <span>{parsedError}</span>
-                  </div>
+                  <span>{parsedError}</span>
                 </motion.div>
               ) : null}
 

@@ -238,6 +238,7 @@ import { toAgentEvent, toSubAgentEvent } from '@renderer/lib/agent/stream-event-
 import { sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
 import {
   cancelHostedSessionRun,
+  resolveHostedTriggerMessageId,
   shouldUseHostedSessionRun,
   startHostedSessionRun
 } from '@renderer/lib/agent/hosted-session-run'
@@ -403,6 +404,45 @@ function buildUserMessageContent(
     return textBlocks[0].text
   }
   return textBlocks
+}
+
+function withLiveCompactSummaryDisplayAnchor(
+  summary: UnifiedMessage,
+  assistantMessageId: string,
+  assistantMessage: UnifiedMessage | undefined,
+  compactedMessageCount: number
+): UnifiedMessage {
+  const content = assistantMessage?.role === 'assistant' ? assistantMessage.content : []
+  const afterContentBlockCount =
+    typeof content === 'string' ? (content.length > 0 ? 1 : 0) : content.length
+  let afterToolUseId: string | undefined
+  if (Array.isArray(content)) {
+    for (let index = content.length - 1; index >= 0; index -= 1) {
+      const block = content[index]
+      if (block.type === 'tool_use' && block.id) {
+        afterToolUseId = block.id
+        break
+      }
+    }
+  }
+
+  const compactSummary = summary.meta?.compactSummary
+  return {
+    ...summary,
+    meta: {
+      ...(summary.meta ?? {}),
+      compactSummary: {
+        messagesSummarized: compactSummary?.messagesSummarized ?? compactedMessageCount,
+        recentMessagesPreserved: compactSummary?.recentMessagesPreserved ?? false,
+        ...(compactSummary ?? {}),
+        displayAnchor: {
+          assistantMessageId,
+          afterContentBlockCount,
+          ...(afterToolUseId ? { afterToolUseId } : {})
+        }
+      }
+    }
+  }
 }
 
 function setStreamingMessageIdWithSync(sessionId: string, messageId: string | null): void {
@@ -5153,7 +5193,14 @@ export function useChatActions(): {
             })
 
             const maxParallelTools = getConfiguredMaxParallelTools()
-            const hostedTriggerMessageId = userMsgForTurn?.id?.trim() ?? ''
+            // Quoted turns pre-render the user bubble, so userMsgForTurn is null.
+            // Without that id, hosted session-send is skipped and the next API
+            // never joins the open session — the composer stays on Waiting.
+            const hostedTriggerMessageId = resolveHostedTriggerMessageId(
+              userMsgForTurn?.id,
+              expectedUserRequestMessage?.id,
+              preRenderedUserMessageId
+            )
             const hostedProviderId = (
               baseProviderConfig.providerId ??
               session?.providerId ??
@@ -6249,17 +6296,28 @@ export function useChatActions(): {
                     // Main persists the summary and records the compaction cut from
                     // the same event. The renderer only mirrors it into the resident
                     // window so the transcript shows the compression point without
-                    // waiting for a reload — no positions to guess, no second writer.
-                    // The summary row lands at the tail, so the still-streaming turn
-                    // travels with it as the anchor the divider renders above.
+                    // waiting for a reload. Capture the exact content boundary before
+                    // the run resumes; otherwise later blocks make the tail-persisted
+                    // summary look as if it happened after work that actually followed it.
+                    const compactedMessageCount = event.keptMessageCount ?? 0
+                    const assistantMessage = useChatStore
+                      .getState()
+                      .getSessionMessages(sessionId)
+                      .find((message) => message.id === assistantMsgId)
+                    const anchoredSummary = withLiveCompactSummaryDisplayAnchor(
+                      summary,
+                      assistantMsgId,
+                      assistantMessage,
+                      compactedMessageCount
+                    )
                     useChatStore.getState().adoptCompactionSummary(
                       sessionId,
                       {
-                        ...summary,
+                        ...anchoredSummary,
                         role: 'user',
                         createdAt: summary.createdAt || Date.now()
                       },
-                      event.keptMessageCount ?? 0,
+                      compactedMessageCount,
                       assistantMsgId
                     )
                   }
@@ -6852,6 +6910,7 @@ export function useChatActions(): {
           id: summary.id,
           role: summary.role,
           content: summary.content,
+          meta: summary.meta,
           createdAt: summary.createdAt
         },
         compactedMessageIds: result.compactedMessageIds ?? [],

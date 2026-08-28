@@ -2447,11 +2447,17 @@ export const useAgentStore = create<AgentStore>()(
                   sa.report = event.result.output
                 }
                 sa.usage = event.result.usage
-                sa.reportStatus = event.result.reportSubmitted
-                  ? sa.reportStatus === 'fallback'
-                    ? 'fallback'
-                    : 'submitted'
-                  : 'missing'
+                sa.reportStatus =
+                  event.result.reportStatus === 'fallback' ||
+                  event.result.reportStatus === 'submitted' ||
+                  event.result.reportStatus === 'missing' ||
+                  event.result.reportStatus === 'retrying'
+                    ? event.result.reportStatus
+                    : event.result.reportSubmitted
+                      ? sa.reportStatus === 'fallback'
+                        ? 'fallback'
+                        : 'submitted'
+                      : 'missing'
                 state.completedSubAgents[id] = sa
                 const targetSessionId = sa.sessionId ?? sessionId
                 if (targetSessionId) {

@@ -217,7 +217,21 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     $"agent={definition.Name} error={ex.GetType().Name}: {ex.Message}");
             }
 
-            var result = collector.BuildResult(childState.StopReason);
+            var result = await EnsureSubAgentReportAsync(
+                collector.BuildResult(childState.StopReason),
+                childState,
+                context,
+                () => collector.BuildResult(childState.StopReason),
+                async (status, report) => await AgentRuntimeTools.EmitAsync(
+                    parentState,
+                    context,
+                    new AgentRuntimeStreamEvent(
+                        "sub_agent_report_update",
+                        SubAgentName: definition.Name,
+                        ToolUseId: call.Id,
+                        Report: report,
+                        Status: status)),
+                childState.CancellationToken);
             var stopHook = await AgentRuntimeHooks.RunSubagentAsync(
                 parameters,
                 parentState,
@@ -239,7 +253,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     SubAgentName: definition.Name,
                     ToolUseId: call.Id,
                     Report: result.Output,
-                    Status: result.ReportCaptured ? "submitted" : "missing"),
+                    Status: ResolveEmittedReportStatus(result)),
                 new AgentRuntimeStreamEvent(
                     "sub_agent_end",
                     SubAgentName: definition.Name,
@@ -252,9 +266,11 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     StringElement(
                         string.IsNullOrWhiteSpace(result.Output)
                             ? EncodeError(result.Error ?? "SubAgent failed")
-                            : result.Output),
+                            : WrapParentTaskErrorContent(result)),
                     true,
-                    result.Error);
+                    result.ReportStatus == ReportStatusFallback
+                        ? null
+                        : result.Error ?? MissingReportError);
             CompleteSubAgentTaskInvocation(taskInvocation, toolResult);
             return toolResult;
         }
@@ -1153,6 +1169,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
         var name = JsonHelpers.GetString(tool, "name") ?? "unknown";
         var description = JsonHelpers.GetString(tool, "description") ?? string.Empty;
         var toolId = BuildExpandedToolId(name);
+        var parallelClass = ResolveSynthesizedParallelClass(name);
         var hasSchema = tool.TryGetProperty("inputSchema", out var inputSchema) &&
             inputSchema.ValueKind == JsonValueKind.Object;
         return CreateObject(writer =>
@@ -1198,11 +1215,32 @@ internal static partial class AgentRuntimeSubAgentExecutor
             writer.WriteBoolean("requiresRenderer", false);
             writer.WriteString("approvalMode", "policy");
             writer.WriteString("sideEffectClass", "localMutation");
-            writer.WriteString("parallelClass", "resourceSerial");
+            writer.WriteString("parallelClass", parallelClass);
             writer.WriteString("resourceKeyStrategy", "tool-default");
             writer.WriteString("recoveryMode", "reconcile");
             writer.WriteString("resultPolicy", "bounded-preview-64k");
         });
+    }
+
+    private static string ResolveSynthesizedParallelClass(string wireName)
+    {
+        return wireName is
+            "Glob" or
+            "Grep" or
+            "LS" or
+            "MemoryList" or
+            "MemoryRead" or
+            "MemorySearch" or
+            "Read" or
+            "TaskGet" or
+            "TaskList" or
+            "TeamStatus" or
+            "WebFetch" or
+            "WebSearch" or
+            "codegraph_explore" or
+            "get_goal"
+            ? "readParallel"
+            : "resourceSerial";
     }
 
     private static string BuildExpandedToolId(string wireName)
@@ -1621,13 +1659,13 @@ internal static partial class AgentRuntimeSubAgentExecutor
         private readonly JsonElement requestModel;
         private readonly List<AgentRuntimeToolCallState> toolCalls = [];
         private readonly StringBuilder currentAssistantText = new();
-        private readonly StringBuilder aggregatedText = new();
         private JsonElement[] finalMessages = [];
         private AgentRuntimeTokenUsage usage = new(0, 0);
         private int iterations;
         private int toolCallCount;
         private string? endReason;
         private string? error;
+        private readonly SemaphoreSlim observationGate = new(1, 1);
 
         public SubAgentRunCollector(
             string subAgentName,
@@ -1650,9 +1688,17 @@ internal static partial class AgentRuntimeSubAgentExecutor
 
         public async ValueTask ObserveAsync(AgentRuntimeStreamEvent[] events)
         {
-            foreach (var item in events)
+            await observationGate.WaitAsync();
+            try
             {
-                await ObserveOneAsync(item);
+                foreach (var item in events)
+                {
+                    await ObserveOneAsync(item);
+                }
+            }
+            finally
+            {
+                observationGate.Release();
             }
         }
 
@@ -1663,20 +1709,19 @@ internal static partial class AgentRuntimeSubAgentExecutor
 
         public SubAgentResultNative BuildResult(string? fallbackEndReason)
         {
-            var output = GetLastAssistantText(finalMessages);
+            var output = GetClosingAssistantText(finalMessages);
             if (string.IsNullOrWhiteSpace(output))
             {
                 output = currentAssistantText.ToString().Trim();
             }
-            if (string.IsNullOrWhiteSpace(output))
-            {
-                output = aggregatedText.ToString().Trim();
-            }
 
             var resolvedEndReason = ResolveSubAgentEndReason(endReason, fallbackEndReason, error);
             var resolvedError = ResolveSubAgentResultError(error, resolvedEndReason);
-            var success = resolvedEndReason == "completed" && string.IsNullOrWhiteSpace(resolvedError);
-            var reportCaptured = !string.IsNullOrWhiteSpace(output);
+            var reportCaptured = !string.IsNullOrWhiteSpace(GetClosingAssistantText(finalMessages)) ||
+                (finalMessages.Length == 0 && !string.IsNullOrWhiteSpace(output));
+            var success = resolvedEndReason == "completed" &&
+                string.IsNullOrWhiteSpace(resolvedError) &&
+                reportCaptured;
             return new SubAgentResultNative(
                 success,
                 output ?? string.Empty,
@@ -1686,7 +1731,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 resolvedEndReason,
                 finalMessages.Select(message => message.Clone()).ToArray(),
                 usage,
-                resolvedError);
+                resolvedError,
+                reportCaptured ? ReportStatusSubmitted : ReportStatusMissing);
         }
 
         private async Task ObserveOneAsync(AgentRuntimeStreamEvent item)
@@ -1707,7 +1753,6 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     if (!string.IsNullOrEmpty(item.Text))
                     {
                         currentAssistantText.Append(item.Text);
-                        aggregatedText.Append(item.Text);
                     }
                     await EmitAsync(new AgentRuntimeStreamEvent(
                         "sub_agent_text_delta",
@@ -1888,46 +1933,6 @@ internal static partial class AgentRuntimeSubAgentExecutor
             });
         }
 
-        private static string GetLastAssistantText(IReadOnlyList<JsonElement> messages)
-        {
-            for (var index = messages.Count - 1; index >= 0; index--)
-            {
-                var message = messages[index];
-                if (JsonHelpers.GetString(message, "role") != "assistant" ||
-                    !message.TryGetProperty("content", out var content))
-                {
-                    continue;
-                }
-
-                if (content.ValueKind == JsonValueKind.String)
-                {
-                    var text = content.GetString()?.Trim() ?? string.Empty;
-                    if (text.Length > 0)
-                    {
-                        return text;
-                    }
-                }
-                else if (content.ValueKind == JsonValueKind.Array)
-                {
-                    var builder = new StringBuilder();
-                    foreach (var block in content.EnumerateArray())
-                    {
-                        if (JsonHelpers.GetString(block, "type") == "text" &&
-                            JsonHelpers.GetString(block, "text") is { Length: > 0 } blockText)
-                        {
-                            builder.Append(blockText);
-                        }
-                    }
-                    var combinedText = builder.ToString().Trim();
-                    if (combinedText.Length > 0)
-                    {
-                        return combinedText;
-                    }
-                }
-            }
-
-            return string.Empty;
-        }
     }
 
     private sealed record SubAgentResultNative(
@@ -1939,7 +1944,8 @@ internal static partial class AgentRuntimeSubAgentExecutor
         string EndReason,
         JsonElement[] Messages,
         AgentRuntimeTokenUsage Usage,
-        string? Error)
+        string? Error,
+        string ReportStatus = ReportStatusMissing)
     {
         public JsonElement ToJson()
         {
@@ -1950,6 +1956,7 @@ internal static partial class AgentRuntimeSubAgentExecutor
                 // Keep the wire key for compatibility; it now means that the final text report
                 // was captured, not that a dedicated submission tool was invoked.
                 writer.WriteBoolean("reportSubmitted", ReportCaptured);
+                writer.WriteString("reportStatus", ResolveEmittedReportStatus(this));
                 writer.WriteNumber("toolCallCount", ToolCallCount);
                 writer.WriteNumber("iterations", Iterations);
                 writer.WriteString("endReason", EndReason);

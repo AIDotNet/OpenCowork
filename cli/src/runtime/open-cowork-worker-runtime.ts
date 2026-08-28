@@ -214,6 +214,10 @@ type StoredMessageRow = {
   usage?: string | null
 }
 
+/** Placeholder until the first turn generates a real title. */
+const DEFAULT_CLI_SESSION_TITLE = 'OpenCowork CLI'
+/** Upper bound on how long shutdown waits for an in-flight session title. */
+const TITLE_DRAIN_TIMEOUT_MS = 10_000
 const RESUME_SESSION_PAGE_SIZE = 200
 const MAX_RESUME_SESSION_PAGES = 50
 const PROVIDER_RESPONSE_ID_META_KEY = '__cliProviderResponseId'
@@ -751,7 +755,7 @@ function normalizeStoredSession(value: unknown): StoredSessionRow | null {
     ...(typeof value.provider_id === 'string' || value.provider_id === null
       ? { provider_id: value.provider_id }
       : {}),
-    title: stringValue(value.title) || 'OpenCowork CLI',
+    title: stringValue(value.title) || DEFAULT_CLI_SESSION_TITLE,
     updated_at: updatedAt,
     ...(typeof value.working_folder === 'string' || value.working_folder === null
       ? { working_folder: value.working_folder }
@@ -884,6 +888,20 @@ function extractWorkerUserSubmission(
     })
   }
   return { images, text: text.join('\n').trim() }
+}
+
+/**
+ * Providers carry tool results as `user` messages, so the role alone cannot tell a typed
+ * prompt from a tool round trip. Only text-bearing rows are things the person actually sent.
+ */
+function isUserSubmissionMessage(message: WorkerMessage): boolean {
+  if (message.role !== 'user') return false
+  const { content } = message
+  if (typeof content === 'string') return content.trim().length > 0
+  if (!Array.isArray(content)) return false
+  return content.some(
+    (item) => isRecord(item) && item.type === 'text' && stringValue(item.text).trim().length > 0
+  )
 }
 
 function promptReferencesFromMessage(message: WorkerMessage): PromptReference[] {
@@ -1121,6 +1139,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   private readonly subscriptions: Array<() => void> = []
   private readonly pendingReverse = new Map<string, PendingReverseRequest>()
   private readonly pendingTitleRuns = new Map<string, PendingTitleRun>()
+  private readonly pendingTitleGeneration = new Set<Promise<void>>()
   private readonly sessionAllowedTools = new Set<string>()
   private readonly queue: UiEvent[] = []
   private messages: WorkerMessage[] = []
@@ -2168,6 +2187,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.queue.length = 0
     this.historyPersistence = null
     this.ensureRewindHistory()
+    const opensSession = !this.messages.some(isUserSubmissionMessage)
     const userMessage: WorkerMessage = {
       id: `user-${randomUUID()}`,
       role: 'user',
@@ -2236,9 +2256,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
         })
       }
       if (this.historyPersistence) await this.historyPersistence
-      if (this.messages.filter((message) => message.role === 'user').length === 1) {
-        void this.generateSessionTitle(this.sessionId, prompt)
-      }
+      if (opensSession) this.trackSessionTitle(this.sessionId, prompt)
     } finally {
       signal.removeEventListener('abort', handleAbort)
       for (const [id, request] of this.pendingReverse) {
@@ -2487,13 +2505,13 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     this.resetTransientSessionState()
     this.ensureRewindHistory()
     if (this.isDefaultCliTitle(session.title)) {
-      const firstUserMessage = messages.find((message) => message.role === 'user')
-      if (firstUserMessage) {
+      const firstSubmission = messages.find(isUserSubmissionMessage)
+      if (firstSubmission) {
         const firstPrompt = extractWorkerUserSubmission(
-          firstUserMessage.content,
-          firstUserMessage.id
+          firstSubmission.content,
+          firstSubmission.id
         ).text
-        void this.generateSessionTitle(session.id, firstPrompt)
+        this.trackSessionTitle(session.id, firstPrompt)
       }
     }
 
@@ -2779,6 +2797,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   }
 
   async dispose(): Promise<void> {
+    await this.drainSessionTitles()
     if (this.activeRunId) {
       await this.client.request('agent/cancel', { runId: this.activeRunId }, 10_000).catch(() => {})
     }
@@ -2786,6 +2805,31 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
     for (const unsubscribe of this.subscriptions.splice(0)) unsubscribe()
     await this.mcpHost.dispose().catch(() => undefined)
     await this.client.stop()
+  }
+
+  /**
+   * Titling runs alongside the conversation so it never delays a turn, but a one-shot
+   * `-p` run disposes the runtime immediately after its only turn. Keeping the promise
+   * lets shutdown wait for it instead of killing the worker mid-request.
+   */
+  private trackSessionTitle(sessionId: string, prompt: string): void {
+    const generation = this.generateSessionTitle(sessionId, prompt).finally(() => {
+      this.pendingTitleGeneration.delete(generation)
+    })
+    this.pendingTitleGeneration.add(generation)
+  }
+
+  private async drainSessionTitles(): Promise<void> {
+    if (this.pendingTitleGeneration.size === 0) return
+    let deadline: NodeJS.Timeout | undefined
+    const expiry = new Promise<void>((resolve) => {
+      deadline = setTimeout(resolve, TITLE_DRAIN_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([Promise.all([...this.pendingTitleGeneration]), expiry])
+    } finally {
+      if (deadline) clearTimeout(deadline)
+    }
   }
 
   private async generateSessionTitle(sessionId: string, prompt: string): Promise<void> {
@@ -2864,7 +2908,7 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
   }
 
   private isDefaultCliTitle(title: string): boolean {
-    return !title.trim() || title === 'OpenCowork CLI'
+    return !title.trim() || title === DEFAULT_CLI_SESSION_TITLE
   }
 
   private isResumableSession(session: StoredSessionRow, allowCurrent = false): boolean {
@@ -3237,31 +3281,44 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
 
   private async ensureSession(): Promise<void> {
     if (this.sessionCreation) return this.sessionCreation
+    this.sessionCreation = this.createWorkspaceSession().catch((error) => {
+      this.sessionCreation = null
+      throw error
+    })
+    return this.sessionCreation
+  }
+
+  private async createWorkspaceSession(): Promise<void> {
     const sessionInput: JsonRecord = {
       id: this.sessionId,
-      title: 'OpenCowork CLI',
+      title: DEFAULT_CLI_SESSION_TITLE,
       mode: 'code',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      projectId: await this.ensureWorkspaceProject(),
       workingFolder: this.options.cwd,
       modelSelectionMode: 'manual'
     }
     if (this.config.providerId) sessionInput.providerId = this.config.providerId
     if (this.config.model) sessionInput.modelId = this.config.model
-    this.sessionCreation = this.client
-      .request<JsonRecord>('db/sessions-create', sessionInput)
-      .then((result) => {
-        if (isRecord(result) && result.success === false) {
-          throw new Error(
-            stringValue(result.error) || 'Failed to create the OpenCowork CLI session'
-          )
-        }
-      })
-      .catch((error) => {
-        this.sessionCreation = null
-        throw error
-      })
-    return this.sessionCreation
+    const result = await this.client.request<JsonRecord>('db/sessions-create', sessionInput)
+    this.assertMutationSucceeded(result, 'Failed to create the OpenCowork CLI session')
+  }
+
+  /**
+   * The desktop groups sessions under the project that owns their folder, so a CLI run
+   * has to join the same project instead of landing in the projectless chat bucket. The
+   * Worker owns the find-or-create so two runs in one new folder cannot fork a duplicate.
+   */
+  private async ensureWorkspaceProject(): Promise<string> {
+    const project = await this.client.request<unknown>('db/projects-ensure-folder', {
+      workingFolder: this.options.cwd
+    })
+    const projectId = isRecord(project) ? stringValue(project.id) : ''
+    if (!projectId) {
+      throw new Error('Failed to resolve the OpenCowork project for this folder')
+    }
+    return projectId
   }
 
   /** List skills known to the Worker (~/.agents/skills plus bundled skills). */

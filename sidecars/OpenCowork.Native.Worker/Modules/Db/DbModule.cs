@@ -29,6 +29,7 @@
         context.Register("db/projects-update", DbProjectTools.Update);
         context.Register("db/projects-delete", DbProjectTools.Delete);
         context.Register("db/projects-ensure-default", DbProjectTools.EnsureDefault);
+        context.Register("db/projects-ensure-folder", DbProjectTools.EnsureFolderProject);
         context.Register("db/projects-ensure-plugin", DbProjectTools.EnsurePluginProject);
         context.Register("db/plans-list", DbPlanTools.List);
         context.Register("db/plans-get", DbPlanTools.Get);

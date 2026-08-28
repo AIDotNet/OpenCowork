@@ -90,39 +90,21 @@ internal sealed class AgentRuntimeProviderTransportException : InvalidOperationE
 
 /// <summary>
 /// Raised when an established provider stream dies mid-read: a reset, a truncated body, or any
-/// other transport fault after response headers arrived. Carries what had already been emitted so
-/// the retry policy can distinguish "nothing streamed yet — replay is free" from "partial text or
-/// tool calls are already in the UI — only a resume-style replay without them is safe".
+/// other transport fault after response headers arrived. Whether the turn may be replayed depends
+/// on what the run has already projected, which the retry policy reads from the run state.
 /// </summary>
 internal sealed class AgentRuntimeProviderStreamTransportException : InvalidOperationException
 {
     public AgentRuntimeProviderStreamTransportException(
         string providerName,
         WorkerHttpFault fault,
-        bool anyContentEmitted,
-        bool anyToolCallsCompleted,
         Exception innerException)
         : base(BuildMessage(providerName, fault), innerException)
     {
         Fault = fault;
-        AnyContentEmitted = anyContentEmitted;
-        AnyToolCallsCompleted = anyToolCallsCompleted;
     }
 
     public WorkerHttpFault Fault { get; }
-
-    /// <summary>Text, reasoning, or image deltas already streamed for this turn.</summary>
-    public bool AnyContentEmitted { get; }
-
-    /// <summary>Complete tool calls already handed back for execution this turn.</summary>
-    public bool AnyToolCallsCompleted { get; }
-
-    /// <summary>
-    /// True when replaying the request would duplicate anything the user can see. A turn that
-    /// emitted nothing (headers-only stream) replays cleanly; one whose visible content was empty
-    /// still replays cleanly because the renderer has nothing to duplicate.
-    /// </summary>
-    public bool WouldDuplicateOutput => AnyContentEmitted || AnyToolCallsCompleted;
 
     private static string BuildMessage(string providerName, WorkerHttpFault fault)
     {
@@ -147,18 +129,15 @@ internal sealed class AgentRuntimeProviderStreamException : InvalidOperationExce
         string providerName,
         string code,
         string message,
-        bool retryable,
-        bool anyEventsEmitted)
+        bool retryable)
         : base($"{providerName} stream error ({code}): {message}")
     {
         Code = code;
         Retryable = retryable;
-        AnyEventsEmitted = anyEventsEmitted;
     }
 
     public string Code { get; }
     public bool Retryable { get; }
-    public bool AnyEventsEmitted { get; }
 }
 
 internal static class AgentRuntimeProviderRetryPolicy
@@ -179,6 +158,9 @@ internal static class AgentRuntimeProviderRetryPolicy
         {
             try
             {
+                // Each attempt gets a clean window: the mark answers "did *this* attempt already
+                // put something on screen", which is what decides whether a replay duplicates.
+                state.ResetProviderOutputProjection();
                 return await execute();
             }
             catch (AgentRuntimeProviderHttpException ex) when (
@@ -206,7 +188,7 @@ internal static class AgentRuntimeProviderRetryPolicy
             }
             catch (AgentRuntimeProviderStreamException ex) when (
                 ex.Retryable &&
-                !ex.AnyEventsEmitted &&
+                !state.ProviderOutputProjected &&
                 statusAttempts < WorkerHttpTuning.StatusRetryAttempts &&
                 !state.IsCancellationRequested &&
                 HasTimeRemaining(startedAt))
@@ -337,9 +319,9 @@ internal static class AgentRuntimeProviderRetryPolicy
         }
 
         // Replaying a turn whose deltas already reached the renderer would duplicate text and tool
-        // calls, because the renderer appends and cannot discard. A silent drop (no content yet)
-        // or one where the model had produced nothing visible replays cleanly.
-        if (exception.WouldDuplicateOutput)
+        // calls, because the renderer appends and cannot discard. A stream that died before
+        // projecting anything replays cleanly.
+        if (state.ProviderOutputProjected)
         {
             return false;
         }

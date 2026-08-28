@@ -463,7 +463,10 @@ export function projectStreamEvent(
           endReason: event.result.endReason ?? null,
           errorMessage: event.result.error ?? null,
           report: event.result.output,
-          reportStatus: event.result.reportSubmitted === true ? 'submitted' : 'missing',
+          reportStatus: resolveSubAgentEndReportStatus(
+            event.result,
+            state.subAgents.find((item) => item.toolUseId === event.toolUseId)?.reportStatus
+          ),
           usage: toJsonObject(event.result.usage),
           completedAt: Date.now()
         })
@@ -978,6 +981,27 @@ function subAgentChanged(
     usage: patch.usage ?? null,
     completedAt: patch.completedAt ?? null
   }
+}
+
+function resolveSubAgentEndReportStatus(
+  result: {
+    reportSubmitted?: boolean
+    reportStatus?: SubAgentReportStatus | string
+  },
+  previous?: SubAgentReportStatus
+): SubAgentReportStatus {
+  if (
+    result.reportStatus === 'fallback' ||
+    result.reportStatus === 'submitted' ||
+    result.reportStatus === 'missing' ||
+    result.reportStatus === 'retrying'
+  ) {
+    return result.reportStatus
+  }
+  if (result.reportSubmitted === true) {
+    return previous === 'fallback' ? 'fallback' : 'submitted'
+  }
+  return 'missing'
 }
 
 /** Current phase of a known sub-agent, defaulting to running for a new one. */

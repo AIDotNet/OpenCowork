@@ -1,17 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
-import {
-  Camera,
-  FileText,
-  Globe2,
-  Keyboard,
-  Loader2,
-  Monitor,
-  MousePointerClick,
-  ScrollText,
-  TriangleAlert
-} from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import {
@@ -24,6 +14,8 @@ import {
   BROWSER_TYPE_TOOL_NAME
 } from '@renderer/lib/app-plugin/types'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { toolTitleFromName } from '@renderer/lib/chat/tool-display-name'
+import { linesLabel, toolStatusLabel } from '@renderer/lib/chat/execution-labels'
 import type { CompactToolHeaderModel } from './CompactToolCallHeader'
 import { CompactToolCallHeader } from './CompactToolCallHeader'
 import { ImagePreview } from './ImagePreview'
@@ -96,17 +88,8 @@ function lineCount(value: string): number {
   return value.split(/\r\n|\r|\n/).length
 }
 
-function getToolIcon(name: string): React.JSX.Element {
-  if (name === BROWSER_SCREENSHOT_TOOL_NAME) return <Camera className="size-3.5" />
-  if (name === BROWSER_SNAPSHOT_TOOL_NAME) return <Monitor className="size-3.5" />
-  if (name === BROWSER_CLICK_TOOL_NAME) return <MousePointerClick className="size-3.5" />
-  if (name === BROWSER_TYPE_TOOL_NAME) return <Keyboard className="size-3.5" />
-  if (name === BROWSER_SCROLL_TOOL_NAME) return <ScrollText className="size-3.5" />
-  if (name === BROWSER_GET_CONTENT_TOOL_NAME) return <FileText className="size-3.5" />
-  return <Globe2 className="size-3.5" />
-}
-
-function fallbackTitle(name: string): string {
+/** Tool identity stays English in every locale — see `toolDisplayName`. */
+function toolTitle(name: string): string {
   if (name === BROWSER_NAVIGATE_TOOL_NAME) return 'Browser Navigate'
   if (name === BROWSER_GET_CONTENT_TOOL_NAME) return 'Browser Content'
   if (name === BROWSER_SCREENSHOT_TOOL_NAME) return 'Browser Screenshot'
@@ -114,7 +97,7 @@ function fallbackTitle(name: string): string {
   if (name === BROWSER_CLICK_TOOL_NAME) return 'Browser Click'
   if (name === BROWSER_TYPE_TOOL_NAME) return 'Browser Type'
   if (name === BROWSER_SCROLL_TOOL_NAME) return 'Browser Scroll'
-  return name
+  return toolTitleFromName(name)
 }
 
 function buildSummary(
@@ -266,18 +249,6 @@ function getResultRows(
   return rows
 }
 
-function statusLabel(
-  status: ToolCallStatus | 'completed',
-  t: (key: string, options?: Record<string, unknown>) => string
-): string | null {
-  if (status === 'streaming') return t('toolCall.receivingArgs')
-  if (status === 'running') return t('toolCall.executing')
-  if (status === 'pending_approval') return t('permission.title')
-  if (status === 'error') return t('error.label')
-  if (status === 'canceled') return t('toolCall.canceled', { defaultValue: 'Canceled' })
-  return null
-}
-
 export function BrowserToolCard({
   name,
   input,
@@ -319,21 +290,17 @@ export function BrowserToolCard({
   const mainPreview = getMainPreview(name, jsonOutput)
   const resultRows = getResultRows(name, jsonOutput)
   const rawOutput = typeof output === 'string' && !jsonOutput && !parsedError ? output : ''
-  const title = t(`toolCall.browser.${name}.title`, { defaultValue: fallbackTitle(name) })
+  const title = toolTitle(name)
   const badges: CompactToolHeaderModel['badges'] = []
 
   if (images.length > 0) {
-    badges.push({ label: t('toolCall.imageFile'), tone: 'blue' })
+    badges.push({ label: 'Image' })
   }
   if (mainPreview) {
-    badges.push({
-      label: t('toolCall.lineCount', { count: lineCount(mainPreview.content) }),
-      tone: 'blue'
-    })
+    badges.push({ label: linesLabel(lineCount(mainPreview.content)) })
   }
 
   const model: CompactToolHeaderModel = {
-    icon: getToolIcon(name),
     primary: summary || title,
     secondary: summary ? title : undefined,
     badges,
@@ -356,7 +323,7 @@ export function BrowserToolCard({
         <CompactToolCallHeader
           model={model}
           status={status}
-          statusLabel={statusLabel(status, t)}
+          statusLabel={toolStatusLabel(status)}
           hasError={hasError}
           errorTitle={parsedError}
           elapsed={null}
@@ -371,9 +338,9 @@ export function BrowserToolCard({
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={CONTENT_TRANSITION}
-            className="ml-3.5 mt-1 border-l border-border/50 pl-4.5 overflow-hidden dark:border-white/[0.08]"
+            className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
           >
-            <div className="space-y-2 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
+            <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
               {isRunning ? (
                 <div className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/30 bg-sky-500/5 px-2.5 py-2 text-xs text-sky-600 dark:text-sky-300">
                   <Loader2 className="size-3.5 animate-spin" />
@@ -384,19 +351,14 @@ export function BrowserToolCard({
                         : 'tool-name-live-pulse tool-name-live-pulse--running'
                     }
                   >
-                    {t('toolCall.browser.executing', {
-                      defaultValue: 'Executing browser action...'
-                    })}
+                    Running browser action…
                   </span>
                 </div>
               ) : null}
 
               {hasError ? (
                 <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
-                  <div className="flex items-start gap-2">
-                    <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-                    <span className="break-words">{parsedError}</span>
-                  </div>
+                  <span className="break-words">{parsedError}</span>
                 </div>
               ) : null}
 

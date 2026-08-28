@@ -22,6 +22,7 @@ export type CommitSessionCompactionInput = {
     id: string
     role: string
     content: unknown
+    meta?: unknown
     createdAt: number
   }
   compactedMessageIds: string[]

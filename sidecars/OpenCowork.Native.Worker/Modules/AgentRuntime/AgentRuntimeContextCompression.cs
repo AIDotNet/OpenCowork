@@ -396,7 +396,11 @@ internal static partial class AgentRuntimeContextCompression
         int preTokens)
     {
         var summaryId = $"oc_{Guid.NewGuid():N}";
-        var summaryMessage = CreateSummaryMessage(summaryId, summary);
+        var summaryMessage = CreateSummaryMessage(
+            summaryId,
+            summary,
+            messagesToCompress.Count,
+            messagesToPreserve.Count > 0);
 
         var compressedMessages = new List<JsonElement>(1 + messagesToPreserve.Count) { summaryMessage };
         compressedMessages.AddRange(messagesToPreserve);
@@ -881,13 +885,14 @@ internal static partial class AgentRuntimeContextCompression
     }
 
     /// <summary>
-    /// The summary is an ordinary user message carrying nothing but the summary
-    /// text — no marker role, no meta type, no lead-in describing that a
-    /// compression happened. The compaction record identifies it by id, so
-    /// nothing downstream has to recognize it by shape, and the UI draws the
-    /// compaction divider from that record rather than from the message body.
+    /// The summary remains a user message for model-context semantics, while the
+    /// metadata marker lets the host and UI distinguish it from a real user turn.
     /// </summary>
-    private static JsonElement CreateSummaryMessage(string id, string summary)
+    private static JsonElement CreateSummaryMessage(
+        string id,
+        string summary,
+        int messagesSummarized,
+        bool recentMessagesPreserved)
     {
         return CreateObjectElement(writer =>
         {
@@ -895,6 +900,14 @@ internal static partial class AgentRuntimeContextCompression
             writer.WriteString("role", "user");
             writer.WriteString("content", summary.Trim());
             writer.WriteNumber("createdAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            writer.WritePropertyName("meta");
+            writer.WriteStartObject();
+            writer.WritePropertyName("compactSummary");
+            writer.WriteStartObject();
+            writer.WriteNumber("messagesSummarized", messagesSummarized);
+            writer.WriteBoolean("recentMessagesPreserved", recentMessagesPreserved);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
         });
     }
 

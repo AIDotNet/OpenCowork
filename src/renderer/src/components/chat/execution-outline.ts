@@ -8,7 +8,9 @@ import { isDesktopControlToolName } from '@renderer/lib/app-plugin/desktop-routi
 import { isMcpTool } from '@renderer/lib/mcp/mcp-tools'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { resolveLiveToolCallStatus } from '@renderer/lib/chat/live-tool-call-status'
+import { toolDisplayName } from '@renderer/lib/chat/tool-display-name'
 import { inputSummary } from './tool-call-summary'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 
 export type ToolExecutionVisibility = 'hidden' | 'ordinary' | 'force'
 
@@ -85,6 +87,7 @@ interface BuildToolExecutionOutlineOptions {
   isStreaming?: boolean
   toolResults?: Map<string, ToolResultEntry>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
   boundaryAfterBlockIndices?: Set<number>
   boundaryAfterToolUseIds?: Set<string>
   hiddenToolUseIds?: Set<string>
@@ -160,9 +163,10 @@ function hasStructuredOutputError(name: string, output: ToolResultContent | unde
 function resolveToolStatus(
   isStreaming: boolean | undefined,
   liveToolCall: ToolCallState | undefined,
-  result: ToolResultEntry | undefined
+  result: ToolResultEntry | undefined,
+  runStatus?: RunStatus | null
 ): ToolCallStatus | 'completed' {
-  return resolveLiveToolCallStatus(isStreaming, liveToolCall, result)
+  return resolveLiveToolCallStatus(isStreaming, liveToolCall, result, runStatus)
 }
 
 function getToolCategory(options: {
@@ -212,7 +216,7 @@ function getToolVisibility(category: ToolExecutionCategory): ToolExecutionVisibi
 function buildActiveSummary(item: ToolExecutionItem, t: TranslationFn): string | null {
   if (!item.isActive) return null
 
-  const tool = t(`permission.toolLabels.${item.name}`, { defaultValue: item.name })
+  const tool = toolDisplayName(item.name)
   const detail = item.summary ? `: ${item.summary}` : ''
 
   if (item.status === 'pending_approval' || item.requiresApproval) {
@@ -243,6 +247,7 @@ export function buildToolExecutionOutline({
   isStreaming,
   toolResults,
   liveToolCallMap,
+  runStatus,
   boundaryAfterBlockIndices,
   boundaryAfterToolUseIds,
   hiddenToolUseIds,
@@ -318,12 +323,12 @@ export function buildToolExecutionOutline({
     const liveInput = liveToolCall?.input
     const input = liveInput && Object.keys(liveInput).length > 0 ? liveInput : block.input
     const output = result?.content ?? liveToolCall?.output
-    const baseStatus = resolveToolStatus(isStreaming, liveToolCall, result)
-    const hasError =
-      baseStatus === 'error' ||
-      !!result?.isError ||
-      !!liveToolCall?.error ||
-      hasStructuredOutputError(block.name, output)
+    const baseStatus = resolveToolStatus(isStreaming, liveToolCall, result, runStatus)
+    const hasError = result
+      ? result.isError === true
+      : baseStatus === 'error' ||
+        !!liveToolCall?.error ||
+        hasStructuredOutputError(block.name, output)
     const status: ToolCallStatus | 'completed' = hasError ? 'error' : baseStatus
     const requiresApproval = liveToolCall?.requiresApproval === true
     const category = getToolCategory({

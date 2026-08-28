@@ -83,6 +83,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             reader,
             provider,
             "Anthropic Messages",
+            url,
             state.CancellationToken)) is not null)
         {
             if (line.Length == 0)

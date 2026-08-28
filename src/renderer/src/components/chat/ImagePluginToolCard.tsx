@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion } from 'motion/react'
-import { Check, ChevronDown, ImageIcon, Loader2, TriangleAlert, X } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
 import {
@@ -9,6 +9,7 @@ import {
   type ImageGenerateRetryState
 } from '@renderer/lib/app-plugin/image-tool-retry'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
+import { countLabel } from '@renderer/lib/chat/execution-labels'
 import { Button } from '@renderer/components/ui/button'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { cn } from '@renderer/lib/utils'
@@ -71,30 +72,6 @@ function parseRetryState(input: Record<string, unknown>): ImageGenerateRetryStat
   }
 }
 
-function lifecycleIcon({
-  isRunning,
-  hasError
-}: {
-  isRunning: boolean
-  hasError: boolean
-}): React.JSX.Element {
-  if (isRunning) return <Loader2 className="size-3 animate-spin" />
-  if (hasError) return <X className="size-3" />
-  return <Check className="size-3" />
-}
-
-function lifecycleShellClassName({
-  isRunning,
-  hasError
-}: {
-  isRunning: boolean
-  hasError: boolean
-}): string {
-  if (hasError) return 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
-  if (isRunning) return 'border-sky-500/35 bg-sky-500/[0.1] text-sky-600 dark:text-sky-300'
-  return 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
-}
-
 function SectionHeader({ label }: { label: string }): React.JSX.Element {
   return (
     <div className="border-b border-border/40 pb-1.5 pt-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/75 dark:border-white/[0.08]">
@@ -150,14 +127,15 @@ export function ImagePluginToolCard({
     if (forceOpen) setCollapsed(false)
   }, [forceOpen])
 
+  // The execution transcript reads in English in every locale — see `execution-labels`.
   const statusLabel = isAwaitingRetry
-    ? t('toolCall.imagePlugin.waitingRetry')
+    ? 'Awaiting retry'
     : isRunning
-      ? t('toolCall.imagePlugin.running')
+      ? 'Running'
       : hasError
-        ? t('toolCall.imagePlugin.failed')
-        : t('toolCall.imagePlugin.completed')
-  const promptSummary = prompt.trim() || t('toolCall.receivingArgs')
+        ? 'Failed'
+        : 'Completed'
+  const promptSummary = prompt.trim() || 'Receiving arguments'
 
   const handleRetry = async (): Promise<void> => {
     if (!toolUseId || !retryState) return
@@ -186,42 +164,29 @@ export function ImagePluginToolCard({
           setCollapsed((value) => !value)
         }}
         className={cn(
-          'group flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-all duration-150 hover:bg-muted/45 hover:text-foreground dark:hover:bg-white/[0.04]',
-          hasError
-            ? 'text-destructive/90'
-            : isRunning
-              ? 'text-sky-600 dark:text-sky-300'
-              : 'text-muted-foreground'
+          'group flex w-full cursor-pointer items-center gap-2 rounded-md bg-transparent px-1.5 py-1 text-left text-[12.5px] transition-colors duration-150 hover:bg-transparent',
+          hasError ? 'text-destructive/85' : 'text-muted-foreground'
         )}
       >
         <span
           className={cn(
-            'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
-            lifecycleShellClassName({ isRunning, hasError })
-          )}
-        >
-          {lifecycleIcon({ isRunning, hasError })}
-        </span>
-        <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
-          image
-        </span>
-        <span
-          className={cn(
-            'shrink-0 font-mono text-[12px] font-medium tracking-tight',
-            isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : 'text-foreground/85'
+            'shrink-0 font-medium tracking-tight',
+            isRunning
+              ? 'tool-name-live-pulse tool-name-live-pulse--running'
+              : hasError
+                ? 'text-destructive/85'
+                : 'text-foreground/75'
           )}
         >
           ImageGenerate
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65">
-          ({promptSummary})
-        </span>
-        <span className="hidden shrink-0 rounded-md border border-border/50 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground sm:inline-flex dark:bg-white/[0.04]">
-          {t('toolCall.imagePlugin.countValue', { count: requestedCount })}
+        <span className="min-w-0 flex-1 truncate text-muted-foreground/60">{promptSummary}</span>
+        <span className="hidden shrink-0 text-[11px] tabular-nums text-muted-foreground/50 sm:inline">
+          {countLabel(requestedCount, 'image')}
         </span>
         <ChevronDown
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+            'size-3.5 shrink-0 text-muted-foreground/35 transition-transform duration-200 group-hover:text-muted-foreground/70',
             collapsed && '-rotate-90'
           )}
         />
@@ -243,7 +208,6 @@ export function ImagePluginToolCard({
                 <SectionHeader label={t('toolCall.parameters')} />
                 <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">
                   <div className="flex items-center gap-2 text-muted-foreground/70">
-                    <ImageIcon className="size-3.5 shrink-0" />
                     <span
                       className={
                         isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : undefined
@@ -265,8 +229,7 @@ export function ImagePluginToolCard({
                   transition={ITEM_TRANSITION}
                   className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.045] px-3 py-3 text-sm"
                 >
-                  <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
-                    <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                  <div className="text-amber-700 dark:text-amber-300">
                     <div className="space-y-1">
                       <p className="font-medium">{t('toolCall.imagePlugin.retryRequired')}</p>
                       <p className="text-xs leading-relaxed text-muted-foreground">
@@ -312,10 +275,7 @@ export function ImagePluginToolCard({
                   transition={ITEM_TRANSITION}
                   className="rounded-lg border border-destructive/30 bg-destructive/[0.035] px-3 py-3 text-sm text-destructive"
                 >
-                  <div className="flex items-center gap-2">
-                    <TriangleAlert className="size-4 shrink-0" />
-                    <span className="min-w-0 break-words">{parsedError}</span>
-                  </div>
+                  <span className="min-w-0 break-words">{parsedError}</span>
                 </motion.div>
               ) : null}
 

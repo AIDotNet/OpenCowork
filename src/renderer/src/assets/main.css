@@ -751,6 +751,12 @@
     color: color-mix(in srgb, var(--foreground) 64%, var(--muted-foreground) 36%);
   }
 
+  /* Beat `.space-y-2 > :not([hidden]) ~ :not([hidden])` so Thought / Explored
+     rows read as consecutive text lines instead of padded blocks. */
+  .execution-stack > .execution-process-line + .execution-process-line {
+    margin-top: 0 !important;
+  }
+
   .tool-name-live-pulse {
     --tool-name-live-base: color-mix(in srgb, var(--foreground) 28%, var(--muted-foreground) 72%);
     --tool-name-live-peak: color-mix(in srgb, var(--foreground) 30%, var(--primary) 70%);

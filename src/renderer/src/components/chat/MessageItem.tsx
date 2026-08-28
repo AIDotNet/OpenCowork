@@ -7,6 +7,7 @@ import { ContextCompressionMessage } from './ContextCompressionMessage'
 import { CompressionStatusMessage } from './CompressionStatusMessage'
 import type { UnifiedMessage, ToolResultContent } from '@renderer/lib/api/types'
 import type { RequestRetryState, ToolCallState } from '@renderer/lib/agent/types'
+import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 import type { EditableUserMessageDraft } from '@renderer/lib/image-attachments'
 import type { OrchestrationRun } from '@renderer/lib/orchestration/types'
 import type { SessionCompactSummary } from '@renderer/stores/chat-store'
@@ -35,6 +36,7 @@ interface MessageItemProps {
   onDeleteMessage?: (messageId: string) => void
   toolResults?: Map<string, { content: ToolResultContent; isError?: boolean }>
   liveToolCallMap?: Map<string, ToolCallState> | null
+  runStatus?: RunStatus | null
   inlineCompactSummaries?: readonly UnifiedMessage[]
   /**
    * The session's recorded compaction cut. The summary it names renders as the
@@ -143,6 +145,7 @@ function MessageItemInner({
   onDeleteMessage,
   toolResults,
   liveToolCallMap,
+  runStatus,
   inlineCompactSummaries,
   compactSummary,
   renderMode = 'default',
@@ -209,6 +212,7 @@ function MessageItemInner({
             onContinue={onContinueAssistantMessage}
             onDelete={onDeleteMessage}
             liveToolCallMap={liveToolCallMap}
+            runStatus={runStatus}
             renderMode={renderMode}
             orchestrationRun={orchestrationRun}
             hiddenToolUseIds={hiddenToolUseIds}
@@ -324,6 +328,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
       prev.onDeleteMessage === next.onDeleteMessage &&
       areToolResultsEqual(prev.toolResults, next.toolResults) &&
       prev.liveToolCallMap === next.liveToolCallMap &&
+      prev.runStatus === next.runStatus &&
       prev.inlineCompactSummaries === next.inlineCompactSummaries &&
       prev.compactSummary === next.compactSummary &&
       prev.renderMode === next.renderMode &&
@@ -374,6 +379,7 @@ function areEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
     prevUsageSignal === nextUsageSignal &&
     areToolResultsEqual(prev.toolResults, next.toolResults) &&
     prev.liveToolCallMap === next.liveToolCallMap &&
+    prev.runStatus === next.runStatus &&
     prev.inlineCompactSummaries === next.inlineCompactSummaries &&
     prev.compactSummary === next.compactSummary &&
     prev.renderMode === next.renderMode &&

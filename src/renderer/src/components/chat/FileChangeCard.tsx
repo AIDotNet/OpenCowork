@@ -1,17 +1,6 @@
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  FileCode,
-  FilePlus2,
-  FileX2,
-  FileEdit,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Check,
-  Copy,
-  ChevronDown
-} from 'lucide-react'
+import { Loader2, Check, Copy, ChevronDown } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ToolResultContent } from '@renderer/lib/api/types'
@@ -19,6 +8,7 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import type { AgentRunFileChange } from '@renderer/stores/agent-store'
 import { useAgentStore } from '@renderer/stores/agent-store'
 import { MONO_FONT } from '@renderer/lib/constants'
+import { toolStatusLabel } from '@renderer/lib/chat/execution-labels'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
 import { Button } from '@renderer/components/ui/button'
@@ -529,100 +519,6 @@ function CompactEditDiff({
 interface TrackedDiffContent {
   beforeText: string
   afterText: string
-}
-
-// ── Status Icon ──────────────────────────────────────────────────
-
-function StatusIndicator({
-  status
-}: {
-  status: FileChangeCardProps['status']
-}): React.JSX.Element | null {
-  switch (status) {
-    case 'running':
-      return <Loader2 className="size-3.5 animate-spin text-blue-500 shrink-0" />
-    case 'error':
-      return <XCircle className="size-3.5 text-destructive shrink-0" />
-    case 'canceled':
-      return <XCircle className="size-3.5 text-muted-foreground shrink-0" />
-    case 'completed':
-      return <CheckCircle2 className="size-3.5 text-green-500 shrink-0" />
-    case 'pending_approval':
-      return <Loader2 className="size-3.5 animate-spin text-amber-500 shrink-0" />
-    case 'streaming':
-      return <Loader2 className="size-3.5 animate-spin text-violet-500 shrink-0" />
-    default:
-      return null
-  }
-}
-
-function CompactStatusDot({
-  status
-}: {
-  status: FileChangeCardProps['status']
-}): React.JSX.Element {
-  switch (status) {
-    case 'completed':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full bg-emerald-400" />
-        </span>
-      )
-    case 'running':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2 rounded-full bg-blue-500/30 animate-ping" />
-          <span className="size-2 rounded-full bg-blue-500" />
-        </span>
-      )
-    case 'error':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full bg-red-400" />
-        </span>
-      )
-    case 'canceled':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full border border-muted-foreground/45" />
-        </span>
-      )
-    case 'pending_approval':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2 rounded-full bg-amber-500/30 animate-ping" />
-          <span className="size-2 rounded-full bg-amber-400" />
-        </span>
-      )
-    case 'streaming':
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="absolute size-2 rounded-full bg-violet-500/30 animate-ping" />
-          <span className="size-2 rounded-full bg-violet-400" />
-        </span>
-      )
-    default:
-      return (
-        <span className="relative flex size-3.5 shrink-0 items-center justify-center">
-          <span className="size-2 rounded-full border border-zinc-600" />
-        </span>
-      )
-  }
-}
-
-// ── File Icon ────────────────────────────────────────────────────
-
-function FileIcon({ name }: { name: string }): React.JSX.Element {
-  switch (name) {
-    case 'Write':
-      return <FilePlus2 className="size-4 text-green-500" />
-    case 'Delete':
-      return <FileX2 className="size-4 text-destructive" />
-    case 'Edit':
-      return <FileEdit className="size-4 text-amber-500" />
-    default:
-      return <FileCode className="size-4 text-muted-foreground" />
-  }
 }
 
 // ── Change Stats Badge ───────────────────────────────────────────
@@ -1225,11 +1121,6 @@ function trackedStatusTone(change: AgentRunFileChange): string {
     : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
 }
 
-function trackedStatusDotTone(change: AgentRunFileChange): string {
-  if (change.status === 'reverted') return 'bg-zinc-500'
-  return change.transport === 'ssh' ? 'bg-sky-400' : 'bg-zinc-400'
-}
-
 // ── Main Component ───────────────────────────────────────────────
 
 export function FileChangeCard(props: FileChangeCardProps): React.JSX.Element {
@@ -1291,21 +1182,20 @@ function DeleteFileChangeCard({
   const compactActionOp: CompactActionOp =
     name === 'Delete' ? 'delete' : name === 'Write' ? (effectiveWriteOp ?? 'modify') : 'modify'
   const hasFailureStatus = status === 'error' || status === 'canceled'
+  // The execution transcript reads in English in every locale — see `execution-labels`.
   const compactActionLabel = hasFailureStatus
-    ? status === 'canceled'
-      ? t('toolCall.canceled', { defaultValue: 'Canceled' })
-      : t('error.label', { defaultValue: 'Error' })
+    ? (toolStatusLabel(status) ?? 'Failed')
     : compactActionOp === 'create'
       ? isActive
-        ? t('fileChange.creating')
-        : t('fileChange.created')
+        ? 'Creating'
+        : 'Created'
       : compactActionOp === 'delete'
         ? isActive
-          ? t('fileChange.deleting')
-          : t('fileChange.deleted')
+          ? 'Deleting'
+          : 'Deleted'
         : isActive
-          ? t('fileChange.editing')
-          : t('fileChange.edited')
+          ? 'Editing'
+          : 'Edited'
   const isOutputError = outputStr
     ? Boolean(parsedOutputError) || (!parsedOutput && outputStr.length > 0)
     : false
@@ -1449,64 +1339,46 @@ function DeleteFileChangeCard({
         {useCompactChangeLayout ? (
           <div
             className={cn(
-              'flex w-full items-center gap-2 text-[12px] text-muted-foreground transition-all duration-150 group-hover:text-foreground'
+              'flex w-full items-center gap-2 text-[12.5px] transition-colors duration-150',
+              hasCompactError ? 'text-destructive/85' : 'text-muted-foreground'
             )}
             title={filePath || undefined}
           >
             <span
               className={cn(
-                'flex size-5 shrink-0 items-center justify-center rounded-md border shadow-xs transition-colors',
-                hasCompactError
-                  ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
-                  : compactActionOp === 'create'
-                    ? 'border-emerald-500/30 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
-                    : compactActionOp === 'delete'
-                      ? 'border-rose-500/30 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
-                      : 'border-sky-500/30 bg-sky-500/[0.08] text-sky-600 dark:text-sky-400'
-              )}
-            >
-              {hasCompactError ? (
-                <XCircle className="size-3" />
-              ) : (
-                <CheckCircle2 className="size-3" />
-              )}
-            </span>
-            <span className="shrink-0 rounded border border-border/50 bg-muted/50 px-1 py-0.2 font-mono text-[10px] text-muted-foreground/75">
-              files
-            </span>
-            <span
-              className={cn(
-                'shrink-0 font-mono text-[12px] font-medium tracking-tight',
+                'shrink-0 font-medium tracking-tight',
                 status === 'streaming' || status === 'running'
                   ? `tool-name-live-pulse ${status === 'streaming' ? 'tool-name-live-pulse--streaming' : 'tool-name-live-pulse--running'}`
-                  : 'text-foreground/85'
+                  : hasCompactError
+                    ? 'text-destructive/85'
+                    : 'text-foreground/75'
               )}
             >
               {name}
             </span>
             <span
               className={cn(
-                'min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground/65',
+                'min-w-0 flex-1 truncate text-muted-foreground/60',
                 (status === 'streaming' || status === 'running') &&
                   'tool-name-live-pulse tool-name-live-pulse--running'
               )}
             >
               {filePath ? (
                 <>
-                  {compactActionLabel}: {shortPath(filePath)}
+                  {compactActionLabel} {shortPath(filePath)}
                 </>
               ) : (
-                t('toolCall.receivingArgs')
+                'Receiving arguments'
               )}
             </span>
             <span className="flex shrink-0 items-center gap-1.5">
               {compactEditDiff ? (
                 <>
-                  <span className="shrink-0 rounded border border-emerald-500/25 bg-emerald-500/[0.08] px-1 py-0.2 font-mono text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                  <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
                     +{compactEditDiff.added}
                   </span>
-                  <span className="shrink-0 rounded border border-rose-500/25 bg-rose-500/[0.08] px-1 py-0.2 font-mono text-[10px] font-medium text-rose-600 dark:text-rose-400">
-                    -{compactEditDiff.deleted}
+                  <span className="shrink-0 text-[11px] font-medium tabular-nums text-rose-600 dark:text-rose-400">
+                    −{compactEditDiff.deleted}
                   </span>
                 </>
               ) : isRealtimeWrite ? (
@@ -1520,33 +1392,27 @@ function DeleteFileChangeCard({
               )}
               {hasCompactError ? (
                 <span
-                  className="size-1.5 shrink-0 rounded-full bg-rose-500 dark:bg-rose-400"
-                  title={
-                    error ||
-                    parsedOutputError ||
-                    canceledMessage ||
-                    t('error.label', { ns: 'common' })
-                  }
-                />
+                  className="shrink-0 text-[11px] text-destructive/85"
+                  title={error || parsedOutputError || canceledMessage || 'Failed'}
+                >
+                  Failed
+                </span>
               ) : trackedChange ? (
                 <span
-                  className={cn(
-                    'size-1.5 shrink-0 rounded-full',
-                    trackedStatusDotTone(trackedChange)
-                  )}
+                  className="shrink-0 text-[11px] text-muted-foreground/45"
                   title={`${t(trackedTransportLabelKey(trackedChange))} / ${t(trackedStatusLabelKey(trackedChange))}`}
-                />
-              ) : (
-                <CompactStatusDot status={status} />
-              )}
+                >
+                  {t(trackedStatusLabelKey(trackedChange))}
+                </span>
+              ) : null}
               {elapsed && (
-                <span className="shrink-0 rounded border border-border/40 bg-muted/30 px-1 py-0.2 font-mono text-[10px] tabular-nums text-muted-foreground/60 dark:bg-white/[0.03]">
+                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/40">
                   {elapsed}
                 </span>
               )}
               <ChevronDown
                 className={cn(
-                  'size-3.5 shrink-0 text-muted-foreground/50 transition-transform duration-200 group-hover:text-foreground/75',
+                  'size-3.5 shrink-0 text-muted-foreground/35 transition-transform duration-200 group-hover:text-muted-foreground/70',
                   collapsed && '-rotate-90'
                 )}
               />
@@ -1554,7 +1420,6 @@ function DeleteFileChangeCard({
           </div>
         ) : (
           <>
-            <FileIcon name={name} />
             <span
               className="text-xs font-medium truncate min-w-0 flex-1"
               title={filePath || undefined}
@@ -1599,7 +1464,6 @@ function DeleteFileChangeCard({
                 {elapsed}
               </span>
             )}
-            <StatusIndicator status={status} />
           </>
         )}
       </button>
@@ -1609,7 +1473,7 @@ function DeleteFileChangeCard({
           className={cn(
             'overflow-hidden',
             useCompactChangeLayout
-              ? 'ml-3.5 border-l border-border/50 pl-4.5 pt-1 dark:border-white/[0.08]'
+              ? 'ml-2 border-l border-border/45 pl-3 pt-1 dark:border-white/[0.07]'
               : 'activity-card-divider border-t bg-background/40'
           )}
         >

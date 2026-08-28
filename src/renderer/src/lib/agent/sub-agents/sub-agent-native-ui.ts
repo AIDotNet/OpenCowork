@@ -22,6 +22,17 @@ function readNumber(record: Record<string, unknown>, key: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
+function readReportStatus(value: unknown): SubAgentResult['reportStatus'] | undefined {
+  return value === 'pending' ||
+    value === 'queued' ||
+    value === 'submitted' ||
+    value === 'retrying' ||
+    value === 'fallback' ||
+    value === 'missing'
+    ? value
+    : undefined
+}
+
 function readEndReason(value: unknown): SubAgentResult['endReason'] | undefined {
   return value === 'completed' ||
     value === 'max_iterations' ||
@@ -54,11 +65,13 @@ function parseResult(value: unknown): SubAgentResult | null {
   if (!isRecord(value) || !isRecord(value.usage)) return null
   const endReason = readEndReason(value.endReason)
   const messages = readMessages(value.messages)
+  const reportStatus = readReportStatus(value.reportStatus)
 
   return {
     success: value.success === true,
     output: typeof value.output === 'string' ? value.output : '',
     reportSubmitted: value.reportSubmitted === true,
+    ...(reportStatus ? { reportStatus } : {}),
     toolCallCount: readNumber(value, 'toolCallCount'),
     iterations: readNumber(value, 'iterations'),
     ...(endReason ? { endReason } : {}),
@@ -209,6 +222,21 @@ function parseProgressEvent(
         type: value.type,
         message: value.eventMessage as unknown as UnifiedMessage
       }
+    case 'sub_agent_report_update':
+      return {
+        ...base,
+        type: value.type,
+        report: typeof value.report === 'string' ? value.report : '',
+        status:
+          value.status === 'pending' ||
+          value.status === 'queued' ||
+          value.status === 'submitted' ||
+          value.status === 'retrying' ||
+          value.status === 'fallback' ||
+          value.status === 'missing'
+            ? value.status
+            : 'missing'
+      }
     default:
       return null
   }
@@ -252,7 +280,15 @@ export async function handleNativeSubAgentUiUpdate(
       subAgentName,
       toolUseId,
       report: result.output,
-      status: result.reportSubmitted ? 'submitted' : 'missing'
+      status:
+        result.reportStatus === 'fallback' ||
+        result.reportStatus === 'submitted' ||
+        result.reportStatus === 'missing' ||
+        result.reportStatus === 'retrying'
+          ? result.reportStatus
+          : result.reportSubmitted
+            ? 'submitted'
+            : 'missing'
     },
     sessionId
   )

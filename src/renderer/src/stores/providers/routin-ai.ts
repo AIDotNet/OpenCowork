@@ -24,7 +24,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v22: muse-spark-1.2 改用 openai-responses（官方推荐，可跨轮次回放 reasoning）
   // v23: muse-spark-1.2 改用 anthropic Messages（thinking.adaptive + output_config.effort）
   // v24: 覆盖已保存的 Responses 思考配置（空 bodyParams / minimal+ultra）
-  version: 24,
+  // v25: remove ox-alpha and add GLM-5.3-Flash
+  version: 25,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -45,7 +46,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
     'gpt-5.2-codex',
     'claude-sonnet-4-20250514',
     'claude-opus-4-20250514',
-    'claude-3-5-haiku-20241022'
+    'claude-3-5-haiku-20241022',
+    'ox-alpha'
   ],
   defaultModels: [
     {
@@ -766,6 +768,18 @@ export const routinAiPreset: BuiltinProviderPreset = {
         reasoningEffortLevels: ['low', 'high', 'max'],
         defaultReasoningEffort: 'max'
       }
+    },
+    {
+      id: 'glm-5.3-flash',
+      name: 'GLM 5.3 Flash',
+      icon: 'chatglm',
+      enabled: true,
+      contextLength: 1_000_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.15,
+      outputPrice: 0.5,
+      cacheHitPrice: 0.03
     },
     {
       id: 'glm-5.2',

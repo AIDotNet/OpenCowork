@@ -83,6 +83,7 @@ internal static class AgentRuntimeGeminiProvider
             reader,
             provider,
             "Gemini",
+            url,
             state.CancellationToken)) is not null)
         {
             if (line.Length == 0)
@@ -197,7 +198,7 @@ internal static class AgentRuntimeGeminiProvider
                     {
                         parseState.ReasoningStreamed = true;
                         parseState.EstimatedOutputTokens += EstimateTokens(text);
-                        await AgentRuntimeTools.EmitAsync(
+                        await AgentRuntimeTools.EmitProjectedAsync(
                             state,
                             context,
                             new AgentRuntimeStreamEvent("thinking_delta", Thinking: text));
@@ -206,7 +207,7 @@ internal static class AgentRuntimeGeminiProvider
                     {
                         parseState.AssistantText.Append(text);
                         parseState.EstimatedOutputTokens += EstimateTokens(text);
-                        await AgentRuntimeTools.EmitAsync(
+                        await AgentRuntimeTools.EmitProjectedAsync(
                             state,
                             context,
                             new AgentRuntimeStreamEvent("text_delta", Text: text));
@@ -249,7 +250,7 @@ internal static class AgentRuntimeGeminiProvider
 
         parseState.FirstTokenMs ??= ElapsedMs(startedAt);
 
-        await AgentRuntimeTools.EmitAsync(
+        await AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(
@@ -259,7 +260,7 @@ internal static class AgentRuntimeGeminiProvider
 
         if (TryParseJsonObject(argsJson, out var partialInput))
         {
-            await AgentRuntimeTools.EmitAsync(
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -742,7 +743,7 @@ internal static class AgentRuntimeGeminiProvider
         {
             return;
         }
-        _ = AgentRuntimeTools.EmitAsync(
+        _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(

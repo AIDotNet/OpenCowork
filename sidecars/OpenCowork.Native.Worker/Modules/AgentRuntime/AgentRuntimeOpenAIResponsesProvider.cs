@@ -117,7 +117,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         catch (Exception ex) when (
             useWebSocket &&
             websocketUrl is not null &&
-            ShouldFallBackToHttpTransport(ex, parseState, state))
+            ShouldFallBackToHttpTransport(ex, state))
         {
             UnavailableWebSocketUrls.TryAdd(websocketUrl, 0);
             WorkerLog.Warn(
@@ -251,7 +251,6 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
 
     private static bool ShouldFallBackToHttpTransport(
         Exception ex,
-        ResponsesParseState parseState,
         AgentRuntimeTools.AgentRuntimeRunState state)
     {
         // WebSocket control/error frames are not user-visible output. They may still prove that
@@ -259,7 +258,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         // been projected to the UI or tool runtime. A rejected previous_response_id belongs here
         // too: only the WebSocket path chains on a stored response, so HTTP replays the same turn
         // as a self-contained request and the route stays skipped for later turns.
-        if (state.IsCancellationRequested || parseState.ProjectedAnyOutput)
+        if (state.IsCancellationRequested || state.ProviderOutputProjected)
         {
             return false;
         }

@@ -167,11 +167,6 @@ internal static class WorkerHttpFaultClassifier
         return WorkerHttpFault.Terminal;
     }
 
-    public static bool IsRetryable(Exception exception, string? host)
-    {
-        return Classify(exception, host).Retryable;
-    }
-
     /// <summary>
     /// Extracts the host from a URL for ledger lookups, without throwing on a malformed URL.
     /// </summary>

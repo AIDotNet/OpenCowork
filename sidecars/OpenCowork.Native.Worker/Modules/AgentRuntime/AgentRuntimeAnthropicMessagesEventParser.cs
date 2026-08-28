@@ -80,7 +80,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             var id = JsonHelpers.GetString(block, "id") ?? $"toolu_{index}";
             var name = JsonHelpers.GetString(block, "name") ?? string.Empty;
             parseState.ToolBuffers[index] = new AnthropicToolBuffer(id, name);
-            _ = AgentRuntimeTools.EmitAsync(
+            _ = AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent(
@@ -121,7 +121,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             }
             parseState.AssistantText.Append(text);
             parseState.EstimatedOutputTokens += EstimateTokenCount(text);
-            await AgentRuntimeTools.EmitAsync(
+            await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,
                 new AgentRuntimeStreamEvent("text_delta", Text: text));
@@ -135,7 +135,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             {
                 parseState.ReasoningStreamed = true;
                 parseState.EstimatedOutputTokens += EstimateTokenCount(thinking);
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
@@ -166,7 +166,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
                 buffer.ArgumentStream,
                 out var partialInput))
             {
-                await AgentRuntimeTools.EmitAsync(
+                await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
                     new AgentRuntimeStreamEvent(
@@ -231,7 +231,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         {
             return;
         }
-        _ = AgentRuntimeTools.EmitAsync(
+        _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
             new AgentRuntimeStreamEvent(

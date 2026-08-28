@@ -260,6 +260,50 @@ internal static class DbProjectTools
         }
     }
 
+    /// <summary>
+    /// Resolves the local project that owns <c>workingFolder</c>, creating one when the
+    /// folder is not covered yet. Clients that start from a directory rather than from a
+    /// project picker (the CLI) need this to land in the same workspace the desktop shows.
+    /// </summary>
+    public static WorkerResponse EnsureFolderProject(JsonElement parameters)
+    {
+        try
+        {
+            var workingFolder = CanonicalFolder(RequireString(parameters, "workingFolder"));
+            using var connection = DbConnectionFactory.OpenReadWrite(parameters);
+            using var transaction = connection.BeginTransaction();
+            var existing = GetProjectByFolder(connection, transaction, workingFolder);
+            if (existing is not null)
+            {
+                transaction.Commit();
+                return WorkerResponse.Json(existing, WorkerJsonContext.Default.ProjectRow);
+            }
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var preferredName = NormalizeOptional(JsonHelpers.GetString(parameters, "preferredName")) ??
+                Path.GetFileName(workingFolder);
+            var project = new ProjectRow
+            {
+                Id = CreateId(),
+                Name = SanitizeProjectName(preferredName),
+                WorkingFolder = workingFolder,
+                SshConnectionId = null,
+                PluginId = null,
+                Pinned = 0,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            Directory.CreateDirectory(workingFolder);
+            InsertProject(connection, transaction, project);
+            transaction.Commit();
+            return WorkerResponse.Json(project, WorkerJsonContext.Default.ProjectRow);
+        }
+        catch (Exception ex)
+        {
+            return WorkerResponse.Error(ex.Message);
+        }
+    }
+
     public static WorkerResponse EnsurePluginProject(JsonElement parameters)
     {
         try
@@ -339,6 +383,40 @@ internal static class DbProjectTools
             """;
         command.Parameters.AddWithValue("$pluginId", pluginId);
         return ReadProjectRows(command).FirstOrDefault();
+    }
+
+    /// <summary>
+    /// An exact folder match wins; otherwise the deepest ancestor, so a run inside a
+    /// subdirectory joins its repository project instead of forking a near-duplicate.
+    /// </summary>
+    private static ProjectRow? GetProjectByFolder(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string workingFolder)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            {ProjectSelectSql}
+             WHERE plugin_id IS NULL AND ssh_connection_id IS NULL AND working_folder IS NOT NULL
+             ORDER BY pinned DESC, updated_at DESC
+            """;
+
+        ProjectRow? owner = null;
+        var ownerFolderLength = -1;
+        foreach (var row in ReadProjectRows(command))
+        {
+            var candidate = CanonicalFolder(row.WorkingFolder!);
+            if (candidate.Length <= ownerFolderLength || !CoversFolder(candidate, workingFolder))
+            {
+                continue;
+            }
+
+            owner = row;
+            ownerFolderLength = candidate.Length;
+        }
+
+        return owner;
     }
 
     private static ProjectRow? GetFirstNormalProject(
@@ -541,6 +619,30 @@ internal static class DbProjectTools
             ' ',
             StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return cleaned.Length == 0 ? "New Project" : cleaned;
+    }
+
+    /// <summary>Absolute path without a trailing separator, so folders compare as strings.</summary>
+    private static string CanonicalFolder(string value)
+    {
+        var full = Path.GetFullPath(value.Trim());
+        var trimmed = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return trimmed.Length == 0 || trimmed.EndsWith(':') ? full : trimmed;
+    }
+
+    private static bool CoversFolder(string ancestor, string folder)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        if (string.Equals(ancestor, folder, comparison))
+        {
+            return true;
+        }
+
+        return folder.Length > ancestor.Length &&
+            folder.StartsWith(ancestor, comparison) &&
+            (folder[ancestor.Length] == Path.DirectorySeparatorChar ||
+                folder[ancestor.Length] == Path.AltDirectorySeparatorChar);
     }
 
     private static ProjectDirectoryAllocation EnsureUniqueLocalProjectDirectory(

@@ -57,6 +57,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             reader,
             provider,
             "OpenAI Responses",
+            url,
             state.CancellationToken,
             parseState.ImageGenerationStarted)) is not null)
         {

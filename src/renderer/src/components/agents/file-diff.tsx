@@ -1,7 +1,7 @@
 'use client'
 // beui.dev/components/agents/file-diff
 
-import { Check, ChevronDown, Copy, FileCode2, LoaderCircle } from 'lucide-react'
+import { Check, ChevronDown, Copy } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
 import {
   type ReactNode,
@@ -51,10 +51,10 @@ function ChangeCount({ value, type }: { value: number; type: 'added' | 'removed'
   return (
     <span
       className={cn(
-        'rounded border px-1 py-0.2 font-mono text-[10px] font-medium tabular-nums',
+        'text-[11px] font-medium tabular-nums',
         type === 'added'
-          ? 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-600 dark:text-emerald-400'
-          : 'border-rose-500/25 bg-rose-500/[0.08] text-rose-600 dark:text-rose-400'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-rose-600 dark:text-rose-400'
       )}
     >
       {type === 'added' ? '+' : '−'}
@@ -142,37 +142,34 @@ export function FileDiff({
         aria-expanded={currentOpen}
         aria-controls={contentId}
         onClick={() => setOpen(!currentOpen)}
-        className="group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left outline-none transition-all duration-150 hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/[0.04]"
+        className="group flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/[0.035]"
       >
-        <FileCode2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground/70" />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/85">{file}</span>
+        <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">{language}</span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-[12.5px] text-foreground/75',
+            streaming && 'tool-name-live-pulse tool-name-live-pulse--running'
+          )}
+        >
+          {file}
+        </span>
         <span className="flex shrink-0 items-center gap-1.5">
           <ChangeCount value={additions} type="added" />
           <ChangeCount value={deletions} type="removed" />
-        </span>
-        <span className="grid size-4 shrink-0 place-items-center text-muted-foreground/60">
-          {streaming ? (
-            <LoaderCircle
-              aria-label="Applying changes"
-              className={cn('size-3.5', !reduce && 'animate-spin')}
-            />
-          ) : (
-            <Check aria-label="Changes applied" className="size-3.5 text-emerald-500" />
-          )}
         </span>
         <motion.span
           aria-hidden="true"
           animate={{ rotate: currentOpen ? 0 : -90 }}
           transition={reduce ? { duration: 0 } : SPRING_SWAP}
-          className="shrink-0 text-muted-foreground/45 transition-colors group-hover:text-muted-foreground"
+          className="shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70"
         >
           <ChevronDown className="size-3.5" />
         </motion.span>
       </button>
 
       <AgentDisclosure id={contentId} role="region" aria-labelledby={triggerId} open={currentOpen}>
-        <div className="ml-3.5 border-l border-border/50 pl-4.5 pt-1.5 dark:border-white/[0.08]">
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/20 dark:border-white/[0.08] dark:bg-white/[0.02]">
+        <div className="ml-2 border-l border-border/45 pl-3 pt-1.5 dark:border-white/[0.07]">
+          <div className="overflow-hidden rounded-lg border border-border/50 bg-muted/15 dark:border-white/[0.07] dark:bg-white/[0.02]">
             <div
               ref={viewportRef}
               data-slot="file-diff-viewport"

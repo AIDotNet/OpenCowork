@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.22] - 2026-08-28
+
+### Added
+
+- Added project-scoped agent memory at `.agents/MEMORY.md` for recording durable decisions, workflow habits, recurring errors, and context.
+- Added project database tools for agent workflows, including project listing, creation, updates, and deletion.
+- Added richer sub-agent reporting and task reminders so background work can return structured progress and keep long-running tasks visible.
+
+### Changed
+
+- Refined the Native Worker runtime across Anthropic, Gemini, OpenAI Responses, and OpenAI Chat providers, including event parsing, request timeouts, retry handling, context compression, image generation, computer-use state, and tool-error reporting.
+- Improved CLI hosted-session runtime behavior: session titles can be generated and drained safely during shutdown, MCP tool and resource calls honor configurable timeouts, and MCP calls use the SDK timeout options consistently.
+- Reworked chat and execution presentation across tool cards, grouped tool calls, thinking blocks, file changes, sub-agents, todos, web search, CodeGraph, browser, and system actions; execution labels and tool display names are now centralized for more consistent status rendering.
+- Added regression coverage for compact request views, execution outlines, hosted sessions, and runtime projection behavior.
+- Added project workflow memory guidance and removed the outdated Chinese CLI launch article.
+
 ## [1.3.21] - 2026-08-26
 
 ### Fixed

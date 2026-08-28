@@ -97,7 +97,8 @@ export const bigmodelCodingPreset: BuiltinProviderPreset = {
 export const bigmodelPreset: BuiltinProviderPreset = {
   builtinId: 'bigmodel',
   // v2: add GLM-5.3 as the official flagship (1M context, thinking cannot be disabled).
-  version: 2,
+  // v3: add the multimodal GLM-5.3-Flash model.
+  version: 3,
   name: '智谱AI（官方）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
@@ -116,6 +117,21 @@ export const bigmodelPreset: BuiltinProviderPreset = {
       maxOutputTokens: 131_072,
       supportsVision: false,
       supportsFunctionCall: true,
+      supportsThinking: true,
+      thinkingConfig: glm53ThinkingConfig()
+    },
+    {
+      id: 'glm-5.3-flash',
+      name: 'GLM-5.3-Flash',
+      icon: 'bigmodel',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 131_072,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.15,
+      outputPrice: 0.5,
+      cacheHitPrice: 0.03,
       supportsThinking: true,
       thinkingConfig: glm53ThinkingConfig()
     },

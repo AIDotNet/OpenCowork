@@ -25,7 +25,9 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v23: muse-spark-1.2 改用 anthropic Messages（thinking.adaptive + output_config.effort）
   // v24: 覆盖已保存的 Responses 思考配置（空 bodyParams / minimal+ultra）
   // v25: remove ox-alpha and add GLM-5.3-Flash
-  version: 25,
+  // v26: add qwen3.8-flash and hy4-preview
+  // v27: add qwen3.8-max; Qwen3.8-Max-Preview routes to production
+  version: 27,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -47,7 +49,8 @@ export const routinAiPreset: BuiltinProviderPreset = {
     'claude-sonnet-4-20250514',
     'claude-opus-4-20250514',
     'claude-3-5-haiku-20241022',
-    'ox-alpha'
+    'ox-alpha',
+    'Qwen3.8-Max-Preview'
   ],
   defaultModels: [
     {
@@ -841,6 +844,29 @@ export const routinAiPreset: BuiltinProviderPreset = {
         bodyParams: { thinking: { type: 'enabled' } },
         reasoningEffortLevels: ['low', 'high', 'max'],
         defaultReasoningEffort: 'max'
+      }
+    },
+    {
+      id: 'hy4-preview',
+      name: 'Hy4 Preview',
+      icon: 'hunyuan',
+      enabled: true,
+      type: 'openai-chat',
+      contextLength: 1_048_576,
+      maxOutputTokens: 64_000,
+      supportsVision: false,
+      supportsFunctionCall: true,
+      inputPrice: 0.834,
+      outputPrice: 2.501,
+      cacheHitPrice: 0.042,
+      supportsThinking: true,
+      // TokenHub：默认 high；关闭思考走 reasoning_effort=no_think（无 low 档）。
+      thinkingConfig: {
+        bodyParams: {},
+        disabledBodyParams: { reasoning_effort: 'no_think' },
+        reasoningEffortLevels: ['high'],
+        defaultReasoningEffort: 'high',
+        forceTemperature: 0.9
       }
     },
     {
@@ -1777,18 +1803,66 @@ export const routinAiPreset: BuiltinProviderPreset = {
     },
     // ── Qwen ──
     {
+      id: 'qwen3.8-max',
+      name: 'Qwen3.8 Max',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.25,
+      cacheCreationPrice: 2.5,
+      supportsThinking: true,
+      // QwenCloud：混合思考，默认开；reasoning_effort 为 low/medium/xhigh（默认 xhigh）。
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'medium', 'xhigh'],
+        defaultReasoningEffort: 'xhigh'
+      }
+    },
+    {
+      id: 'qwen3.8-flash',
+      name: 'Qwen3.8 Flash',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.16,
+      outputPrice: 0.47,
+      cacheHitPrice: 0.02,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'enabled' } },
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'medium', 'xhigh'],
+        defaultReasoningEffort: 'xhigh'
+      }
+    },
+    {
       id: 'Qwen3.8-Max-Preview',
       name: 'Qwen3.8 Max Preview',
       icon: 'qwen',
       enabled: true,
       contextLength: 1_000_000,
-      maxOutputTokens: 32_768,
-      supportsVision: false,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
       supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.25,
+      cacheCreationPrice: 2.5,
       supportsThinking: true,
       thinkingConfig: {
         bodyParams: { thinking: { type: 'enabled' } },
-        disabledBodyParams: { thinking: { type: 'disabled' } }
+        disabledBodyParams: { thinking: { type: 'disabled' } },
+        reasoningEffortLevels: ['low', 'medium', 'xhigh'],
+        defaultReasoningEffort: 'xhigh'
       }
     },
     // ── Qwen3.5 ──

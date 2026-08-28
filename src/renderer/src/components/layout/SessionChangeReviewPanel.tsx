@@ -37,7 +37,7 @@ import { useAgentStore } from '@renderer/stores/agent-store'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useUIStore } from '@renderer/stores/ui-store'
-import { useGitStore } from '@renderer/stores/git-store'
+import { useGitStore, type GitBranchItem } from '@renderer/stores/git-store'
 import { generateCommitMessageFromStagedDiff } from '@renderer/lib/git/generate-commit-message'
 import type { UnifiedMessage } from '@renderer/lib/api/types'
 import { CodeDiffViewer } from '@renderer/components/chat/CodeDiffViewer'
@@ -70,6 +70,9 @@ interface SessionChangeReviewPanelProps {
 }
 
 const EMPTY_SESSION_MESSAGES: UnifiedMessage[] = []
+// Stable fallback: an inline `?? []` in a zustand selector is a new array every
+// snapshot and trips React's useSyncExternalStore ("Maximum update depth exceeded").
+const EMPTY_GIT_BRANCHES: GitBranchItem[] = []
 
 function isErrorResult(value: unknown): value is { error: string } {
   return !!value && typeof value === 'object' && 'error' in value && typeof value.error === 'string'
@@ -387,9 +390,10 @@ export function SessionChangeReviewPanel({
   const gitCurrentBranch = useGitStore((state) =>
     workingFolder ? (state.repoDetailsByPath[workingFolder]?.currentBranch ?? null) : null
   )
-  const gitBranches = useGitStore((state) =>
-    workingFolder ? (state.repoDetailsByPath[workingFolder]?.branches ?? []) : []
-  )
+  const gitBranches = useGitStore((state) => {
+    if (!workingFolder) return EMPTY_GIT_BRANCHES
+    return state.repoDetailsByPath[workingFolder]?.branches ?? EMPTY_GIT_BRANCHES
+  })
   const refreshRepository = useGitStore((state) => state.refreshRepository)
   const checkoutBranch = useGitStore((state) => state.checkoutBranch)
   const gitCommit = useGitStore((state) => state.commit)

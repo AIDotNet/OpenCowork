@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.23] - 2026-08-29
+
+### Added
+
+- Added GLM-5.3-Flash to the official BigModel catalog (1M context, vision, and thinking).
+- Added Hunyuan Hy4 Preview (1M context; thinking defaults to high, and off maps to the official `no_think` effort).
+- Added Qwen3.8 Max, Qwen3.8 Flash, and Qwen3.8 27B to the official Qwen catalog (1M context, hybrid thinking, and vision).
+- Added Hy4 Preview, Qwen3.8 Max, and Qwen3.8 Flash to the Routin AI catalog with matching context, pricing, and thinking settings.
+
+### Changed
+
+- Retired Hunyuan Hy3 Preview after TokenHub routes that traffic to Hy3 on 2026-08-31; saved Hy3 Preview rows are removed on the next preset restore.
+- Qwen3.8-Max-Preview on Routin AI now matches production Max (128K output, vision, official pricing, and low/medium/xhigh effort) and is marked deprecated so saved preview rows can move to the production model.
+
+### Fixed
+
+- Fixed the session change-review panel hitting "Maximum update depth exceeded" when a folder had no git branch list. The Zustand selector now returns a stable empty array instead of allocating a new one on every snapshot.
+
 ## [1.3.22] - 2026-08-28
 
 ### Added

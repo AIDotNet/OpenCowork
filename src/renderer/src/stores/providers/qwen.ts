@@ -1,4 +1,13 @@
+import type { ThinkingConfig } from '../../lib/api/types'
 import type { BuiltinProviderPreset } from './types'
+
+/** Qwen3.8：混合思考，默认开；reasoning_effort 为 low/medium/xhigh（默认 xhigh）。 */
+const qwen38ThinkingConfig: ThinkingConfig = {
+  bodyParams: { enable_thinking: true },
+  disabledBodyParams: { enable_thinking: false },
+  reasoningEffortLevels: ['low', 'medium', 'xhigh'],
+  defaultReasoningEffort: 'xhigh'
+}
 
 export const qwenCodingPreset: BuiltinProviderPreset = {
   builtinId: 'qwen-coding',
@@ -178,13 +187,62 @@ export const qwenCodingPreset: BuiltinProviderPreset = {
 
 export const qwenPreset: BuiltinProviderPreset = {
   builtinId: 'qwen',
-  version: 1,
+  // v2: add Qwen3.8 Flash (1M context, hybrid thinking, multimodal).
+  // v3: add Qwen3.8 Max and Qwen3.8 27B.
+  version: 3,
   name: '通义千问（官方）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   homepage: 'https://dashscope.aliyun.com',
   apiKeyUrl: 'https://dashscope.console.aliyun.com/apiKey',
   defaultModels: [
+    // Qwen3.8 series
+    {
+      id: 'qwen3.8-max',
+      name: 'Qwen3.8 Max',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 2,
+      outputPrice: 6,
+      cacheHitPrice: 0.25,
+      cacheCreationPrice: 2.5,
+      supportsThinking: true,
+      thinkingConfig: qwen38ThinkingConfig
+    },
+    {
+      id: 'qwen3.8-flash',
+      name: 'Qwen3.8 Flash',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.16,
+      outputPrice: 0.47,
+      cacheHitPrice: 0.02,
+      supportsThinking: true,
+      thinkingConfig: qwen38ThinkingConfig
+    },
+    {
+      id: 'qwen3.8-27b',
+      name: 'Qwen3.8 27B',
+      icon: 'qwen',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.4,
+      outputPrice: 3,
+      cacheHitPrice: 0.05,
+      supportsThinking: true,
+      thinkingConfig: qwen38ThinkingConfig
+    },
     // Qwen3.7 series (2026-05 flagship refresh)
     {
       id: 'qwen3.7-max',

@@ -681,6 +681,21 @@
   animation: var(--animate-pulse) !important;
 }
 
+:root[data-animations='disabled'] .execution-collapse:not(.execution-collapse--boot) {
+  transition: grid-template-rows 0.36s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:root[data-animations='disabled'] .execution-collapse-shift {
+  transition:
+    transform 0.36s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.36s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+:root[data-animations='disabled'] .execution-collapse[data-motion='scroll-up'][data-phase='opening'],
+:root[data-animations='disabled'] .execution-collapse[data-motion='scroll-up'][data-phase='collapsing'] {
+  transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 @layer components {
   html:not(.dark) [data-slot='button'][data-variant='ghost']:hover,
   html:not(.dark) [data-slot='button'][data-variant='outline']:hover,
@@ -751,10 +766,57 @@
     color: color-mix(in srgb, var(--foreground) 64%, var(--muted-foreground) 36%);
   }
 
-  /* Beat `.space-y-2 > :not([hidden]) ~ :not([hidden])` so Thought / Explored
-     rows read as consecutive text lines instead of padded blocks. */
+  /* Beat `.space-y-2` so Thought / Explored rows stay tighter than cards,
+     but keep a little air between consecutive process lines. */
   .execution-stack > .execution-process-line + .execution-process-line {
-    margin-top: 0 !important;
+    margin-top: 0.25rem !important;
+  }
+
+  /* Clip mode: 0fr ↔ 1fr interpolates without measuring pixel height. */
+  .execution-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.36s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .execution-collapse[data-open='true'] {
+    grid-template-rows: 1fr;
+  }
+
+  .execution-collapse--boot {
+    transition: none;
+  }
+
+  /* Scroll-up mode: lock the old box, roll content out the top, then drop height. */
+  .execution-collapse[data-motion='scroll-up'] {
+    display: block;
+    overflow: hidden;
+    transition: none;
+  }
+
+  .execution-collapse[data-motion='scroll-up'][data-phase='open'] {
+    overflow: visible;
+  }
+
+  .execution-collapse[data-motion='scroll-up'][data-phase='opening'],
+  .execution-collapse[data-motion='scroll-up'][data-phase='collapsing'] {
+    transition: height 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .execution-collapse-clip {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .execution-collapse-shift {
+    transition:
+      transform 0.36s cubic-bezier(0.4, 0, 0.2, 1),
+      opacity 0.36s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .execution-collapse[data-phase='closing'] .execution-collapse-shift {
+    transform: translateY(-100%);
+    opacity: 0;
   }
 
   .tool-name-live-pulse {
@@ -970,6 +1032,27 @@
     line-height: 1;
     color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* One-line live thought: old fragment rolls up in place, new one enters. */
+  .thinking-live-ticker {
+    position: relative;
+    display: block;
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 1.125rem;
+    overflow: hidden;
+  }
+
+  .thinking-live-ticker-line {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.6875rem;
+    line-height: 1.125rem;
+    color: color-mix(in srgb, var(--muted-foreground) 72%, transparent);
   }
 
   .composer-shell {

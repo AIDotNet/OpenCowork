@@ -733,13 +733,7 @@ internal static class AgentRuntimeNativeToolExecutor
             throw new InvalidOperationException("Write requires a content string");
         }
 
-        var guardError = await AssertCurrentFileMatchesLastReadAsync(
-            parameters, path, "Write", allowMissingFile: true, cancellationToken);
-        if (guardError is not null)
-        {
-            throw new InvalidOperationException(guardError);
-        }
-
+        // Write creates or overwrites. The read-history guard is for Edit/NotebookEdit.
         return await FileSystemAccess.RetryOnAccessDeniedAsync(
             path,
             "write",
@@ -793,7 +787,7 @@ internal static class AgentRuntimeNativeToolExecutor
         }
 
         var guardError = await AssertCurrentFileMatchesLastReadAsync(
-            parameters, path, "Edit", allowMissingFile: false, cancellationToken);
+            parameters, path, "Edit", cancellationToken);
         if (guardError is not null)
         {
             return EncodeError(guardError);
@@ -860,7 +854,7 @@ internal static class AgentRuntimeNativeToolExecutor
         }
 
         var guardError = await AssertCurrentFileMatchesLastReadAsync(
-            parameters, path, "NotebookEdit", allowMissingFile: false, cancellationToken);
+            parameters, path, "NotebookEdit", cancellationToken);
         if (guardError is not null)
         {
             return EncodeError(guardError);
@@ -1951,7 +1945,6 @@ internal static class AgentRuntimeNativeToolExecutor
         JsonElement parameters,
         string path,
         string toolName,
-        bool allowMissingFile,
         CancellationToken cancellationToken)
     {
         var scope = ResolveReadHistoryScope(parameters);
@@ -1962,10 +1955,6 @@ internal static class AgentRuntimeNativeToolExecutor
 
         var fullPath = Path.GetFullPath(path);
         var current = CaptureSnapshot(fullPath);
-        if (!current.Exists && allowMissingFile)
-        {
-            return null;
-        }
 
         ReadHistoryEntry? previous = null;
         lock (ReadSnapshotsByScope)

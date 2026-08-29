@@ -2819,9 +2819,9 @@ function ToolCallCardInner({
   return (
     <div
       className={cn(
-          useCompactToolHeader || isMcpToolCall
-            ? 'my-0 min-w-0 overflow-hidden'
-            : 'my-5 min-w-0 overflow-hidden'
+        useCompactToolHeader || isMcpToolCall
+          ? 'my-0 min-w-0 overflow-hidden'
+          : 'my-5 min-w-0 overflow-hidden'
       )}
     >
       {/* Header — click to toggle */}
@@ -2924,6 +2924,7 @@ function ToolCallCardInner({
       {/* Expanded details — same pixel-height tween as ThinkingBlock */}
       <CollapsibleHeightPanel
         open={open}
+        collapseMotion="scroll-up"
         className={cn(
           'min-w-0 overflow-hidden',
           useCompactToolHeader

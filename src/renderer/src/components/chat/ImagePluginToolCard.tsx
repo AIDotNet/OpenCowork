@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
@@ -13,6 +13,7 @@ import { countLabel } from '@renderer/lib/chat/execution-labels'
 import { Button } from '@renderer/components/ui/button'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
 import { cn } from '@renderer/lib/utils'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 import { ImagePreview } from './ImagePreview'
 
 interface ImagePluginToolCardProps {
@@ -192,162 +193,154 @@ export function ImagePluginToolCard({
         />
       </button>
 
-      <AnimatePresence initial={false}>
-        {!collapsed ? (
-          <motion.div
-            key="image-plugin-content"
-            layout
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={CONTENT_TRANSITION}
-            className="ml-3.5 mt-1 overflow-hidden border-l border-border/50 pl-4.5 dark:border-white/[0.08]"
-          >
-            <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
-              <div className="space-y-2">
-                <SectionHeader label={t('toolCall.parameters')} />
-                <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">
-                  <div className="flex items-center gap-2 text-muted-foreground/70">
-                    <span
-                      className={
-                        isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : undefined
-                      }
-                    >
-                      {statusLabel}
-                    </span>
-                  </div>
-                  <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
-                    {prompt || '-'}
+      <CollapsibleHeightPanel
+        open={!collapsed}
+        collapseMotion="scroll-up"
+        className="ml-3.5 mt-1 overflow-hidden border-l border-border/50 pl-4.5 dark:border-white/[0.08]"
+      >
+        <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3 shadow-xs dark:border-white/[0.08] dark:bg-white/[0.02]">
+          <div className="space-y-2">
+            <SectionHeader label={t('toolCall.parameters')} />
+            <div className="space-y-1.5 rounded-md bg-muted/20 px-3 py-2 text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground/70">
+                <span
+                  className={
+                    isRunning ? 'tool-name-live-pulse tool-name-live-pulse--running' : undefined
+                  }
+                >
+                  {statusLabel}
+                </span>
+              </div>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/85">
+                {prompt || '-'}
+              </p>
+            </div>
+          </div>
+
+          {isAwaitingRetry ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={ITEM_TRANSITION}
+              className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.045] px-3 py-3 text-sm"
+            >
+              <div className="text-amber-700 dark:text-amber-300">
+                <div className="space-y-1">
+                  <p className="font-medium">{t('toolCall.imagePlugin.retryRequired')}</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {t('toolCall.imagePlugin.retryHint', {
+                      completed: retryState?.completedCount ?? images.length,
+                      total: retryState?.totalCount ?? requestedCount
+                    })}
                   </p>
+                  <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-200/90">
+                    {t('toolCall.imagePlugin.retryCaveat')}
+                  </p>
+                  {parsedError ? (
+                    <p className="break-all rounded-md bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                      {parsedError}
+                    </p>
+                  ) : null}
                 </div>
               </div>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => void handleRetry()} disabled={!toolUseId}>
+                  {t('action.retry', { ns: 'common' })}
+                </Button>
+              </div>
+            </motion.div>
+          ) : isRunning ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={ITEM_TRANSITION}
+              className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/20 bg-sky-500/[0.035] px-3 py-3 text-sm text-muted-foreground"
+            >
+              <Loader2 className="size-4 animate-spin text-sky-500" />
+              <span className="tool-name-live-pulse tool-name-live-pulse--running">
+                {t('toolCall.imagePlugin.generating')}
+              </span>
+            </motion.div>
+          ) : null}
 
-              {isAwaitingRetry ? (
+          {hasError ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={ITEM_TRANSITION}
+              className="rounded-lg border border-destructive/30 bg-destructive/[0.035] px-3 py-3 text-sm text-destructive"
+            >
+              <span className="min-w-0 break-words">{parsedError}</span>
+            </motion.div>
+          ) : null}
+
+          {images.length > 0 || notes.length > 0 ? (
+            <div className="space-y-3">
+              <SectionHeader
+                label={
+                  images.length > 0
+                    ? t('toolCall.imagePlugin.result', { count: images.length })
+                    : t('toolCall.result')
+                }
+              />
+              {images.length > 0 ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={ITEM_TRANSITION}
-                  className="space-y-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.045] px-3 py-3 text-sm"
+                  className="grid gap-3 md:grid-cols-2"
                 >
-                  <div className="text-amber-700 dark:text-amber-300">
-                    <div className="space-y-1">
-                      <p className="font-medium">{t('toolCall.imagePlugin.retryRequired')}</p>
-                      <p className="text-xs leading-relaxed text-muted-foreground">
-                        {t('toolCall.imagePlugin.retryHint', {
-                          completed: retryState?.completedCount ?? images.length,
-                          total: retryState?.totalCount ?? requestedCount
-                        })}
-                      </p>
-                      <p className="text-xs leading-relaxed text-amber-700/90 dark:text-amber-200/90">
-                        {t('toolCall.imagePlugin.retryCaveat')}
-                      </p>
-                      {parsedError ? (
-                        <p className="break-all rounded-md bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground">
-                          {parsedError}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button size="sm" onClick={() => void handleRetry()} disabled={!toolUseId}>
-                      {t('action.retry', { ns: 'common' })}
-                    </Button>
-                  </div>
-                </motion.div>
-              ) : isRunning ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={ITEM_TRANSITION}
-                  className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/20 bg-sky-500/[0.035] px-3 py-3 text-sm text-muted-foreground"
-                >
-                  <Loader2 className="size-4 animate-spin text-sky-500" />
-                  <span className="tool-name-live-pulse tool-name-live-pulse--running">
-                    {t('toolCall.imagePlugin.generating')}
-                  </span>
+                  {images.map((image, index) => {
+                    const src =
+                      image.source.type === 'base64' && image.source.data
+                        ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
+                        : (image.source.url ?? '')
+                    if (!src && !image.source.filePath) return null
+                    return (
+                      <motion.div
+                        key={`${image.source.filePath ?? src}-${index}`}
+                        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ ...ITEM_TRANSITION, delay: index * 0.06 }}
+                      >
+                        <ImagePreview
+                          src={src}
+                          alt={`Generated image ${index + 1}`}
+                          filePath={image.source.filePath}
+                        />
+                      </motion.div>
+                    )
+                  })}
                 </motion.div>
               ) : null}
 
-              {hasError ? (
+              {notes.length > 0 ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={ITEM_TRANSITION}
-                  className="rounded-lg border border-destructive/30 bg-destructive/[0.035] px-3 py-3 text-sm text-destructive"
+                  className="space-y-2"
                 >
-                  <span className="min-w-0 break-words">{parsedError}</span>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('toolCall.imagePlugin.notes')}
+                  </p>
+                  {notes.map((note, index) => (
+                    <motion.p
+                      key={`${note.text}-${index}`}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...ITEM_TRANSITION, delay: index * 0.04 }}
+                      className="whitespace-pre-wrap break-words rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
+                    >
+                      {note.text}
+                    </motion.p>
+                  ))}
                 </motion.div>
-              ) : null}
-
-              {images.length > 0 || notes.length > 0 ? (
-                <div className="space-y-3">
-                  <SectionHeader
-                    label={
-                      images.length > 0
-                        ? t('toolCall.imagePlugin.result', { count: images.length })
-                        : t('toolCall.result')
-                    }
-                  />
-                  {images.length > 0 ? (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={ITEM_TRANSITION}
-                      className="grid gap-3 md:grid-cols-2"
-                    >
-                      {images.map((image, index) => {
-                        const src =
-                          image.source.type === 'base64' && image.source.data
-                            ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
-                            : (image.source.url ?? '')
-                        if (!src && !image.source.filePath) return null
-                        return (
-                          <motion.div
-                            key={`${image.source.filePath ?? src}-${index}`}
-                            initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            transition={{ ...ITEM_TRANSITION, delay: index * 0.06 }}
-                          >
-                            <ImagePreview
-                              src={src}
-                              alt={`Generated image ${index + 1}`}
-                              filePath={image.source.filePath}
-                            />
-                          </motion.div>
-                        )
-                      })}
-                    </motion.div>
-                  ) : null}
-
-                  {notes.length > 0 ? (
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={ITEM_TRANSITION}
-                      className="space-y-2"
-                    >
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {t('toolCall.imagePlugin.notes')}
-                      </p>
-                      {notes.map((note, index) => (
-                        <motion.p
-                          key={`${note.text}-${index}`}
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ ...ITEM_TRANSITION, delay: index * 0.04 }}
-                          className="whitespace-pre-wrap break-words rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground"
-                        >
-                          {note.text}
-                        </motion.p>
-                      ))}
-                    </motion.div>
-                  ) : null}
-                </div>
               ) : null}
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+        </div>
+      </CollapsibleHeightPanel>
     </motion.div>
   )
 }

@@ -17,6 +17,7 @@ import { toMessagePackChannel } from '../../../../shared/messagepack/binary-ipc'
 import { type DiffViewerChunk, type DiffViewerLine } from './CodeDiffViewer'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { FileMutationDiffCard } from './file-mutation-diff-card'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -1468,108 +1469,114 @@ function DeleteFileChangeCard({
         )}
       </button>
 
-      {!collapsed && hasExpandedContent && (
-        <div
-          className={cn(
-            'overflow-hidden',
-            useCompactChangeLayout
-              ? 'ml-2 border-l border-border/45 pl-3 pt-1 dark:border-white/[0.07]'
-              : 'activity-card-divider border-t bg-background/40'
-          )}
-        >
-          {showTrackedEditDiff && trackedChange && (
-            <TrackedEditDiff change={trackedChange} filePath={filePath} />
-          )}
-          {showPendingEditPreview && <PendingEditPreview input={input} />}
-          {showSettledCompactEditDiff && compactEditDiff && (
-            <CompactEditDiff
-              oldStr={compactEditDiff.oldStr}
-              newStr={compactEditDiff.newStr}
-              filePath={filePath}
-            />
-          )}
-          {showTrackedWriteInlineDiff && trackedChange && (
-            <InlineDiff
-              oldStr={snapshotText(trackedChange.before)}
-              newStr={snapshotText(trackedChange.after)}
-              filePath={filePath}
-            />
-          )}
-          {showTrackedWriteSnapshotSummary && trackedChange && (
-            <SnapshotSummaryNotice
-              before={trackedChange.before}
-              after={trackedChange.after}
-              filePath={filePath}
-            />
-          )}
-          {showTrackedWriteNewFile && trackedChange && (
-            <NewFileContent
-              content={snapshotText(trackedChange.after)}
-              filePath={filePath}
-              isStreaming={status === 'streaming'}
-            />
-          )}
-          {showTrackedWriteNewFileSummary && trackedChange && (
-            <SnapshotSummaryNotice after={trackedChange.after} filePath={filePath} />
-          )}
-          {showPendingWriteStreaming && (
-            <PendingWritePreview
-              input={input}
-              isStreaming={status === 'streaming'}
-              op={compactActionOp === 'create' ? 'create' : 'modify'}
-            />
-          )}
-          {showSettledWriteModifyPreview && (
-            <PendingWritePreview input={input} isStreaming={false} op="modify" />
-          )}
-          {showSettledWriteNewFile && (
-            <NewFileContent
-              content={resolvedWrite.text || resolvedWrite.preview}
-              filePath={filePath}
-              isStreaming={false}
-            />
-          )}
+      <CollapsibleHeightPanel
+        open={!collapsed}
+        collapseMotion="scroll-up"
+        className="overflow-hidden"
+      >
+        {hasExpandedContent ? (
+          <div
+            className={cn(
+              'overflow-hidden',
+              useCompactChangeLayout
+                ? 'ml-2 border-l border-border/45 pl-3 pt-1 dark:border-white/[0.07]'
+                : 'activity-card-divider border-t bg-background/40'
+            )}
+          >
+            {showTrackedEditDiff && trackedChange && (
+              <TrackedEditDiff change={trackedChange} filePath={filePath} />
+            )}
+            {showPendingEditPreview && <PendingEditPreview input={input} />}
+            {showSettledCompactEditDiff && compactEditDiff && (
+              <CompactEditDiff
+                oldStr={compactEditDiff.oldStr}
+                newStr={compactEditDiff.newStr}
+                filePath={filePath}
+              />
+            )}
+            {showTrackedWriteInlineDiff && trackedChange && (
+              <InlineDiff
+                oldStr={snapshotText(trackedChange.before)}
+                newStr={snapshotText(trackedChange.after)}
+                filePath={filePath}
+              />
+            )}
+            {showTrackedWriteSnapshotSummary && trackedChange && (
+              <SnapshotSummaryNotice
+                before={trackedChange.before}
+                after={trackedChange.after}
+                filePath={filePath}
+              />
+            )}
+            {showTrackedWriteNewFile && trackedChange && (
+              <NewFileContent
+                content={snapshotText(trackedChange.after)}
+                filePath={filePath}
+                isStreaming={status === 'streaming'}
+              />
+            )}
+            {showTrackedWriteNewFileSummary && trackedChange && (
+              <SnapshotSummaryNotice after={trackedChange.after} filePath={filePath} />
+            )}
+            {showPendingWriteStreaming && (
+              <PendingWritePreview
+                input={input}
+                isStreaming={status === 'streaming'}
+                op={compactActionOp === 'create' ? 'create' : 'modify'}
+              />
+            )}
+            {showSettledWriteModifyPreview && (
+              <PendingWritePreview input={input} isStreaming={false} op="modify" />
+            )}
+            {showSettledWriteNewFile && (
+              <NewFileContent
+                content={resolvedWrite.text || resolvedWrite.preview}
+                filePath={filePath}
+                isStreaming={false}
+              />
+            )}
 
-          {showDeleteNotice && (
-            <div className="px-3 py-3 text-[11px] text-red-500/80 italic dark:text-red-300/80">
-              {t('fileChange.fileWillBeDeleted')}
-            </div>
-          )}
-        </div>
-      )}
+            {showDeleteNotice && (
+              <div className="px-3 py-3 text-[11px] text-red-500/80 italic dark:text-red-300/80">
+                {t('fileChange.fileWillBeDeleted')}
+              </div>
+            )}
+          </div>
+        ) : null}
 
-      {trackedChange && !collapsed && (
-        <div
-          className={cn(
-            useCompactChangeLayout
-              ? 'bg-transparent px-3 py-2'
-              : 'activity-card-divider border-t bg-muted/20 px-3 py-2'
-          )}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] text-muted-foreground">
-              {trackedChange.status === 'reverted'
-                ? t('fileChange.restored')
-                : t('fileChange.individualActions')}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="xs"
-                variant={useCompactChangeLayout ? 'ghost' : 'destructive'}
-                className={
-                  useCompactChangeLayout ? 'text-zinc-200 hover:bg-white/[0.04]' : undefined
-                }
-                onClick={handleUndoFile}
-                disabled={!isFileActionable || isUndoingFile}
-              >
-                {isUndoingFile ? <Loader2 className="size-3 animate-spin" /> : null}
-                {t('action.undo', { ns: 'common' })}
-              </Button>
+        {trackedChange ? (
+          <div
+            className={cn(
+              useCompactChangeLayout
+                ? 'bg-transparent px-3 py-2'
+                : 'activity-card-divider border-t bg-muted/20 px-3 py-2'
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] text-muted-foreground">
+                {trackedChange.status === 'reverted'
+                  ? t('fileChange.restored')
+                  : t('fileChange.individualActions')}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant={useCompactChangeLayout ? 'ghost' : 'destructive'}
+                  className={
+                    useCompactChangeLayout ? 'text-zinc-200 hover:bg-white/[0.04]' : undefined
+                  }
+                  onClick={handleUndoFile}
+                  disabled={!isFileActionable || isUndoingFile}
+                >
+                  {isUndoingFile ? <Loader2 className="size-3 animate-spin" /> : null}
+                  {t('action.undo', { ns: 'common' })}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        ) : null}
+      </CollapsibleHeightPanel>
 
       {(error || (parsedOutputError && !error) || canceledMessage) && (
         <div

@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatePresence, motion } from 'motion/react'
 import Markdown from 'react-markdown'
 import { Copy } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
@@ -14,6 +13,7 @@ import { filesLabel, toolStatusLabel } from '@renderer/lib/chat/execution-labels
 import { useUIStore } from '@renderer/stores/ui-store'
 import type { CompactToolHeaderModel } from './CompactToolCallHeader'
 import { CompactToolCallHeader } from './CompactToolCallHeader'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 // Dedicated chat card for the codegraph_* tool family (explore/search/callers/
 // callees/impact/node/files/status). The worker returns a success-shaped envelope
@@ -30,11 +30,6 @@ interface CodeGraphToolCardProps {
   startedAt?: number
   completedAt?: number
   forceOpen?: boolean
-}
-
-const CONTENT_TRANSITION = {
-  duration: 0.18,
-  ease: 'easeOut' as const
 }
 
 const MAX_FILE_CHIPS = 8
@@ -261,147 +256,139 @@ export function CodeGraphToolCard({
         />
       </button>
 
-      <AnimatePresence initial={false}>
-        {open ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={CONTENT_TRANSITION}
-            className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
-          >
-            <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
-              {isRunning ? (
-                <CodeGraphScanIndicator label="Querying the code graph…" />
-              ) : null}
+      <CollapsibleHeightPanel
+        open={open}
+        collapseMotion="scroll-up"
+        className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
+      >
+        <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
+          {isRunning ? <CodeGraphScanIndicator label="Querying the code graph…" /> : null}
 
-              {displayError ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
-                  <span className="break-words whitespace-pre-wrap">{displayError}</span>
-                </div>
-              ) : null}
-
-              {!displayError && notIndexed && markdown ? (
-                <div className="rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300">
-                  <p className="mb-0.5 font-medium">
-                    {t('toolCall.codegraph.notIndexed', { defaultValue: 'Index not ready' })}
-                  </p>
-                  <p className="whitespace-pre-wrap break-words text-amber-700/80 dark:text-amber-300/80">
-                    {markdown}
-                  </p>
-                </div>
-              ) : null}
-
-              {!displayError && !notIndexed && fileRefs.length > 0 ? (
-                <div className="space-y-1">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
-                    {t('toolCall.codegraph.files', { defaultValue: 'Files referenced' })}
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {fileRefs.slice(0, MAX_FILE_CHIPS).map((ref) => {
-                      const clickable = Boolean(resolveAbsolutePath(ref.path, projectPath))
-                      return (
-                        <button
-                          key={ref.path}
-                          type="button"
-                          disabled={!clickable}
-                          onClick={() => handleOpenFile(ref)}
-                          title={ref.path}
-                          className={`inline-flex max-w-full items-center gap-1 rounded-full border border-border/55 bg-muted/25 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors ${
-                            clickable
-                              ? 'hover:border-sky-500/35 hover:bg-sky-500/[0.08] hover:text-foreground'
-                              : 'cursor-default'
-                          }`}
-                        >
-                          <span className="truncate font-mono">{pathFileName(ref.path)}</span>
-                          {ref.count > 1 ? (
-                            <span className="shrink-0 tabular-nums text-muted-foreground/60">
-                              ×{ref.count}
-                            </span>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                    {fileRefs.length > MAX_FILE_CHIPS ? (
-                      <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
-                        +{fileRefs.length - MAX_FILE_CHIPS}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {!displayError && !notIndexed && markdown ? (
-                <div>
-                  <div className="mb-1 flex items-center gap-1">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
-                      {t('toolCall.codegraph.result', { defaultValue: 'Graph result' })}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleCopy}
-                      title={t('action.copy', { ns: 'common', defaultValue: 'Copy' })}
-                      className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground"
-                    >
-                      <Copy className="size-3" />
-                    </button>
-                  </div>
-                  <div
-                    className={`overflow-auto rounded-md border border-border/50 bg-muted/10 px-3 py-2 ${
-                      isLongBody && !bodyExpanded ? 'max-h-48' : 'max-h-[480px]'
-                    }`}
-                  >
-                    <div className="prose prose-sm dark:prose-invert max-w-none text-xs prose-headings:mb-1.5 prose-headings:mt-3 prose-headings:text-sm prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-pre:bg-muted prose-pre:px-2.5 prose-pre:py-2 prose-code:before:content-none prose-code:after:content-none">
-                      <Markdown
-                        remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-                        rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
-                      >
-                        {markdown}
-                      </Markdown>
-                    </div>
-                  </div>
-                  {isLongBody ? (
-                    <button
-                      type="button"
-                      onClick={() => setBodyExpanded(!bodyExpanded)}
-                      className="mt-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      {bodyExpanded
-                        ? t('action.showLess', { ns: 'common' })
-                        : t('toolCall.showAll', {
-                            chars: markdown.length,
-                            lines: markdown.split('\n').length
-                          })}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {envelope && envelope.notices.length > 0 ? (
-                <div className="space-y-1">
-                  {envelope.notices.map((notice, index) => (
-                    <p
-                      key={`${notice}-${index}`}
-                      className="rounded-md bg-muted/20 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
-                    >
-                      {notice}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-
-              <details className="group/input">
-                <summary className="cursor-pointer select-none text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                  {t('toolCall.codegraph.input', { defaultValue: 'Input' })}
-                </summary>
-                <pre className="mt-1.5 max-h-36 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
-                  {JSON.stringify(input, null, 2)}
-                </pre>
-              </details>
+          {displayError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
+              <span className="break-words whitespace-pre-wrap">{displayError}</span>
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+
+          {!displayError && notIndexed && markdown ? (
+            <div className="rounded-md border border-amber-500/25 bg-amber-500/[0.05] px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300">
+              <p className="mb-0.5 font-medium">
+                {t('toolCall.codegraph.notIndexed', { defaultValue: 'Index not ready' })}
+              </p>
+              <p className="whitespace-pre-wrap break-words text-amber-700/80 dark:text-amber-300/80">
+                {markdown}
+              </p>
+            </div>
+          ) : null}
+
+          {!displayError && !notIndexed && fileRefs.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                {t('toolCall.codegraph.files', { defaultValue: 'Files referenced' })}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {fileRefs.slice(0, MAX_FILE_CHIPS).map((ref) => {
+                  const clickable = Boolean(resolveAbsolutePath(ref.path, projectPath))
+                  return (
+                    <button
+                      key={ref.path}
+                      type="button"
+                      disabled={!clickable}
+                      onClick={() => handleOpenFile(ref)}
+                      title={ref.path}
+                      className={`inline-flex max-w-full items-center gap-1 rounded-full border border-border/55 bg-muted/25 px-2 py-0.5 text-[10px] text-muted-foreground transition-colors ${
+                        clickable
+                          ? 'hover:border-sky-500/35 hover:bg-sky-500/[0.08] hover:text-foreground'
+                          : 'cursor-default'
+                      }`}
+                    >
+                      <span className="truncate font-mono">{pathFileName(ref.path)}</span>
+                      {ref.count > 1 ? (
+                        <span className="shrink-0 tabular-nums text-muted-foreground/60">
+                          ×{ref.count}
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })}
+                {fileRefs.length > MAX_FILE_CHIPS ? (
+                  <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+                    +{fileRefs.length - MAX_FILE_CHIPS}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {!displayError && !notIndexed && markdown ? (
+            <div>
+              <div className="mb-1 flex items-center gap-1">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                  {t('toolCall.codegraph.result', { defaultValue: 'Graph result' })}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  title={t('action.copy', { ns: 'common', defaultValue: 'Copy' })}
+                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted/40 hover:text-foreground"
+                >
+                  <Copy className="size-3" />
+                </button>
+              </div>
+              <div
+                className={`overflow-auto rounded-md border border-border/50 bg-muted/10 px-3 py-2 ${
+                  isLongBody && !bodyExpanded ? 'max-h-48' : 'max-h-[480px]'
+                }`}
+              >
+                <div className="prose prose-sm dark:prose-invert max-w-none text-xs prose-headings:mb-1.5 prose-headings:mt-3 prose-headings:text-sm prose-p:my-1.5 prose-ul:my-1.5 prose-li:my-0.5 prose-pre:bg-muted prose-pre:px-2.5 prose-pre:py-2 prose-code:before:content-none prose-code:after:content-none">
+                  <Markdown
+                    remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                    rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+                  >
+                    {markdown}
+                  </Markdown>
+                </div>
+              </div>
+              {isLongBody ? (
+                <button
+                  type="button"
+                  onClick={() => setBodyExpanded(!bodyExpanded)}
+                  className="mt-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {bodyExpanded
+                    ? t('action.showLess', { ns: 'common' })
+                    : t('toolCall.showAll', {
+                        chars: markdown.length,
+                        lines: markdown.split('\n').length
+                      })}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {envelope && envelope.notices.length > 0 ? (
+            <div className="space-y-1">
+              {envelope.notices.map((notice, index) => (
+                <p
+                  key={`${notice}-${index}`}
+                  className="rounded-md bg-muted/20 px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
+                >
+                  {notice}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <details className="group/input">
+            <summary className="cursor-pointer select-none text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+              {t('toolCall.codegraph.input', { defaultValue: 'Input' })}
+            </summary>
+            <pre className="mt-1.5 max-h-36 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          </details>
+        </div>
+      </CollapsibleHeightPanel>
     </div>
   )
 }

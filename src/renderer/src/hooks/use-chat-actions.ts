@@ -5801,57 +5801,49 @@ export function useChatActions(): {
                       hasPreview: typeof event.toolUseBlock.input?.content_preview === 'string'
                     })
                   }
-                  // Some providers emit only tool_use_generated without a prior tool_use_streaming_start.
-                  // Ensure the assistant message has a visible tool block so later results can attach to it.
+                  // Some providers emit only tool_use_generated without a prior
+                  // tool_use_streaming_start. Always upsert the assistant tool_use —
+                  // being in the live agent-store cache does not mean the message
+                  // has a visible card. Checking the store here dropped Read/Grep
+                  // blocks when tool_call_start arrived first.
                   const isFg = isSessionForeground(sessionId!)
-                  const alreadyTracked =
-                    isFg &&
-                    [
-                      ...useAgentStore.getState().executedToolCalls,
-                      ...useAgentStore.getState().pendingToolCalls,
-                      ...(useAgentStore.getState().sessionToolCallsCache[sessionId!]?.executed ??
-                        []),
-                      ...(useAgentStore.getState().sessionToolCallsCache[sessionId!]?.pending ?? [])
-                    ].some((tc) => tc.id === event.toolUseBlock.id)
-                  if (!alreadyTracked) {
-                    streamDeltaBuffer.flushNow()
-                    if (!thinkingDone) {
-                      thinkingDone = true
-                      completeRuntimeThinking(sessionId!, assistantMsgId)
-                    }
-                    appendRuntimeToolUse(sessionId!, assistantMsgId, {
-                      type: 'tool_use',
-                      id: event.toolUseBlock.id,
-                      name: event.toolUseBlock.name,
-                      input: summarizeImmediateLiveToolInput(
-                        event.toolUseBlock.id,
-                        event.toolUseBlock.name,
-                        event.toolUseBlock.input
-                      ),
-                      ...(event.toolUseBlock.extraContent
-                        ? { extraContent: event.toolUseBlock.extraContent }
-                        : {})
-                    })
-                    if (isFg) {
-                      useAgentStore.getState().addToolCall(
-                        {
-                          id: event.toolUseBlock.id,
-                          name: event.toolUseBlock.name,
-                          input: summarizeImmediateLiveToolInput(
-                            event.toolUseBlock.id,
-                            event.toolUseBlock.name,
-                            event.toolUseBlock.input
-                          ),
-                          status: 'running',
-                          requiresApproval: false,
-                          ...(event.toolUseBlock.extraContent
-                            ? { extraContent: event.toolUseBlock.extraContent }
-                            : {}),
-                          startedAt: Date.now()
-                        },
-                        sessionId!
-                      )
-                    }
+                  streamDeltaBuffer.flushNow()
+                  if (!thinkingDone) {
+                    thinkingDone = true
+                    completeRuntimeThinking(sessionId!, assistantMsgId)
+                  }
+                  appendRuntimeToolUse(sessionId!, assistantMsgId, {
+                    type: 'tool_use',
+                    id: event.toolUseBlock.id,
+                    name: event.toolUseBlock.name,
+                    input: summarizeImmediateLiveToolInput(
+                      event.toolUseBlock.id,
+                      event.toolUseBlock.name,
+                      event.toolUseBlock.input
+                    ),
+                    ...(event.toolUseBlock.extraContent
+                      ? { extraContent: event.toolUseBlock.extraContent }
+                      : {})
+                  })
+                  if (isFg) {
+                    useAgentStore.getState().addToolCall(
+                      {
+                        id: event.toolUseBlock.id,
+                        name: event.toolUseBlock.name,
+                        input: summarizeImmediateLiveToolInput(
+                          event.toolUseBlock.id,
+                          event.toolUseBlock.name,
+                          event.toolUseBlock.input
+                        ),
+                        status: 'running',
+                        requiresApproval: false,
+                        ...(event.toolUseBlock.extraContent
+                          ? { extraContent: event.toolUseBlock.extraContent }
+                          : {}),
+                        startedAt: Date.now()
+                      },
+                      sessionId!
+                    )
                   }
                   seedSubAgentFromTaskToolCall(sessionId!, {
                     id: event.toolUseBlock.id,
@@ -5890,6 +5882,24 @@ export function useChatActions(): {
                 case 'tool_call_start':
                   runUsedTools = true
                   liveToolNames.set(event.toolCall.id, event.toolCall.name)
+                  streamDeltaBuffer.flushNow()
+                  if (!thinkingDone) {
+                    thinkingDone = true
+                    completeRuntimeThinking(sessionId!, assistantMsgId)
+                  }
+                  appendRuntimeToolUse(sessionId!, assistantMsgId, {
+                    type: 'tool_use',
+                    id: event.toolCall.id,
+                    name: event.toolCall.name,
+                    input: summarizeImmediateLiveToolInput(
+                      event.toolCall.id,
+                      event.toolCall.name,
+                      event.toolCall.input
+                    ),
+                    ...(event.toolCall.extraContent
+                      ? { extraContent: event.toolCall.extraContent }
+                      : {})
+                  })
                   if (isSessionForeground(sessionId!)) {
                     useAgentStore.getState().addToolCall(
                       {
@@ -6081,6 +6091,31 @@ export function useChatActions(): {
                   // The next iteration's text/tool_use will continue appending to the same assistant message.
                   if (event.toolResults && event.toolResults.length > 0) {
                     reconcileIterationToolResults(sessionId!, event.toolResults)
+                    const agentState = useAgentStore.getState()
+                    const sessionCache = agentState.sessionToolCallsCache[sessionId!]
+                    const trackedCalls = [
+                      ...agentState.pendingToolCalls,
+                      ...agentState.executedToolCalls,
+                      ...(sessionCache?.pending ?? []),
+                      ...(sessionCache?.executed ?? [])
+                    ]
+                    for (const result of event.toolResults) {
+                      const tracked = trackedCalls.find(
+                        (toolCall) => toolCall.id === result.toolUseId
+                      )
+                      if (!tracked) continue
+                      appendRuntimeToolUse(sessionId!, assistantMsgId, {
+                        type: 'tool_use',
+                        id: tracked.id,
+                        name: tracked.name,
+                        input: summarizeImmediateLiveToolInput(
+                          tracked.id,
+                          tracked.name,
+                          tracked.input
+                        ),
+                        ...(tracked.extraContent ? { extraContent: tracked.extraContent } : {})
+                      })
+                    }
                     const toolResultMsg: UnifiedMessage = {
                       id: nanoid(),
                       role: 'user',

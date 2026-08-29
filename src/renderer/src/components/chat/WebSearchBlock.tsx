@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import { countLabel } from '@renderer/lib/chat/execution-labels'
 import type { WebSearchBlock as WebSearchBlockData } from '@renderer/lib/api/types'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 /** Best-effort host label for a web search source link (falls back to the raw URL). */
 function formatWebSearchHost(url?: string): string {
@@ -71,7 +72,11 @@ export function WebSearchBlock({ block }: { block: WebSearchBlockData }): React.
           </button>
         )}
       </div>
-      {expanded && sources.length > 0 && (
+      <CollapsibleHeightPanel
+        open={expanded && sources.length > 0}
+        collapseMotion="scroll-up"
+        className="overflow-hidden"
+      >
         <div className="ml-2 mt-1.5 flex flex-col gap-1 border-l border-border/45 pl-3 dark:border-white/[0.07]">
           {sources.map((source, i) => (
             <a
@@ -86,7 +91,7 @@ export function WebSearchBlock({ block }: { block: WebSearchBlockData }): React.
             </a>
           ))}
         </div>
-      )}
+      </CollapsibleHeightPanel>
     </div>
   )
 }

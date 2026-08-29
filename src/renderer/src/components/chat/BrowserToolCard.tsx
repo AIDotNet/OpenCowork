@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatePresence, motion } from 'motion/react'
 import { Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
@@ -19,6 +18,7 @@ import { linesLabel, toolStatusLabel } from '@renderer/lib/chat/execution-labels
 import type { CompactToolHeaderModel } from './CompactToolCallHeader'
 import { CompactToolCallHeader } from './CompactToolCallHeader'
 import { ImagePreview } from './ImagePreview'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 interface BrowserToolCardProps {
   name: string
@@ -27,11 +27,6 @@ interface BrowserToolCardProps {
   status: ToolCallStatus | 'completed'
   error?: string
   forceOpen?: boolean
-}
-
-const CONTENT_TRANSITION = {
-  duration: 0.18,
-  ease: 'easeOut' as const
 }
 
 const PREVIEW_LIMIT = 12000
@@ -331,129 +326,123 @@ export function BrowserToolCard({
         />
       </button>
 
-      <AnimatePresence initial={false}>
-        {open ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={CONTENT_TRANSITION}
-            className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
-          >
-            <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
-              {isRunning ? (
-                <div className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/30 bg-sky-500/5 px-2.5 py-2 text-xs text-sky-600 dark:text-sky-300">
-                  <Loader2 className="size-3.5 animate-spin" />
-                  <span
-                    className={
-                      status === 'streaming'
-                        ? 'tool-name-live-pulse tool-name-live-pulse--streaming'
-                        : 'tool-name-live-pulse tool-name-live-pulse--running'
-                    }
-                  >
-                    Running browser action…
-                  </span>
-                </div>
-              ) : null}
-
-              {hasError ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
-                  <span className="break-words">{parsedError}</span>
-                </div>
-              ) : null}
-
-              {images.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.browser.screenshotPreview', {
-                      defaultValue: 'Screenshot preview'
-                    })}
-                  </p>
-                  {images.map((image, index) => {
-                    const src =
-                      image.source.type === 'base64' && image.source.data
-                        ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
-                        : (image.source.url ?? '')
-                    if (!src && !image.source.filePath) return null
-                    return (
-                      <ImagePreview
-                        key={`${image.source.filePath ?? src}-${index}`}
-                        src={src}
-                        alt={`Browser screenshot ${index + 1}`}
-                        filePath={image.source.filePath}
-                      />
-                    )
-                  })}
-                </div>
-              ) : null}
-
-              {resultRows.length > 0 ? (
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  {resultRows.map((row) => (
-                    <div key={row.labelKey} className="min-w-0 rounded-md bg-muted/20 px-2 py-1.5">
-                      <p className="text-[9px] font-medium uppercase text-muted-foreground/60">
-                        {t(row.labelKey, { defaultValue: row.fallbackLabel })}
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-foreground" title={row.value}>
-                        {row.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {mainPreview ? (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {t(mainPreview.labelKey, { defaultValue: mainPreview.fallbackLabel })}
-                    </p>
-                    {mainPreview.truncated ? (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground/65">
-                        {t('toolCall.browser.previewTruncated', {
-                          count: PREVIEW_LIMIT,
-                          defaultValue: `first ${PREVIEW_LIMIT} chars`
-                        })}
-                      </span>
-                    ) : null}
-                  </div>
-                  <pre className="max-h-56 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words">
-                    {mainPreview.content}
-                  </pre>
-                </div>
-              ) : null}
-
-              {rawOutput ? (
-                <pre className="max-h-44 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
-                  {rawOutput}
-                </pre>
-              ) : null}
-
-              {notes.length > 0 ? (
-                <div className="space-y-1.5">
-                  {notes.map((note, index) => (
-                    <p
-                      key={`${note.text}-${index}`}
-                      className="rounded-md bg-muted/20 px-2.5 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
-                    >
-                      {note.text}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-
-              <details className="group/input">
-                <summary className="cursor-pointer select-none text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-                  {t('toolCall.browser.input', { defaultValue: 'Input' })}
-                </summary>
-                <pre className="mt-1.5 max-h-36 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
-                  {JSON.stringify(input, null, 2)}
-                </pre>
-              </details>
+      <CollapsibleHeightPanel
+        open={open}
+        collapseMotion="scroll-up"
+        className="ml-2 mt-1 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]"
+      >
+        <div className="space-y-2 rounded-lg border border-border/50 bg-muted/15 p-3 dark:border-white/[0.07] dark:bg-white/[0.02]">
+          {isRunning ? (
+            <div className="flex items-center gap-2 rounded-lg border border-dashed border-sky-500/30 bg-sky-500/5 px-2.5 py-2 text-xs text-sky-600 dark:text-sky-300">
+              <Loader2 className="size-3.5 animate-spin" />
+              <span
+                className={
+                  status === 'streaming'
+                    ? 'tool-name-live-pulse tool-name-live-pulse--streaming'
+                    : 'tool-name-live-pulse tool-name-live-pulse--running'
+                }
+              >
+                Running browser action…
+              </span>
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+
+          {hasError ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-xs text-destructive">
+              <span className="break-words">{parsedError}</span>
+            </div>
+          ) : null}
+
+          {images.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('toolCall.browser.screenshotPreview', {
+                  defaultValue: 'Screenshot preview'
+                })}
+              </p>
+              {images.map((image, index) => {
+                const src =
+                  image.source.type === 'base64' && image.source.data
+                    ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
+                    : (image.source.url ?? '')
+                if (!src && !image.source.filePath) return null
+                return (
+                  <ImagePreview
+                    key={`${image.source.filePath ?? src}-${index}`}
+                    src={src}
+                    alt={`Browser screenshot ${index + 1}`}
+                    filePath={image.source.filePath}
+                  />
+                )
+              })}
+            </div>
+          ) : null}
+
+          {resultRows.length > 0 ? (
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {resultRows.map((row) => (
+                <div key={row.labelKey} className="min-w-0 rounded-md bg-muted/20 px-2 py-1.5">
+                  <p className="text-[9px] font-medium uppercase text-muted-foreground/60">
+                    {t(row.labelKey, { defaultValue: row.fallbackLabel })}
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] text-foreground" title={row.value}>
+                    {row.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {mainPreview ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t(mainPreview.labelKey, { defaultValue: mainPreview.fallbackLabel })}
+                </p>
+                {mainPreview.truncated ? (
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground/65">
+                    {t('toolCall.browser.previewTruncated', {
+                      count: PREVIEW_LIMIT,
+                      defaultValue: `first ${PREVIEW_LIMIT} chars`
+                    })}
+                  </span>
+                ) : null}
+              </div>
+              <pre className="max-h-56 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words">
+                {mainPreview.content}
+              </pre>
+            </div>
+          ) : null}
+
+          {rawOutput ? (
+            <pre className="max-h-44 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+              {rawOutput}
+            </pre>
+          ) : null}
+
+          {notes.length > 0 ? (
+            <div className="space-y-1.5">
+              {notes.map((note, index) => (
+                <p
+                  key={`${note.text}-${index}`}
+                  className="rounded-md bg-muted/20 px-2.5 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
+                >
+                  {note.text}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <details className="group/input">
+            <summary className="cursor-pointer select-none text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+              {t('toolCall.browser.input', { defaultValue: 'Input' })}
+            </summary>
+            <pre className="mt-1.5 max-h-36 overflow-auto rounded-md bg-muted/20 px-2.5 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          </details>
+        </div>
+      </CollapsibleHeightPanel>
     </div>
   )
 }

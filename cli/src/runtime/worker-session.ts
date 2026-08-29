@@ -146,7 +146,7 @@ const CORE_TOOL_DEFINITIONS: WorkerToolDefinition[] = [
   {
     name: 'Write',
     description:
-      'Write a file. Read existing files first and prefer editing existing code over creating files.',
+      'Create or overwrite a file. A prior Read is not required. Prefer editing existing code over creating files.',
     inputSchema: {
       type: 'object',
       properties: {

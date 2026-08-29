@@ -60,7 +60,7 @@ import { FileChangeCard } from './FileChangeCard'
 import { BashArtifactsCard } from './BashArtifactsCard'
 import { SubAgentCard } from './SubAgentCard'
 import { ThinkingBlock } from './ThinkingBlock'
-import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
+import { CollapsibleHeightPanel, ScrollUpExitItem } from './CollapsibleHeightPanel'
 import { TeamEventCard } from './TeamEventCard'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { OrchestrationBlock } from './OrchestrationBlock'
@@ -101,6 +101,14 @@ import {
   mergeLiveToolCallMaps,
   resolveLiveToolCallStatus
 } from '@renderer/lib/chat/live-tool-call-status'
+import {
+  insertOrphanToolUseBlocks,
+  listOrphanToolResultIds,
+  parseFunctionCallsFromRequestDebugBody,
+  resolveOrphanToolUses
+} from '@renderer/lib/chat/recover-missing-tool-uses'
+import { lookupToolResultJournal } from '@renderer/lib/chat/tool-result-journal'
+import { appendRuntimeToolUse } from '@renderer/lib/agent/session-runtime-router'
 import { activeToolsLabel, countLabel, toolCallsLabel } from '@renderer/lib/chat/execution-labels'
 import { LazySyntaxHighlighter } from './LazySyntaxHighlighter'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@renderer/components/ui/dialog'
@@ -899,7 +907,7 @@ function ActionIconButton({
   )
 }
 
-/** Consecutive Thought / Explored rows stack like body text; other blocks keep space-y-2. */
+/** Consecutive Thought / Explored rows stay tighter than cards; other blocks keep space-y-2. */
 const EXECUTION_STACK_CLASS = 'execution-stack space-y-2'
 
 function GenerationProcessLine({
@@ -931,9 +939,7 @@ function GenerationProcessLine({
       >
         {label}
       </span>
-      {detail ? (
-        <span className="min-w-0 truncate text-muted-foreground/60">{detail}</span>
-      ) : null}
+      {detail ? <span className="min-w-0 truncate text-muted-foreground/60">{detail}</span> : null}
       {elapsed ? (
         <span className="shrink-0 text-[11px] leading-none tabular-nums text-muted-foreground/40">
           {elapsed}
@@ -1840,7 +1846,7 @@ export function AssistantMessage({
 
     return indices
   }, [content, inlineCompactSummaries, msgId])
-  const normalizedContent = useMemo(
+  const rawNormalizedContent = useMemo(
     () =>
       Array.isArray(content)
         ? normalizeStructuredBlocks(content, {
@@ -1848,6 +1854,54 @@ export function AssistantMessage({
           })
         : null,
     [compactSummaryRawBoundaryIndices, content]
+  )
+  const orphanToolResultIds = useMemo(
+    () => listOrphanToolResultIds(rawNormalizedContent, toolResults),
+    [rawNormalizedContent, toolResults]
+  )
+  const recoveredToolCalls = useAgentStore(
+    useShallow((s) => {
+      if (orphanToolResultIds.length === 0) return EMPTY_LIVE_TOOL_CALLS
+      const wanted = new Set(orphanToolResultIds)
+      const matches: ToolCallState[] = []
+      const seen = new Set<string>()
+      const consider = (toolCall: ToolCallState): void => {
+        if (!wanted.has(toolCall.id) || seen.has(toolCall.id)) return
+        seen.add(toolCall.id)
+        matches.push(toolCall)
+      }
+      for (const toolCall of s.pendingToolCalls) consider(toolCall)
+      for (const toolCall of s.executedToolCalls) consider(toolCall)
+      const cache = sessionId ? s.sessionToolCallsCache[sessionId] : undefined
+      if (cache) {
+        for (const toolCall of cache.pending) consider(toolCall)
+        for (const toolCall of cache.executed) consider(toolCall)
+      }
+      return matches
+    })
+  )
+  const debugRecoveredToolUses = useMemo(
+    () =>
+      parseFunctionCallsFromRequestDebugBody(
+        (msgId ? getLastDebugInfo(msgId)?.body : undefined) ?? requestDebugInfo?.body
+      ),
+    [msgId, requestDebugInfo?.body]
+  )
+  const recoveredOrphanToolUses = useMemo(
+    () =>
+      resolveOrphanToolUses({
+        orphanIds: orphanToolResultIds,
+        toolCalls: recoveredToolCalls,
+        debugToolUses: debugRecoveredToolUses
+      }),
+    [debugRecoveredToolUses, orphanToolResultIds, recoveredToolCalls]
+  )
+  const normalizedContent = useMemo(
+    () =>
+      rawNormalizedContent
+        ? insertOrphanToolUseBlocks(rawNormalizedContent, recoveredOrphanToolUses)
+        : null,
+    [rawNormalizedContent, recoveredOrphanToolUses]
   )
   const messageToolUseIds = useMemo(() => {
     if (!normalizedContent) return []
@@ -1857,6 +1911,37 @@ export function AssistantMessage({
       )
       .map((block) => block.id)
   }, [normalizedContent])
+  const journalHealAttemptedRef = React.useRef(new Set<string>())
+  useEffect(() => {
+    if (!sessionId || !msgId || recoveredOrphanToolUses.length === 0) return
+    for (const block of recoveredOrphanToolUses) {
+      appendRuntimeToolUse(sessionId, msgId, block)
+    }
+  }, [msgId, recoveredOrphanToolUses, sessionId])
+  useEffect(() => {
+    if (!sessionId || !msgId || orphanToolResultIds.length === 0) return
+    const recoveredIds = new Set(recoveredOrphanToolUses.map((block) => block.id))
+    const missing = orphanToolResultIds.filter(
+      (id) => !recoveredIds.has(id) && !journalHealAttemptedRef.current.has(id)
+    )
+    if (missing.length === 0) return
+    let cancelled = false
+    void lookupToolResultJournal(sessionId, missing).then((rows) => {
+      if (cancelled) return
+      for (const id of missing) journalHealAttemptedRef.current.add(id)
+      for (const row of rows) {
+        appendRuntimeToolUse(sessionId, msgId, {
+          type: 'tool_use',
+          id: row.toolUseId,
+          name: row.toolName,
+          input: {}
+        })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [msgId, orphanToolResultIds, recoveredOrphanToolUses, sessionId])
   const runChangeSet = useAgentStore((s) => {
     if (!isLiveMode) return undefined
 
@@ -2111,15 +2196,15 @@ export function AssistantMessage({
 
     const items: AssistantRenderItem[] = []
     for (let i = 0; i < normalizedContent.length; i++) {
+      const run = toolExecutionOutline.runByStartBlockIndex.get(i)
+      if (run) {
+        items.push({ kind: 'tool-run', runId: run.id })
+        i = run.endBlockIndex
+        continue
+      }
+
       const block = normalizedContent[i]
       if (block.type === 'tool_use') {
-        const run = toolExecutionOutline.runByStartBlockIndex.get(i)
-        if (run) {
-          items.push({ kind: 'tool-run', runId: run.id })
-          i = run.endBlockIndex
-          continue
-        }
-
         const executionItem = toolExecutionOutline.itemByToolUseId.get(block.id)
         if (executionItem && executionItem.visibility !== 'hidden') {
           items.push({ kind: 'block', index: i })
@@ -2257,19 +2342,38 @@ export function AssistantMessage({
     })
     if (producedVisualOutput) return null
 
-    const hasToolWork = intermediate.some(
+    const summaries = intermediate.filter((item) => item.kind === 'compact-summary')
+    const processItems = intermediate.filter((item) => item.kind !== 'compact-summary')
+    const hasToolWork = processItems.some(
       (item) =>
         item.kind === 'tool-run' ||
         (item.kind === 'block' && blockTypeAt(item.index) === 'tool_use')
     )
-    if (!hasToolWork) return null
+    const hasThinking = processItems.some(
+      (item) => item.kind === 'block' && blockTypeAt(item.index) === 'thinking'
+    )
+    if (!hasToolWork && !hasThinking) return null
+
+    // Thought + Read already live inside one Explored run. Wrapping that again
+    // as Worked would nest two process headers around the same detail.
+    if (processItems.every((item) => item.kind === 'tool-run')) return null
+
+    const hasConstructiveWork = processItems.some((item) => {
+      if (item.kind !== 'tool-run') return false
+      const run = toolExecutionOutline.runById.get(item.runId)
+      return !!run?.itemIds.some((toolUseId) => {
+        const category = toolExecutionOutline.itemByToolUseId.get(toolUseId)?.category
+        return category === 'file-change' || category === 'command'
+      })
+    })
 
     // The compaction divider is transcript structure, not process detail —
     // folding it away with the tool calls would hide where the context was cut.
     return {
-      summaries: intermediate.filter((item) => item.kind === 'compact-summary'),
-      intermediate: intermediate.filter((item) => item.kind !== 'compact-summary'),
-      finalItem
+      summaries,
+      intermediate: processItems,
+      finalItem,
+      label: hasConstructiveWork ? 'Worked' : 'Explored'
     }
   }, [
     normalizedContent,
@@ -2763,6 +2867,14 @@ export function AssistantMessage({
       if (!run) return null
 
       const collapsed = getToolRunCollapsed(run)
+      let hasLiveThinking = false
+      for (let blockIndex = run.startBlockIndex; blockIndex <= run.endBlockIndex; blockIndex += 1) {
+        const block = normalizedContent[blockIndex]
+        if (block?.type === 'thinking' && isStreaming && !block.completedAt) {
+          hasLiveThinking = true
+          break
+        }
+      }
       const detail =
         run.activeSummary ||
         toolRunSummaryById.get(run.id) ||
@@ -2772,34 +2884,61 @@ export function AssistantMessage({
             ? toolCallsLabel(run.ordinaryItemCount)
             : null)
 
-      const renderedTools = run.itemIds
-        .map((toolUseId) => {
-          const item = toolExecutionOutline.itemByToolUseId.get(toolUseId)
-          if (!item || item.visibility === 'hidden') return null
-          // Keep ordinary tools mounted for collapsible runs so close tween can measure height.
-          if (item.visibility === 'ordinary' && collapsed && !run.showToggle) return null
+      const liveThinkingBlocks: Array<{
+        block: Extract<ContentBlock, { type: 'thinking' }>
+        blockIndex: number
+      }> = []
+      const renderedSteps: React.JSX.Element[] = []
+      for (let blockIndex = run.startBlockIndex; blockIndex <= run.endBlockIndex; blockIndex += 1) {
+        const block = normalizedContent[blockIndex]
+        if (block?.type === 'thinking') {
+          const isLiveThinking = Boolean(isStreaming && !block.completedAt)
+          // Live thought stays in this slot whether Exploring is open or
+          // collapsed, so collapsing the file list does not remount it.
+          if (isLiveThinking && run.showToggle) {
+            liveThinkingBlocks.push({ block, blockIndex })
+            continue
+          }
+          if (collapsed && !run.showToggle) continue
+          renderedSteps.push(
+            <ThinkingBlock
+              key={`${run.id}:thinking-${blockIndex}`}
+              thinking={block.thinking}
+              isStreaming={isStreaming}
+              startedAt={block.startedAt}
+              completedAt={block.completedAt}
+            />
+          )
+          continue
+        }
+        if (block?.type !== 'tool_use') continue
+        const item = toolExecutionOutline.itemByToolUseId.get(block.id)
+        if (!item || item.visibility === 'hidden') continue
+        // Keep ordinary tools mounted for collapsible runs so close tween can measure height.
+        if (item.visibility === 'ordinary' && collapsed && !run.showToggle) continue
+        const node = renderToolBlock(block, `${run.id}:${block.id}`, blockIndex)
+        if (node) renderedSteps.push(node)
+      }
 
-          const block = normalizedContent[item.blockIndex]
-          if (!block || block.type !== 'tool_use') return null
+      if (!run.showToggle && renderedSteps.length === 0 && liveThinkingBlocks.length === 0) {
+        return null
+      }
 
-          return renderToolBlock(block, `${run.id}:${toolUseId}`, item.blockIndex)
-        })
-        .filter((node): node is React.JSX.Element => !!node)
-
-      if (!run.showToggle && renderedTools.length === 0) return null
+      const runLabel = run.activeCount > 0 || hasLiveThinking ? 'Exploring' : 'Explored'
 
       return (
         <div
           key={run.id}
           className={cn(
             'flex min-w-0 flex-col',
-            run.showToggle && collapsed && 'execution-process-line'
+            run.showToggle && (hasLiveThinking || !collapsed) && 'gap-1',
+            run.showToggle && collapsed && !hasLiveThinking && 'execution-process-line'
           )}
         >
           {run.showToggle ? (
             <GenerationProcessLine
-              active={run.activeCount > 0}
-              label="Explored"
+              active={run.activeCount > 0 || hasLiveThinking}
+              label={runLabel}
               detail={detail}
               collapsible={run.showToggle}
               expanded={!collapsed}
@@ -2807,12 +2946,30 @@ export function AssistantMessage({
             />
           ) : null}
           {run.showToggle ? (
-            <CollapsibleHeightPanel open={!collapsed} className="overflow-hidden">
-              <div className="space-y-2">{renderedTools}</div>
+            <CollapsibleHeightPanel
+              open={!collapsed}
+              collapseMotion="scroll-up"
+              className="overflow-hidden"
+            >
+              <div className={EXECUTION_STACK_CLASS}>{renderedSteps}</div>
             </CollapsibleHeightPanel>
           ) : (
-            renderedTools
+            renderedSteps
           )}
+          {run.showToggle ? (
+            <AnimatePresence initial={false}>
+              {liveThinkingBlocks.map(({ block, blockIndex }) => (
+                <ScrollUpExitItem key={`${run.id}:live-thinking-${blockIndex}`}>
+                  <ThinkingBlock
+                    thinking={block.thinking}
+                    isStreaming={isStreaming}
+                    startedAt={block.startedAt}
+                    completedAt={block.completedAt}
+                  />
+                </ScrollUpExitItem>
+              ))}
+            </AnimatePresence>
+          ) : null}
         </div>
       )
     }
@@ -3004,7 +3161,7 @@ export function AssistantMessage({
             {processSection.summaries.map(renderRenderItem)}
             <GenerationProcessLine
               active={false}
-              label="Worked"
+              label={processSection.label}
               detail={processToolCount > 0 ? toolCallsLabel(processToolCount) : null}
               elapsed={processElapsed}
               collapsible
@@ -3016,7 +3173,11 @@ export function AssistantMessage({
               }
               onClick={toggleProcessExpanded}
             />
-            <CollapsibleHeightPanel open={processExpanded} className="overflow-hidden">
+            <CollapsibleHeightPanel
+              open={processExpanded}
+              collapseMotion="scroll-up"
+              className="overflow-hidden"
+            >
               <div className={EXECUTION_STACK_CLASS}>
                 {processSection.intermediate.map(renderRenderItem)}
               </div>
@@ -3329,7 +3490,7 @@ export function AssistantMessage({
 
   return (
     <div className="group/msg flex flex-col">
-      <div className="min-w-0 overflow-hidden pl-1.5 sm:pl-2">
+      <div className="min-w-0 overflow-x-hidden pl-1.5 sm:pl-2">
         <AnimatePresence>
           {requestRetryState && (
             <motion.div

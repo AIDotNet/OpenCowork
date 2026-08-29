@@ -144,6 +144,7 @@ export function ToolCallGroup({
       <CollapsibleHeightPanel
         open={contentVisible}
         enabled={collapsible}
+        collapseMotion="scroll-up"
         className={
           collapsible
             ? 'ml-2 mt-0.5 overflow-hidden border-l border-border/45 pl-3 dark:border-white/[0.07]'

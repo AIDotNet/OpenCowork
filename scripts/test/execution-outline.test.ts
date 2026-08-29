@@ -5,6 +5,10 @@ import {
   resolveLiveToolCallStatus
 } from '../../src/renderer/src/lib/chat/live-tool-call-status.ts'
 import type { ToolCallState } from '../../src/renderer/src/lib/agent/types.ts'
+import {
+  groupToolExecutionRuns,
+  type GroupableExecutionBlock
+} from '../../src/renderer/src/lib/chat/execution-run-grouping.ts'
 
 function live(
   id: string,
@@ -61,6 +65,50 @@ test('explicit cancellation and terminal run failures remain visible', () => {
   assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'cancelled'), 'canceled')
   assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'interrupted'), 'canceled')
   assert.equal(resolveLiveToolCallStatus(false, undefined, undefined, 'error'), 'error')
+})
+
+function ordinary(id: string): GroupableExecutionBlock {
+  return { type: 'tool', id, visibility: 'ordinary' }
+}
+
+test('completed thoughts join the adjacent Exploring run', () => {
+  const spans = groupToolExecutionRuns([
+    { type: 'thinking' },
+    ordinary('r1'),
+    { type: 'thinking' },
+    ordinary('r2'),
+    { type: 'other' }
+  ])
+
+  assert.equal(spans.length, 1)
+  assert.equal(spans[0].startBlockIndex, 0)
+  assert.equal(spans[0].endBlockIndex, 3)
+  assert.deepEqual(spans[0].itemIds, ['r1', 'r2'])
+})
+
+test('live thinking stays in the Exploring run so it can fold into the header', () => {
+  const spans = groupToolExecutionRuns([{ type: 'thinking' }, ordinary('r1'), { type: 'thinking' }])
+
+  assert.equal(spans.length, 1)
+  assert.equal(spans[0].startBlockIndex, 0)
+  assert.equal(spans[0].endBlockIndex, 2)
+})
+
+test('thinking without visible tools does not emit an Exploring run', () => {
+  const spans = groupToolExecutionRuns([{ type: 'thinking' }, { type: 'other' }])
+  assert.equal(spans.length, 0)
+})
+
+test('force-visible tools do not swallow a leading thought into their run', () => {
+  const spans = groupToolExecutionRuns([
+    { type: 'thinking' },
+    { type: 'tool', id: 'ask', visibility: 'force' }
+  ])
+
+  assert.equal(spans.length, 1)
+  assert.equal(spans[0].startBlockIndex, 1)
+  assert.equal(spans[0].endBlockIndex, 1)
+  assert.deepEqual(spans[0].itemIds, ['ask'])
 })
 
 test('settled store results override a stale overlay cancellation', () => {

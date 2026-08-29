@@ -41,6 +41,7 @@ import { isRunScopedAssistantMessageId } from '../../../../shared/runtime-projec
 import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 import { applyRuntimeOverlayToMessages } from '@renderer/lib/chat/apply-runtime-overlay'
 import { useSessionRuntimeProjection } from '@renderer/lib/chat/use-session-runtime-projection'
+import { EXECUTION_RESIZE_EVENT } from './CollapsibleHeightPanel'
 
 interface MessageListProps {
   sessionId?: string | null
@@ -566,6 +567,20 @@ function areMessageRowPropsEqual(prev: MessageRowProps, next: MessageRowProps): 
 
 function getDistanceToBottom(ref: HTMLDivElement): number {
   return Math.max(0, ref.scrollHeight - ref.scrollTop - ref.clientHeight)
+}
+
+function findNestedVerticalScroller(start: Element, root: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = start instanceof HTMLElement ? start : start.parentElement
+  while (node && node !== root) {
+    if (node.scrollHeight > node.clientHeight + 1) {
+      const overflowY = getComputedStyle(node).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'hidden') {
+        return node
+      }
+    }
+    node = node.parentElement
+  }
+  return null
 }
 
 function measureRenderedTurnHeight(list: HTMLElement, lastUserMessageId: string): number | null {
@@ -1848,7 +1863,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     },
     // Extra space after the current turn so scrolling to the bottom pins the
     // latest user bubble to the top of the viewport instead of the composer.
-    paddingEnd: turnSpacerHeight
+    paddingEnd: turnSpacerHeight,
+    useAnimationFrameWithResizeObserver: true
     // Keep an estimated size for virtualization only. Initial positioning is
     // performed after real rows have been measured below.
   })
@@ -1857,6 +1873,11 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   //（options 路径 TS 报错且运行时也不会赋到 this.shouldAdjust...）。
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange =
     shouldAdjustScrollPositionOnItemSizeChange
+  // Keep the tail pinned when the user is already at the bottom and a tool
+  // group expands; otherwise leave the clicked header where it is.
+  ;(rowVirtualizer.options as { anchorTo?: 'start' | 'end' }).anchorTo = isAtBottom
+    ? 'end'
+    : 'start'
   const pendingAskUserQuestion = React.useMemo(
     () => findPendingAskUserQuestion(rows, toolResultsLookup, messageLookup),
     [messageLookup, rows, toolResultsLookup]
@@ -2061,8 +2082,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
         // (getMessageWindowPreserveMode forces 'tail' while running). Treat "the
         // window didn't actually grow older" as a stall so callers stop retrying.
         const startAfter =
-          useChatStore.getState().sessions.find((s) => s.id === activeSessionId)?.loadedRangeStart ??
-          startBefore
+          useChatStore.getState().sessions.find((s) => s.id === activeSessionId)
+            ?.loadedRangeStart ?? startBefore
         if (loaded <= 0 || startAfter >= startBefore) {
           stalledOlderLoadStartRef.current = startBefore
           return loaded > 0 ? loaded : 0
@@ -2227,6 +2248,51 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     },
     [canAutoScroll, requestAssistantRailSync, scrollToBottomImmediate, syncBottomState]
   )
+
+  React.useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+
+    const remasureVisibleRows = (): void => {
+      for (const element of list.querySelectorAll<HTMLElement>('[data-index]')) {
+        rowVirtualizer.measureElement(element)
+      }
+      if (canAutoScroll()) {
+        requestScrollToBottom({ maxFrames: 4 })
+      }
+    }
+
+    list.addEventListener(EXECUTION_RESIZE_EVENT, remasureVisibleRows)
+    return () => list.removeEventListener(EXECUTION_RESIZE_EVENT, remasureVisibleRows)
+  }, [canAutoScroll, requestScrollToBottom, rowVirtualizer])
+
+  React.useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+
+    const onWheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.defaultPrevented || event.deltaY === 0) return
+      const target = event.target
+      if (!(target instanceof Element) || !list.contains(target)) return
+      const scroller = findNestedVerticalScroller(target, list)
+      if (!scroller) return
+      const overflowY = getComputedStyle(scroller).overflowY
+      if (overflowY === 'hidden') {
+        event.preventDefault()
+        list.scrollTop += event.deltaY
+        return
+      }
+      const atTop = scroller.scrollTop <= 0
+      const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1
+      if ((event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom)) {
+        event.preventDefault()
+        list.scrollTop += event.deltaY
+      }
+    }
+
+    list.addEventListener('wheel', onWheel, { passive: false })
+    return () => list.removeEventListener('wheel', onWheel)
+  }, [activeSessionId, messageWindowPhase])
 
   React.useEffect(() => {
     if (!canSessionTriggerStreamingAutoScroll) return

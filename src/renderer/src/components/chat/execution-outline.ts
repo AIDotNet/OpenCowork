@@ -9,6 +9,10 @@ import { isMcpTool } from '@renderer/lib/mcp/mcp-tools'
 import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-format'
 import { resolveLiveToolCallStatus } from '@renderer/lib/chat/live-tool-call-status'
 import { toolDisplayName } from '@renderer/lib/chat/tool-display-name'
+import {
+  groupToolExecutionRuns,
+  type GroupableExecutionBlock
+} from '@renderer/lib/chat/execution-run-grouping'
 import { inputSummary } from './tool-call-summary'
 import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
 
@@ -260,64 +264,21 @@ export function buildToolExecutionOutline({
   const runByStartBlockIndex = new Map<number, ToolExecutionRun>()
   const ordinaryItemIds: string[] = []
   const forceVisibleItemIds = new Set<string>()
-  let pendingRun: {
-    startBlockIndex: number
-    endBlockIndex: number
-    itemIds: string[]
-  } | null = null
-
-  const closePendingRun = (): void => {
-    if (!pendingRun) return
-
-    const runItems = pendingRun.itemIds
-      .map((toolUseId) => itemByToolUseId.get(toolUseId))
-      .filter((item): item is ToolExecutionItem => !!item)
-    const visibleItems = runItems.filter((item) => item.visibility !== 'hidden')
-
-    if (visibleItems.length > 0) {
-      const ordinaryRunItemIds = runItems
-        .filter((item) => item.visibility === 'ordinary')
-        .map((item) => item.toolUseId)
-      const forceRunItemIds = runItems
-        .filter((item) => item.visibility === 'force')
-        .map((item) => item.toolUseId)
-      const activeItems = visibleItems.filter((item) => item.isActive)
-      const activeItem = activeItems[activeItems.length - 1]
-      const run: ToolExecutionRun = {
-        id: `tool-run:${visibleItems[0].toolUseId}`,
-        startBlockIndex: pendingRun.startBlockIndex,
-        endBlockIndex: pendingRun.endBlockIndex,
-        itemIds: [...pendingRun.itemIds],
-        ordinaryItemIds: ordinaryRunItemIds,
-        forceVisibleItemIds: forceRunItemIds,
-        activeCount: activeItems.length,
-        totalItemCount: visibleItems.length,
-        ordinaryItemCount: ordinaryRunItemIds.length,
-        defaultCollapsed: ordinaryRunItemIds.length > 0,
-        showToggle: ordinaryRunItemIds.length > 0,
-        activeSummary: activeItem ? buildActiveSummary(activeItem, t) : null
-      }
-
-      runs.push(run)
-      runById.set(run.id, run)
-      runByStartBlockIndex.set(run.startBlockIndex, run)
-    }
-
-    pendingRun = null
-  }
+  const classified: GroupableExecutionBlock[] = []
 
   for (let blockIndex = 0; blockIndex < (blocks?.length ?? 0); blockIndex += 1) {
     const block = blocks?.[blockIndex]
-    if (!block || block.type !== 'tool_use') {
-      closePendingRun()
+    if (block?.type === 'thinking') {
+      classified.push({ type: 'thinking' })
       continue
     }
 
-    // A Task owns a visible SubAgent card at this exact content position. Isolate it from
-    // adjacent ordinary tools so a collapsed Read/Edit run can never hide or move the card.
-    const isSubAgentTask = block.name === TASK_TOOL_NAME
-    if (isSubAgentTask) closePendingRun()
+    if (!block || block.type !== 'tool_use') {
+      classified.push({ type: 'other' })
+      continue
+    }
 
+    const isSubAgentTask = block.name === TASK_TOOL_NAME
     const result = toolResults?.get(block.id)
     const liveToolCall = liveToolCallMap?.get(block.id)
     const liveInput = liveToolCall?.input
@@ -361,38 +322,56 @@ export function buildToolExecutionOutline({
 
     items.push(item)
     itemByToolUseId.set(block.id, item)
+    if (visibility === 'ordinary') ordinaryItemIds.push(block.id)
+    else if (visibility === 'force') forceVisibleItemIds.add(block.id)
 
-    // Force-visible results are user-facing output, not collapsible process detail.
-    // Isolate them so adjacent ordinary tools cannot pull them into a collapsed run.
-    if (visibility === 'force') closePendingRun()
-
-    if (!pendingRun) {
-      pendingRun = {
-        startBlockIndex: blockIndex,
-        endBlockIndex: blockIndex,
-        itemIds: []
-      }
-    }
-    pendingRun.endBlockIndex = blockIndex
-    pendingRun.itemIds.push(block.id)
-
-    if (visibility === 'ordinary') {
-      ordinaryItemIds.push(block.id)
-    } else if (visibility === 'force') {
-      forceVisibleItemIds.add(block.id)
-    }
-
-    if (
-      isSubAgentTask ||
-      visibility === 'force' ||
-      boundaryAfterToolUseIds?.has(block.id) ||
-      boundaryAfterBlockIndices?.has(blockIndex)
-    ) {
-      closePendingRun()
-    }
+    classified.push({
+      type: 'tool',
+      id: block.id,
+      visibility,
+      isolateBefore: isSubAgentTask,
+      isolateAfter:
+        isSubAgentTask ||
+        visibility === 'force' ||
+        (boundaryAfterToolUseIds?.has(block.id) ?? false) ||
+        (boundaryAfterBlockIndices?.has(blockIndex) ?? false)
+    })
   }
 
-  closePendingRun()
+  for (const span of groupToolExecutionRuns(classified)) {
+    const runItems = span.itemIds
+      .map((toolUseId) => itemByToolUseId.get(toolUseId))
+      .filter((item): item is ToolExecutionItem => !!item)
+    const visibleItems = runItems.filter((item) => item.visibility !== 'hidden')
+    if (visibleItems.length === 0) continue
+
+    const ordinaryRunItemIds = runItems
+      .filter((item) => item.visibility === 'ordinary')
+      .map((item) => item.toolUseId)
+    const forceRunItemIds = runItems
+      .filter((item) => item.visibility === 'force')
+      .map((item) => item.toolUseId)
+    const activeItems = visibleItems.filter((item) => item.isActive)
+    const activeItem = activeItems[activeItems.length - 1]
+    const run: ToolExecutionRun = {
+      id: `tool-run:${visibleItems[0].toolUseId}`,
+      startBlockIndex: span.startBlockIndex,
+      endBlockIndex: span.endBlockIndex,
+      itemIds: [...span.itemIds],
+      ordinaryItemIds: ordinaryRunItemIds,
+      forceVisibleItemIds: forceRunItemIds,
+      activeCount: activeItems.length,
+      totalItemCount: visibleItems.length,
+      ordinaryItemCount: ordinaryRunItemIds.length,
+      defaultCollapsed: ordinaryRunItemIds.length > 0,
+      showToggle: ordinaryRunItemIds.length > 0,
+      activeSummary: activeItem ? buildActiveSummary(activeItem, t) : null
+    }
+
+    runs.push(run)
+    runById.set(run.id, run)
+    runByStartBlockIndex.set(run.startBlockIndex, run)
+  }
 
   const activeItems = items.filter((item) => item.visibility !== 'hidden' && item.isActive)
   const activeItem = activeItems[activeItems.length - 1]

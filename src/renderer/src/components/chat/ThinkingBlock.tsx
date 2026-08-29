@@ -1,9 +1,11 @@
 import { memo, useState, useEffect, useMemo, useRef } from 'react'
 import { ChevronRight, ChevronDown } from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import Markdown from 'react-markdown'
 import { cn } from '@renderer/lib/utils'
 import { MONO_FONT } from '@renderer/lib/constants'
 import { thoughtLabel } from '@renderer/lib/chat/execution-labels'
+import { getLiveThinkingPreview } from '@renderer/lib/chat/thinking-preview'
 import { useSettingsStore } from '@renderer/stores/settings-store'
 import {
   getLiveOutputComponentClass,
@@ -26,30 +28,33 @@ interface ThinkingBlockProps {
   completedAt?: number
 }
 
-function stripThinkingPreviewDecorators(line: string): string {
-  return line
-    .replace(/\r/g, '')
-    .trim()
-    .replace(/^(?:#{1,6}|[-*+]|\d+\.)\s+/, '')
-    .replace(/^>\s?/, '')
-    .replace(/^\*{1,2}(.+?)\*{1,2}$/, '$1')
-    .replace(/^_{1,2}(.+?)_{1,2}$/, '$1')
-    .replace(/^`(.+?)`$/, '$1')
-    .trim()
-}
+const TICKER_EASE = [0.4, 0, 0.2, 1] as const
 
-/** Latest non-empty thinking line for the collapsed live header. */
-function getLiveThinkingPreview(thinking: string): string {
-  let cursor = thinking.length
-  while (cursor > 0) {
-    const newline = thinking.lastIndexOf('\n', cursor - 1)
-    const start = newline === -1 ? 0 : newline + 1
-    const cleaned = stripThinkingPreviewDecorators(thinking.slice(start, cursor))
-    if (cleaned) return cleaned
-    if (newline === -1) break
-    cursor = newline
-  }
-  return ''
+function ThinkingLiveTicker({
+  text,
+  generation,
+  animate
+}: {
+  text: string
+  generation: number
+  animate: boolean
+}): React.JSX.Element {
+  return (
+    <span className="thinking-live-ticker" aria-live="polite">
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={generation}
+          className="thinking-live-ticker-line"
+          initial={animate ? { y: '70%', opacity: 0 } : false}
+          animate={{ y: 0, opacity: 1 }}
+          exit={animate ? { y: '-70%', opacity: 0 } : undefined}
+          transition={animate ? { duration: 0.28, ease: TICKER_EASE } : { duration: 0 }}
+        >
+          {text}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  )
 }
 
 export const ThinkingBlock = memo(function ThinkingBlock({
@@ -59,6 +64,8 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   completedAt
 }: ThinkingBlockProps): React.JSX.Element | null {
   const liveOutputAnimationStyle = useSettingsStore((s) => s.liveOutputAnimationStyle)
+  const animationsEnabled = useSettingsStore((s) => s.animationsEnabled)
+  const reduceMotion = useReducedMotion() ?? false
   const isThinking = isStreaming && !completedAt
   const liveComponentClassName = isThinking
     ? getLiveOutputComponentClass(liveOutputAnimationStyle)
@@ -72,6 +79,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   const fallbackStartedAtRef = useRef<number | undefined>(startedAt)
 
   useEffect(() => {
+    // Fold the live stream back to a compact Thought line when it finishes.
     if (!isThinking) setCollapsed(true)
   }, [isThinking])
 
@@ -96,7 +104,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   }, [completedAt, isThinking, startedAt])
 
   const liveThinkingPreview = useMemo(
-    () => (isThinking ? getLiveThinkingPreview(thinking) : ''),
+    () => (isThinking ? getLiveThinkingPreview(thinking) : { text: '', generation: 0 }),
     [isThinking, thinking]
   )
 
@@ -104,7 +112,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
     return null
   }
 
-  const expanded = !isThinking && hasThinkingContent && !collapsed
+  const expanded = hasThinkingContent && !collapsed
   const elapsedSeconds = Math.max(0, Math.round(elapsedMs / 1000))
   const hasDuration = isThinking || elapsedMs > 0
   // The execution transcript reads in English in every locale — see `execution-labels`.
@@ -116,9 +124,9 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       ? thoughtLabel(Math.max(1, elapsedSeconds))
       : ''
   const headerLabel = isThinking ? 'Thinking' : 'Thought'
-  const metaDisplay = isThinking ? liveThinkingPreview || durationLabel : durationLabel
-  const headerTitle = liveThinkingPreview
-    ? `${liveThinkingPreview} · ${durationLabel}`
+  const showTicker = isThinking && !expanded && liveThinkingPreview.text.length > 0
+  const headerTitle = liveThinkingPreview.text
+    ? `${liveThinkingPreview.text} · ${durationLabel}`
     : durationLabel
 
   return (
@@ -132,14 +140,14 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       <button
         type="button"
         onClick={() => {
-          if (isThinking) return
+          if (!hasThinkingContent) return
           setCollapsed((value) => !value)
         }}
         title={headerTitle}
         aria-expanded={expanded}
         className={cn(
           'group flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md bg-transparent px-1.5 py-0 text-left text-[12.5px] leading-snug text-muted-foreground/70 transition-colors hover:bg-transparent hover:text-foreground',
-          isThinking && liveThinkingPreview && 'w-full'
+          (isThinking || showTicker) && 'w-full'
         )}
       >
         <span
@@ -149,23 +157,37 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         >
           {headerLabel}
         </span>
-        {metaDisplay ? (
+        {showTicker ? (
+          <ThinkingLiveTicker
+            text={liveThinkingPreview.text}
+            generation={liveThinkingPreview.generation}
+            animate={animationsEnabled && !reduceMotion}
+          />
+        ) : null}
+        {durationLabel ? (
           <span
-            className={`thinking-live-meta ${
-              liveThinkingPreview ? 'min-w-0 flex-1 truncate' : 'shrink-0 tabular-nums'
-            }`}
+            className={cn(
+              'thinking-live-meta shrink-0 tabular-nums',
+              showTicker || isThinking ? 'ml-auto' : null
+            )}
           >
-            {metaDisplay}
+            {durationLabel}
           </span>
         ) : null}
-        {expanded ? (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
-        ) : (
-          <ChevronRight className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
-        )}
+        {hasThinkingContent ? (
+          expanded ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/35 transition-colors group-hover:text-muted-foreground/70" />
+          )
+        ) : null}
       </button>
 
-      <CollapsibleHeightPanel open={expanded} className="overflow-hidden">
+      <CollapsibleHeightPanel
+        open={expanded}
+        collapseMotion="scroll-up"
+        className="overflow-hidden"
+      >
         <div className="max-w-full px-0.5 pb-1 text-sm leading-7 text-muted-foreground/75">
           <div className="[&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_li]:my-1">
             <Markdown

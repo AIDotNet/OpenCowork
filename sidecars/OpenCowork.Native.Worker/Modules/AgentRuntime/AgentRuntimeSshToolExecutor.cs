@@ -192,16 +192,7 @@ internal static class AgentRuntimeSshToolExecutor
             throw new InvalidOperationException("Write requires a content string");
         }
 
-        var guardError = await AssertCurrentFileMatchesLastReadAsync(
-            parameters,
-            path,
-            "Write",
-            allowMissingFile: true);
-        if (guardError is not null)
-        {
-            throw new InvalidOperationException(guardError);
-        }
-
+        // Write creates or overwrites. The read-history guard is for Edit/NotebookEdit.
         cancellationToken.ThrowIfCancellationRequested();
         var before = await CaptureFullTextSnapshotAsync(parameters, path);
         await WriteRemoteTextAsync(parameters, path, content);
@@ -243,8 +234,7 @@ internal static class AgentRuntimeSshToolExecutor
         var guardError = await AssertCurrentFileMatchesLastReadAsync(
             parameters,
             path,
-            "Edit",
-            allowMissingFile: false);
+            "Edit");
         if (guardError is not null)
         {
             return EncodeError(guardError);
@@ -305,8 +295,7 @@ internal static class AgentRuntimeSshToolExecutor
         var guardError = await AssertCurrentFileMatchesLastReadAsync(
             parameters,
             path,
-            "NotebookEdit",
-            allowMissingFile: false);
+            "NotebookEdit");
         if (guardError is not null)
         {
             return EncodeError(guardError);
@@ -796,8 +785,7 @@ internal static class AgentRuntimeSshToolExecutor
     private static async Task<string?> AssertCurrentFileMatchesLastReadAsync(
         JsonElement parameters,
         string path,
-        string toolName,
-        bool allowMissingFile)
+        string toolName)
     {
         var scope = AgentRuntimeNativeToolExecutor.ResolveReadHistoryScope(parameters);
         if (scope is null)
@@ -806,10 +794,6 @@ internal static class AgentRuntimeSshToolExecutor
         }
 
         var current = await CaptureSnapshotAsync(parameters, path);
-        if (!current.Exists && allowMissingFile)
-        {
-            return null;
-        }
 
         FileSnapshot? previous = null;
         lock (ReadSnapshotsByScope)

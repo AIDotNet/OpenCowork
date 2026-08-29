@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import type { ToolCallStatus } from '@renderer/lib/agent/types'
 import type { ImageBlock, TextBlock, ToolResultContent } from '@renderer/lib/api/types'
@@ -8,6 +8,7 @@ import { decodeStructuredToolResult } from '@renderer/lib/tools/tool-result-form
 import { toolTitleFromName } from '@renderer/lib/chat/tool-display-name'
 import { cn } from '@renderer/lib/utils'
 import { ImagePreview } from './ImagePreview'
+import { CollapsibleHeightPanel } from './CollapsibleHeightPanel'
 
 interface DesktopActionToolCardProps {
   name: string
@@ -157,105 +158,97 @@ export function DesktopActionToolCard({
         </div>
       </div>
 
-      <AnimatePresence initial={false}>
-        {!collapsed ? (
-          <motion.div
-            key="desktop-tool-content"
-            layout
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={CONTENT_TRANSITION}
-            className="overflow-hidden"
-          >
-            <div className="space-y-3 px-3.5 py-3">
-              {isRunning ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={ITEM_TRANSITION}
-                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground"
-                >
-                  <Loader2 className="size-4 animate-spin" />
-                  <span className="tool-name-live-pulse tool-name-live-pulse--running">
-                    {t('toolCall.desktop.executing')}
-                  </span>
-                </motion.div>
-              ) : null}
+      <CollapsibleHeightPanel
+        open={!collapsed}
+        collapseMotion="scroll-up"
+        className="overflow-hidden"
+      >
+        <div className="space-y-3 px-3.5 py-3">
+          {isRunning ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={ITEM_TRANSITION}
+              className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground"
+            >
+              <Loader2 className="size-4 animate-spin" />
+              <span className="tool-name-live-pulse tool-name-live-pulse--running">
+                {t('toolCall.desktop.executing')}
+              </span>
+            </motion.div>
+          ) : null}
 
-              {hasError ? (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={ITEM_TRANSITION}
-                  className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive"
-                >
-                  <span>{parsedError}</span>
-                </motion.div>
-              ) : null}
+          {hasError ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={ITEM_TRANSITION}
+              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive"
+            >
+              <span>{parsedError}</span>
+            </motion.div>
+          ) : null}
 
-              {images.length > 0 ? (
-                <div className="space-y-3">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.desktop.screenshot.preview')}
-                  </p>
-                  {images.map((image, index) => {
-                    const src =
-                      image.source.type === 'base64' && image.source.data
-                        ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
-                        : (image.source.url ?? '')
-                    if (!src && !image.source.filePath) return null
-                    return (
-                      <ImagePreview
-                        key={`${image.source.filePath ?? src}-${index}`}
-                        src={src}
-                        alt={`Desktop screenshot ${index + 1}`}
-                        filePath={image.source.filePath}
-                      />
-                    )
-                  })}
-                </div>
-              ) : null}
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t('toolCall.desktop.input')}
-                </p>
-                <pre className="overflow-x-auto rounded-lg bg-muted/20 px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
-                  {JSON.stringify(input, null, 2)}
-                </pre>
-              </div>
-
-              {jsonOutput ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.desktop.output')}
-                  </p>
-                  <pre className="overflow-x-auto rounded-lg bg-muted/20 px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
-                    {JSON.stringify(jsonOutput, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-
-              {notes.length > 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t('toolCall.desktop.notes')}
-                  </p>
-                  {notes.map((note, index) => (
-                    <p
-                      key={`${note.text}-${index}`}
-                      className="rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
-                    >
-                      {note.text}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
+          {images.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('toolCall.desktop.screenshot.preview')}
+              </p>
+              {images.map((image, index) => {
+                const src =
+                  image.source.type === 'base64' && image.source.data
+                    ? `data:${image.source.mediaType || 'image/png'};base64,${image.source.data}`
+                    : (image.source.url ?? '')
+                if (!src && !image.source.filePath) return null
+                return (
+                  <ImagePreview
+                    key={`${image.source.filePath ?? src}-${index}`}
+                    src={src}
+                    alt={`Desktop screenshot ${index + 1}`}
+                    filePath={image.source.filePath}
+                  />
+                )
+              })}
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          ) : null}
+
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              {t('toolCall.desktop.input')}
+            </p>
+            <pre className="overflow-x-auto rounded-lg bg-muted/20 px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+              {JSON.stringify(input, null, 2)}
+            </pre>
+          </div>
+
+          {jsonOutput ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('toolCall.desktop.output')}
+              </p>
+              <pre className="overflow-x-auto rounded-lg bg-muted/20 px-3 py-2 text-xs text-foreground whitespace-pre-wrap break-words">
+                {JSON.stringify(jsonOutput, null, 2)}
+              </pre>
+            </div>
+          ) : null}
+
+          {notes.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('toolCall.desktop.notes')}
+              </p>
+              {notes.map((note, index) => (
+                <p
+                  key={`${note.text}-${index}`}
+                  className="rounded-lg bg-muted/20 px-3 py-2 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap break-words"
+                >
+                  {note.text}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </CollapsibleHeightPanel>
     </motion.div>
   )
 }

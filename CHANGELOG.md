@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.24] - 2026-08-29
+
+### Changed
+
+- Consecutive thoughts and ordinary tools now share one Exploring run, so completed thinking folds into the collapsed header instead of sitting as a separate block.
+- The live thinking header shows the latest cleaned fragment and only ticks when a new sentence starts.
+- Write can create or overwrite a file without a prior Read. Edit and NotebookEdit still require a matching last-read snapshot.
+
+### Fixed
+
+- Fixed Read/Grep and other tool cards disappearing when `tool_call_start` arrived before `tool_use_generated`, or when the live agent store already tracked the call. The stream now always upserts the assistant `tool_use` block.
+- Restored missing tool cards from the tool-result journal and request-debug payload when a result exists without a matching `tool_use` in the message.
+
 ## [1.3.23] - 2026-08-29
 
 ### Added

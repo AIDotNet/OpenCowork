@@ -32,7 +32,11 @@ internal static class AgentRuntimeRequestTimeout
 {
     // Mirrors HttpClient's historical default so behaviour is unchanged when unset.
     public const int DefaultTimeoutSeconds = 100;
-    public const int DefaultStreamIdleTimeoutSeconds = 120;
+    // Reasoning models (OpenAI Responses o-series / GPT-5, Anthropic extended thinking)
+    // routinely stay silent for several minutes after headers arrive — they are thinking,
+    // not stalled. 120s killed those healthy streams. 30 minutes is long enough for
+    // high-effort reasoning while still releasing a Job slot if the provider truly hung.
+    public const int DefaultStreamIdleTimeoutSeconds = 1800;
 
     // Server-side image generation renders the whole image before the provider emits anything,
     // so a stream carrying an in-flight image call is legitimately silent for minutes — longer

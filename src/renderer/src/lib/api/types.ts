@@ -816,6 +816,11 @@ export interface ProviderConfig {
    * 0 waits indefinitely. Sourced from the global apiRequestTimeoutSeconds setting.
    */
   requestTimeoutSeconds?: number
+  /**
+   * Deadline for silence between SSE/WebSocket frames, in seconds.
+   * 0 disables the idle deadline. Sourced from apiRequestTimeoutSeconds (0, or a
+   * 30-minute floor so reasoning models are not killed while thinking).
+   */
   streamIdleTimeoutSeconds?: number
   /** Whether thinking mode is enabled for this request */
   thinkingEnabled?: boolean

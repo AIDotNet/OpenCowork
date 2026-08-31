@@ -125,7 +125,7 @@ export function RuntimePanel(): React.JSX.Element {
           label={t('general.apiRequestTimeout', { defaultValue: 'API Request Timeout' })}
           description={t('general.apiRequestTimeoutDesc', {
             defaultValue:
-              'How long to wait for a model to start responding, in seconds. Raise this for local models (e.g. Ollama) that need a long warm-up. Set 0 to wait indefinitely until you cancel.'
+              'How long to wait for a model to start responding, in seconds. Raise this for local models (e.g. Ollama) that need a long warm-up. Set 0 to wait indefinitely until you cancel — that also disables the stream-idle deadline used while reasoning models think.'
           })}
           control={
             <Input
@@ -156,7 +156,7 @@ export function RuntimePanel(): React.JSX.Element {
           <SettingHint>
             {t('general.apiRequestTimeoutHint', {
               defaultValue:
-                'Only bounds the wait before the first response; an active stream is never cut off. Default {{default}}s.',
+                'The first-byte wait defaults to {{default}}s. After headers arrive, silence of at least 30 minutes is allowed so reasoning models can think. Set 0 to disable both deadlines until you cancel.',
               default: DEFAULT_API_REQUEST_TIMEOUT_SECONDS
             })}
           </SettingHint>

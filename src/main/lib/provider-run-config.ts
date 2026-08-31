@@ -184,6 +184,21 @@ export function getApiRequestTimeoutSeconds(settings: Record<string, unknown>): 
   return Math.min(86_400, Math.max(0, Math.floor(value)))
 }
 
+/** Floor matching Worker `DefaultStreamIdleTimeoutSeconds` so reasoning silence is not killed. */
+const DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS = 1800
+
+/**
+ * Stream-idle deadline sent to the Worker. 0 disables it (user chose "no limit").
+ * Otherwise the header timeout is used as a floor no lower than 30 minutes — raising
+ * the setting above 1800s lengthens both deadlines; leaving it at 100s no longer
+ * silently keeps the old 120s stream-idle kill.
+ */
+export function getApiStreamIdleTimeoutSeconds(settings: Record<string, unknown>): number {
+  const header = getApiRequestTimeoutSeconds(settings)
+  if (header === 0) return 0
+  return Math.max(header, DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS)
+}
+
 function normalizeProviderBaseUrl(baseUrl: string, requestType: ProviderType): string {
   const normalizedType = normalizeProviderType(requestType)
   const trimmed = baseUrl.trim().replace(/\/+$/, '')
@@ -365,6 +380,7 @@ export function buildProviderConfigById(
       ? { allowInsecureTls: provider.allowInsecureTls }
       : {}),
     requestTimeoutSeconds: getApiRequestTimeoutSeconds(settings),
+    streamIdleTimeoutSeconds: getApiStreamIdleTimeoutSeconds(settings),
     userAgent: resolveApiUserAgent(
       resolveOauthForwardUserAgent(
         provider.builtinId,

@@ -24,7 +24,11 @@ import {
   resolveOauthForwardUserAgent
 } from '../../../shared/oauth-client-identity'
 import { aiProviderStorage } from '../lib/ipc/ai-provider-storage'
-import { useSettingsStore, clampApiRequestTimeoutSeconds } from './settings-store'
+import {
+  useSettingsStore,
+  clampApiRequestTimeoutSeconds,
+  resolveApiStreamIdleTimeoutSeconds
+} from './settings-store'
 
 export { builtinProviderPresets }
 export type { BuiltinProviderPreset }
@@ -692,6 +696,10 @@ function resolveProviderAccountId(provider: AIProvider): string | undefined {
  */
 function resolveRequestTimeoutSeconds(): number {
   return clampApiRequestTimeoutSeconds(useSettingsStore.getState().apiRequestTimeoutSeconds)
+}
+
+function resolveStreamIdleTimeoutSeconds(): number {
+  return resolveApiStreamIdleTimeoutSeconds(resolveRequestTimeoutSeconds())
 }
 
 function resolveResponsesWebsocket(
@@ -1544,6 +1552,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
+          streamIdleTimeoutSeconds: resolveStreamIdleTimeoutSeconds(),
           responseSummary: activeModel?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: activeModel?.enablePromptCache,
@@ -1669,6 +1678,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
+          streamIdleTimeoutSeconds: resolveStreamIdleTimeoutSeconds(),
           responseSummary: model?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: model?.enablePromptCache,
@@ -1777,6 +1787,7 @@ export const useProviderStore = create<ProviderStore>()(
             ? { allowInsecureTls: provider.allowInsecureTls }
             : {}),
           requestTimeoutSeconds: resolveRequestTimeoutSeconds(),
+          streamIdleTimeoutSeconds: resolveStreamIdleTimeoutSeconds(),
           responseSummary: fastModel?.responseSummary,
           ...(responsesImageGeneration ? { responsesImageGeneration } : {}),
           enablePromptCache: fastModel?.enablePromptCache,

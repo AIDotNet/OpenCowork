@@ -109,9 +109,10 @@ of a Job route, so clients cannot accidentally move slow execution back onto a C
   disconnected Agent stream wakes are recovered from the durable outbox and never inherit Control
   IPC health.
 
-Provider transports retain a 100-second response-header deadline and default to a 120-second
-stream-idle deadline for SSE/WebSocket reads and stalled non-success response bodies. Set
-`streamIdleTimeoutSeconds` on a provider request, or
+Provider transports retain a 100-second response-header deadline and default to a 30-minute
+stream-idle deadline for SSE/WebSocket reads and stalled non-success response bodies. Reasoning
+models can think for minutes without emitting tokens; 30 minutes covers that silence without
+holding a hung Job forever. Set `streamIdleTimeoutSeconds` on a provider request, or
 `OPEN_COWORK_AGENT_STREAM_IDLE_TIMEOUT_SECONDS` globally; zero disables these body/idle deadlines.
 
 Reads taken while a server-side `image_generation` call is open use a separate 900-second

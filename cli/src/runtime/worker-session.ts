@@ -618,6 +618,15 @@ function numberValue(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
+/** Matches Worker `DefaultStreamIdleTimeoutSeconds` and the desktop setting floor. */
+const DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS = 1800
+
+function resolveStreamIdleTimeoutSeconds(settings: JsonRecord): number {
+  const header = numberValue(settings.apiRequestTimeoutSeconds, 100)
+  if (header === 0) return 0
+  return Math.max(header, DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS)
+}
+
 function clampCompressionThreshold(value: unknown): number {
   return Math.min(0.9, Math.max(0.3, numberValue(value, DEFAULT_CONTEXT_COMPRESSION_THRESHOLD)))
 }
@@ -827,6 +836,7 @@ function buildProvider(
         maxTokens: numberValue(settings.maxTokens, 32_000),
         temperature: numberValue(settings.temperature, 0.7),
         requestTimeoutSeconds: numberValue(settings.apiRequestTimeoutSeconds, 100),
+        streamIdleTimeoutSeconds: resolveStreamIdleTimeoutSeconds(settings),
         reasoningEffort: options.effort,
         userAgent: `OpenCowork-CLI/${options.appVersion}`
       }
@@ -881,6 +891,7 @@ function buildProvider(
     useSystemProxy: provider.useSystemProxy,
     allowInsecureTls: provider.allowInsecureTls,
     requestTimeoutSeconds: numberValue(settings.apiRequestTimeoutSeconds, 100),
+    streamIdleTimeoutSeconds: resolveStreamIdleTimeoutSeconds(settings),
     maxTokens: Number.isFinite(maxTokens) ? maxTokens : numberValue(settings.maxTokens, 32_000),
     temperature: numberValue(settings.temperature, 0.7),
     thinkingEnabled: resolveThinkingEnabled(settings, providerId, configuredModelId, model),

@@ -107,6 +107,8 @@ export const DEFAULT_API_REQUEST_TIMEOUT_SECONDS = 100
 export const MIN_API_REQUEST_TIMEOUT_SECONDS = 0
 /** 24h ceiling: generous enough for any local warm-up while still bounding typos. */
 export const MAX_API_REQUEST_TIMEOUT_SECONDS = 86_400
+/** Floor matching Worker `DefaultStreamIdleTimeoutSeconds` so reasoning silence is not killed. */
+export const DEFAULT_API_STREAM_IDLE_TIMEOUT_SECONDS = 1800
 
 export interface RecentWorkingTarget {
   workingFolder: string
@@ -276,6 +278,13 @@ export function clampApiRequestTimeoutSeconds(value: number): number {
     MAX_API_REQUEST_TIMEOUT_SECONDS,
     Math.max(MIN_API_REQUEST_TIMEOUT_SECONDS, Math.floor(value))
   )
+}
+
+/** 0 disables the Worker stream-idle deadline; otherwise at least 30 minutes. */
+export function resolveApiStreamIdleTimeoutSeconds(requestTimeoutSeconds: number): number {
+  const header = clampApiRequestTimeoutSeconds(requestTimeoutSeconds)
+  if (header === 0) return 0
+  return Math.max(header, DEFAULT_API_STREAM_IDLE_TIMEOUT_SECONDS)
 }
 
 export function normalizeShellExecutionEndpoint(value: unknown): ShellExecutionEndpoint {

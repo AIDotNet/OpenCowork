@@ -1811,7 +1811,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       },
       {
         category: 'Runtime',
-        description: 'Provider response-header timeout. Set to 0 to wait indefinitely.',
+        description:
+          'Provider response-header timeout. Set to 0 to wait indefinitely and disable the stream-idle deadline.',
         format: 'seconds',
         key: 'apiRequestTimeoutSeconds',
         kind: 'number',

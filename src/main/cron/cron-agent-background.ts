@@ -38,6 +38,7 @@ import { readPersistedProviderStore } from '../lib/ai-provider-store'
 import {
   buildProviderConfigById,
   getApiRequestTimeoutSeconds,
+  getApiStreamIdleTimeoutSeconds,
   getCompressionProviderConfig,
   getFastProviderConfig,
   normalizeProviderType,
@@ -356,6 +357,7 @@ async function resolveCronProviderConfig(
     maxTokens: Number(settings.maxTokens ?? 32000),
     temperature: Number(settings.temperature ?? 0.7),
     requestTimeoutSeconds: getApiRequestTimeoutSeconds(settings),
+    streamIdleTimeoutSeconds: getApiStreamIdleTimeoutSeconds(settings),
     userAgent: getDefaultApiUserAgent()
   }
 }

@@ -1,6 +1,20 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
+
+## [1.3.25] - 2026-08-31
+
+### Changed
+
+- The stream-idle deadline now defaults to 30 minutes instead of 120 seconds. Reasoning models (o-series, GPT-5, extended thinking) stay silent for minutes after headers arrive; the old default killed healthy streams. Setting the API request timeout to 0 disables both deadlines.
+- Message list scroll, pinning, and history-load viewport state is extracted from `MessageList.tsx` into a dedicated viewport module — the component shrinks by ~1000 lines to presentation only.
+
+### Fixed
+
+- Fixed summarized turns leaking back into the model context: the compaction watermark cut is now refused whenever the summary row is missing (windowed load miss or not-yet-committed summary), instead of silently dropping the compacted range and leaving the model with only the latest turn.
+- Fixed the Worker context source hiding the compacted range when the watermark's summary row was not on disk; the chat store now re-fetches a just-committed summary before applying the cut.
+- Fixed streamed text and thinking doubling when a gateway replayed a snapshot or the live stream, reattach, and sync echo delivered the same chunk in one frame. The Worker now takes only the incremental part of deltas, ignores `reasoning_summary_text.done` snapshots that duplicate streamed deltas, and the renderer no longer subscribes twice while the live send loop owns the session.
+- Fixed tool calls failing required-field validation when a model sent `path` or `target_file` instead of the schema's `file_path` / `notebook_path`; common aliases are now coerced onto the canonical property.
 
 ## [1.3.24] - 2026-08-29
 

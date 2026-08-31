@@ -46,7 +46,7 @@ import {
   setRuntimeThinkingEncryptedContent,
   updateRuntimeToolUseInput
 } from '@renderer/lib/agent/session-runtime-router'
-import { sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
+import { hasLiveStreamSession, sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
 import { withSessionRuntimeSyncSuppressed } from '@renderer/lib/session-runtime-sync'
 import { withAgentRuntimeSyncSuppressed } from '@renderer/lib/agent-runtime-sync'
 
@@ -270,6 +270,9 @@ async function reattachOneRun(
   assistantMessageId: string | null
 ): Promise<void> {
   if (reattachedRuns.has(runId)) return
+  // The live send loop already owns this session. Subscribing here would apply
+  // every later delta twice — once in createSidecarEventStream, once here.
+  if (hasLiveStreamSession(sessionId)) return
 
   // Ensure the session's recent messages are resident so the assistant message
   // the deltas land in exists (or can be located) before replay.

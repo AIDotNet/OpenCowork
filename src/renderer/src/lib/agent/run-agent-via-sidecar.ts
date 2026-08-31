@@ -1,6 +1,7 @@
 import type { AgentEvent } from '@renderer/lib/agent/types'
 import type { AgentStreamEvent } from '../../../../shared/agent-stream-protocol'
 import { agentBridge } from '@renderer/lib/ipc/agent-bridge'
+import { beginLiveStreamSession } from './session-run-registry'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { toAgentEvent, toSubAgentEvent } from './stream-event-adapter'
 import { subAgentEvents } from '@renderer/lib/agent/sub-agents/events'
@@ -71,6 +72,7 @@ export function runAgentViaSidecar(
         if (eventRunId && eventRunId !== runId) return
         dispatchStreamEvent(event)
       })
+      const endLiveStream = request.sessionId ? beginLiveStreamSession(request.sessionId) : null
 
       try {
         const result = await agentBridge.runAgent(request)
@@ -108,6 +110,7 @@ export function runAgentViaSidecar(
       } finally {
         abortCleanup?.()
         unsub()
+        endLiveStream?.()
       }
     }
   }

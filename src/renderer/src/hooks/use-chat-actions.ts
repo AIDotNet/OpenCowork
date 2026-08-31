@@ -235,7 +235,7 @@ import {
 } from '@renderer/lib/ipc/sidecar-protocol'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { toAgentEvent, toSubAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
-import { sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
+import { beginLiveStreamSession, sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
 import {
   cancelHostedSessionRun,
   resolveHostedTriggerMessageId,
@@ -3826,6 +3826,7 @@ function createSidecarEventStream(options: {
         if (eventRunId && eventRunId !== runId) return
         dispatchStreamEvent(event)
       })
+      const endLiveStream = beginLiveStreamSession(sessionId)
 
       try {
         const result = startAcceptedRun
@@ -3888,6 +3889,7 @@ function createSidecarEventStream(options: {
         clearFirstProgressTimer()
         signal?.removeEventListener('abort', onAbort)
         unsub()
+        endLiveStream()
         if (runId) {
           sessionSidecarRunIds.delete(sessionId)
         }

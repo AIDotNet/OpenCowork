@@ -18,6 +18,7 @@ import { useBackgroundSessionStore } from '@renderer/stores/background-session-s
 import { recordStreamingForegroundFlush } from '@renderer/lib/streaming-perf'
 import { createResidentRequestDebugInfo } from '@renderer/lib/debug-store'
 import { mergeUsageSnapshot } from './usage-merge'
+import { coalesceStreamAppend } from '../../../../shared/stream-delta-coalesce'
 
 /**
  * Strip any <think>...</think> markers streamed by providers that wrap thinking in pseudo-tags.
@@ -276,14 +277,14 @@ export function appendRuntimeTextDelta(sessionId: string, messageId: string, tex
 
   mutateBufferedMessage(sessionId, messageId, (message) => {
     if (typeof message.content === 'string') {
-      message.content += text
+      message.content = coalesceStreamAppend(message.content, text)
       return
     }
 
     const blocks = message.content as ContentBlock[]
     const lastBlock = blocks[blocks.length - 1]
     if (lastBlock?.type === 'text') {
-      lastBlock.text += text
+      lastBlock.text = coalesceStreamAppend(lastBlock.text, text)
     } else {
       blocks.push({ type: 'text', text })
     }

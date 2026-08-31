@@ -41,10 +41,11 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         switch (type)
         {
             case "response.output_text.delta":
-                if (JsonHelpers.GetString(root, "delta") is { Length: > 0 } delta)
+                if (JsonHelpers.GetString(root, "delta") is { Length: > 0 } rawDelta &&
+                    AgentRuntimeStreamDeltaCoalescer.TakeIncrement(parseState.AssistantText, rawDelta)
+                        is { Length: > 0 } delta)
                 {
                     MarkFirstToken(parseState, startedAt);
-                    parseState.AssistantText.Append(delta);
                     parseState.EstimatedOutputTokens += EstimateTokenCount(delta);
                     await AgentRuntimeTools.EmitProjectedAsync(
                         state,
@@ -54,8 +55,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 break;
 
             case "response.reasoning_summary_text.delta":
-            case "response.reasoning_summary_text.done":
-                if ((JsonHelpers.GetString(root, "delta") ?? JsonHelpers.GetString(root, "text")) is { Length: > 0 } thinking)
+                if ((JsonHelpers.GetString(root, "delta") ?? JsonHelpers.GetString(root, "text"))
+                        is { Length: > 0 } rawThinking &&
+                    AgentRuntimeStreamDeltaCoalescer.TakeIncrement(parseState.StreamedThinking, rawThinking)
+                        is { Length: > 0 } thinking)
                 {
                     MarkFirstToken(parseState, startedAt);
                     parseState.EmittedThinkingDelta = true;
@@ -65,6 +68,11 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                         context,
                         new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
                 }
+                break;
+
+            // Completed-part snapshots. Deltas already carried the text; treating
+            // `text` as another increment appends the whole summary again.
+            case "response.reasoning_summary_text.done":
                 break;
 
             case "response.output_item.added":
@@ -579,7 +587,9 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             return;
         }
-        var thinking = ExtractReasoningSummaryText(item);
+        var thinking = AgentRuntimeStreamDeltaCoalescer.TakeIncrement(
+            parseState.StreamedThinking,
+            ExtractReasoningSummaryText(item));
         if (string.IsNullOrWhiteSpace(thinking))
         {
             return;

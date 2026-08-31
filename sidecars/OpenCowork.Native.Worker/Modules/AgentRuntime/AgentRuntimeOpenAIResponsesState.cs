@@ -85,6 +85,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
     private sealed class ResponsesParseState
     {
         public StringBuilder AssistantText { get; } = new();
+        public StringBuilder StreamedThinking { get; } = new();
         public List<AgentRuntimeNativeToolCall> ToolCalls { get; } = new();
         public Dictionary<string, ResponsesToolBuffer> ToolBuffers { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, string> CallIdAliases { get; } = new(StringComparer.Ordinal);

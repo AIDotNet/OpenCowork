@@ -1,4 +1,5 @@
 import type { ContentBlock, WebSearchBlock } from '@renderer/lib/api/types'
+import { coalesceStreamAppend } from '../../../shared/stream-delta-coalesce'
 
 export function sealIncompleteThinkingBlocks(blocks: ContentBlock[], completedAt: number): void {
   for (const block of blocks) {
@@ -22,7 +23,7 @@ export function appendThinkingDeltaToBlocks(
 
   const last = blocks[blocks.length - 1]
   if (last?.type === 'thinking' && last.completedAt == null) {
-    last.thinking += thinking
+    last.thinking = coalesceStreamAppend(last.thinking, thinking)
     return
   }
 

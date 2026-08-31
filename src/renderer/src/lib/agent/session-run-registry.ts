@@ -7,3 +7,16 @@
 // the main-process runtime snapshot after a reload, while use-chat-actions keeps
 // writing to the same instance during normal runs.
 export const sessionSidecarRunIds = new Map<string, string>()
+
+const liveStreamSessionIds = new Set<string>()
+
+export function beginLiveStreamSession(sessionId: string): () => void {
+  liveStreamSessionIds.add(sessionId)
+  return () => {
+    liveStreamSessionIds.delete(sessionId)
+  }
+}
+
+export function hasLiveStreamSession(sessionId: string): boolean {
+  return liveStreamSessionIds.has(sessionId)
+}

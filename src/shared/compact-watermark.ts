@@ -101,9 +101,12 @@ export function normalizeCompactWatermark(value: unknown): CompactWatermark | nu
 /**
  * Reduce a full transcript to the model-visible conversation.
  *
- * A watermark whose summary row is gone still cuts the compacted range: losing
- * the summary costs continuity, whereas keeping the range would refill the
- * context window with turns the summary already accounts for.
+ * The cut is only applied when the summary row is in this list. A watermark
+ * without its summary — a windowed load that missed the row, or a commit that
+ * has not landed yet — must not drop the compacted range: the model would
+ * then see only the latest turn and lose the working memory the summary was
+ * supposed to carry. Sending the uncut window is wasteful; sending the tail
+ * alone is wrong.
  */
 export function applyCompactWatermark<T extends WatermarkMessage>(
   messages: readonly T[],
@@ -112,6 +115,14 @@ export function applyCompactWatermark<T extends WatermarkMessage>(
   const visible = messages.filter((message) => !isUiOnlyRequestMessage(message))
   if (!watermark) return visible
 
+  const summary = visible.find((message) => message.id === watermark.summaryMessageId)
+  if (!summary) {
+    console.warn('[CompactWatermark] Summary message missing; leaving transcript uncut', {
+      summaryMessageId: watermark.summaryMessageId
+    })
+    return visible
+  }
+
   const throughSortOrder = resolveWatermarkCut(messages, watermark)
   const kept = new Set(watermark.keepMessageIds)
   const tail = visible.filter(
@@ -119,15 +130,6 @@ export function applyCompactWatermark<T extends WatermarkMessage>(
       message.id !== watermark.summaryMessageId &&
       (resolveSortOrder(message) > throughSortOrder || kept.has(message.id))
   )
-
-  const summary = visible.find((message) => message.id === watermark.summaryMessageId)
-  if (!summary) {
-    console.warn('[CompactWatermark] Summary message missing; continuing without it', {
-      summaryMessageId: watermark.summaryMessageId,
-      throughSortOrder
-    })
-    return tail
-  }
   return [summary, ...tail]
 }
 

@@ -1514,9 +1514,9 @@ internal static partial class DbMessageTools
             StringComparison.Ordinal);
     }
 
-    private static bool MessageExists(
+    internal static bool MessageExists(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         string id)
     {
         using var command = connection.CreateCommand();

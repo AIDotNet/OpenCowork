@@ -974,6 +974,91 @@ const compactedTranscript = [
   { id: 'user-2', role: 'user', content: 'next question', createdAt: 6, sortOrder: 5 }
 ]
 
+test('assembler does not drop summarized turns when the summary row is missing', async () => {
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => [
+        { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1, sortOrder: 0 },
+        { id: 'old-2', role: 'assistant', content: 'huge earlier reply', createdAt: 2, sortOrder: 1 },
+        { id: 'user-2', role: 'user', content: 'next question', createdAt: 6, sortOrder: 5 }
+      ],
+      getCompaction: async () =>
+        watermark({
+          throughMessageId: 'old-2',
+          throughSortOrder: 1
+        })
+    }
+  )
+  assert.deepEqual(
+    assembled.historyMessages.map((message) => message.id),
+    ['old-1', 'old-2']
+  )
+  assert.deepEqual(
+    assembled.turnMessages.map((message) => message.id),
+    ['user-2']
+  )
+})
+
+test('assembler re-reads the transcript when the first load misses the summary', async () => {
+  let loads = 0
+  const assembled = await assembleSessionContext(
+    {
+      sessionId: 'session-1',
+      triggerMessageId: 'user-2',
+      mode: 'chat',
+      providerId: 'prov-1',
+      modelId: 'model-1',
+      attachmentIds: [],
+      commandMetadata: null
+    },
+    {
+      ...assemblerDeps(),
+      getMessages: async () => {
+        loads += 1
+        if (loads === 1) {
+          return [
+            { id: 'old-1', role: 'user', content: 'huge earlier task', createdAt: 1, sortOrder: 0 },
+            {
+              id: 'old-2',
+              role: 'assistant',
+              content: 'huge earlier reply',
+              createdAt: 2,
+              sortOrder: 1
+            },
+            { id: 'user-2', role: 'user', content: 'next question', createdAt: 6, sortOrder: 5 }
+          ]
+        }
+        return compactedTranscript
+      },
+      getCompaction: async () =>
+        watermark({
+          throughMessageId: 'asst-triggering',
+          throughSortOrder: 2,
+          keepMessageIds: ['asst-triggering']
+        })
+    }
+  )
+  assert.equal(loads, 2)
+  assert.deepEqual(
+    assembled.historyMessages.map((message) => message.id),
+    ['summary-1', 'asst-triggering', 'asst-after']
+  )
+  assert.deepEqual(
+    assembled.turnMessages.map((message) => message.id),
+    ['user-2']
+  )
+})
+
 test('assembler drops everything through the recorded cut and keeps the spared turn', async () => {
   const assembled = await assembleSessionContext(
     {
@@ -1152,6 +1237,28 @@ test('splitAssembledTurnMessages keeps history and the last user turn', () => {
   )
 })
 
+test('splitAssembledTurnMessages keeps a compact summary in history', () => {
+  const { history, turn } = splitAssembledTurnMessages([
+    { id: 'user-1', role: 'user', content: 'first' },
+    { id: 'asst-1', role: 'assistant', content: 'ok' },
+    {
+      id: 'summary-1',
+      role: 'user',
+      content: 'Here is a summary of our conversation so far.',
+      meta: { compactSummary: { messagesSummarized: 2 } }
+    },
+    { id: 'user-2', role: 'user', content: 'next question' }
+  ])
+  assert.deepEqual(
+    history.map((message) => message.id),
+    ['user-1', 'asst-1', 'summary-1']
+  )
+  assert.deepEqual(
+    turn.map((message) => message.id),
+    ['user-2']
+  )
+})
+
 test('splitAssembledTurnMessages leaves tool_result-only user messages in history', () => {
   const { history, turn } = splitAssembledTurnMessages([
     { id: 'user-1', role: 'user', content: 'first' },
@@ -1278,6 +1385,60 @@ test('startAssembledRun re-applies the recorded cut to an assembled payload', as
   )
   assert.equal(result?.accepted, true)
   assert.deepEqual(openMessages, [['summary-1', 'asst-after']])
+})
+
+test('startAssembledRun keeps the summary in history when it sits next to the new turn', async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    readCompaction: async () => watermark({ throughMessageId: 'asst-1', throughSortOrder: 1 }),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      calls.push({ method, params: record })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 1 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: 'asst:run-summary-turn',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  const result = await service.startAssembledRun(
+    {
+      ...assembledRunParams,
+      messages: [
+        { id: 'user-1', role: 'user', content: 'first', createdAt: 1, sortOrder: 0 },
+        { id: 'asst-1', role: 'assistant', content: 'ok', createdAt: 2, sortOrder: 1 },
+        {
+          id: 'summary-1',
+          role: 'user',
+          content: 'Here is a summary of our conversation so far.',
+          createdAt: 3,
+          sortOrder: 2,
+          meta: { compactSummary: { messagesSummarized: 2 } }
+        },
+        { id: 'user-2', role: 'user', content: 'second', createdAt: 4, sortOrder: 3 }
+      ]
+    },
+    { runId: 'run-summary-turn' }
+  )
+  assert.equal(result?.accepted, true)
+  assert.deepEqual(
+    (calls[0]?.params.messages as Array<{ id: string }>).map((message) => message.id),
+    ['summary-1']
+  )
+  assert.deepEqual(
+    (calls[1]?.params.messages as Array<{ id: string }>).map((message) => message.id),
+    ['user-2']
+  )
 })
 
 test('startAssembledRun derives the cut for a session compacted by an older build', async () => {

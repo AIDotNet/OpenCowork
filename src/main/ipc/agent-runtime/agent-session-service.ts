@@ -24,6 +24,10 @@ import {
   type WatermarkMessage
 } from '../../../shared/compact-watermark'
 import {
+  isCompactSummaryLikeMessage,
+  type CompactRequestMessage
+} from '../../../shared/compact-request-view'
+import {
   listUnpinnedToolNames,
   buildVolatilePromptTurnContext
 } from '../../../shared/agent-system-prompt'
@@ -207,33 +211,33 @@ export class AgentSessionService {
     }
 
     const messages = Array.isArray(params.messages) ? params.messages : []
-    const { history, turn } = splitAssembledTurnMessages(messages)
-    if (turn.length === 0) return null
+    const list = messages.filter(isRecord)
 
     // A session compacted by an older build has no record; its cut is derived
     // from the marker rows the caller still carries so the enforcement below
-    // covers legacy sessions too.
+    // covers legacy sessions too. Apply the cut to the full payload before
+    // splitting the turn: the summary is itself a user message, so splitting
+    // first can park it in `turn` and then cut `history` without it.
     const compaction =
       (await this.deps.readCompaction?.(sessionId)) ??
-      deriveCompactWatermarkFromTranscript(history as WatermarkMessage[])
-
-    // Re-apply the recorded cut. The caller assembled this payload from its own
-    // view of the transcript; if that view predates the last compaction, sending
-    // it as-is is exactly how summarized turns get back into the context window.
-    const cutHistory = applyCompactWatermark(history as WatermarkMessage[], compaction)
-    if (cutHistory.length !== history.length) {
+      deriveCompactWatermarkFromTranscript(list as WatermarkMessage[])
+    const visible = applyCompactWatermark(list as WatermarkMessage[], compaction)
+    if (visible.length !== list.length) {
       console.log('[agent-session-service] Re-applied compaction cut to assembled run', {
         sessionId,
-        before: history.length,
-        after: cutHistory.length,
+        before: list.length,
+        after: visible.length,
         throughSortOrder: compaction?.throughSortOrder ?? null
       })
     }
 
+    const { history, turn } = splitAssembledTurnMessages(visible)
+    if (turn.length === 0) return null
+
     const { messages: _messages, runId: _runId, ...template } = params
     const assembled: AssembledSessionContext = {
-      openTemplate: { ...template, messages: cutHistory },
-      historyMessages: cutHistory as AssembledWireMessage[],
+      openTemplate: { ...template, messages: history },
+      historyMessages: history as AssembledWireMessage[],
       turnMessages: turn as AssembledWireMessage[],
       prefixIdentity: prefixIdentityFromAssembledParams(params, compaction)
     }
@@ -544,12 +548,23 @@ function isEmptyAssistant(message: Record<string, unknown>): boolean {
 
 function isUserContentTurn(message: Record<string, unknown>): boolean {
   if (message.role !== 'user') return false
+  if (isCompactSummaryLikeMessage(asCompactRequestMessage(message))) return false
   const content = message.content
   if (!Array.isArray(content)) return true
   return content.some((block) => {
     if (!isRecord(block)) return true
     return block.type !== 'tool_result'
   })
+}
+
+function asCompactRequestMessage(message: Record<string, unknown>): CompactRequestMessage {
+  return {
+    id: typeof message.id === 'string' ? message.id : '',
+    role: typeof message.role === 'string' ? message.role : '',
+    content: message.content,
+    createdAt: typeof message.createdAt === 'number' ? message.createdAt : 0,
+    meta: isRecord(message.meta) ? message.meta : undefined
+  }
 }
 
 function prefixIdentityFromAssembledParams(

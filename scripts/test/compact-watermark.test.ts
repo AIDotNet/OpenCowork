@@ -129,11 +129,12 @@ test('rows still waiting for their database position count as the newest', () =>
   )
 })
 
-test('a missing summary still cuts the compacted range', () => {
-  const view = applyCompactWatermark([...history(40), followUp], cut())
+test('a missing summary leaves the transcript uncut', () => {
+  const visible = [...history(40), followUp]
+  const view = applyCompactWatermark(visible, cut())
   assert.deepEqual(
     view.map((message) => message.id),
-    ['follow-up']
+    visible.map((message) => message.id)
   )
 })
 

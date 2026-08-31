@@ -213,8 +213,19 @@ export async function assembleSessionContext(
 
   const mode = intent.mode || session.mode
   const transcript = await deps.getMessages(intent.sessionId)
-  const mapped = transcript.map(toWireMessage)
+  let mapped = transcript.map(toWireMessage)
   const compaction = await deps.getCompaction(intent.sessionId, transcript)
+  // The cut is recorded in the same transaction as the summary row, but this
+  // assemble can observe the watermark a moment before the message list does
+  // (or the other way around). Re-read once so a just-committed summary is
+  // not dropped; applyCompactWatermark will refuse the cut if it is still gone.
+  if (
+    compaction &&
+    !mapped.some((message) => message.id === compaction.summaryMessageId)
+  ) {
+    const retried = await deps.getMessages(intent.sessionId)
+    mapped = retried.map(toWireMessage)
+  }
   const requestMessages = applyCompactWatermark(mapped, compaction)
   if (requestMessages.length !== mapped.length) {
     console.log('[RunContextAssembler] Applied compaction cut', {

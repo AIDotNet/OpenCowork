@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.26] - 2026-08-31
+
+### Changed
+
+- 1M-capable models (GPT, Gemini, Claude, Qwen, and other chat models with a ≥1M window) now default to a 360K standard window instead of 272K. Turning on 1M context uses the model's native long window — including 2M — instead of always falling back to GPT's 1.048M.
+- App updates moved from Data Management into System Settings. The Data page is now backups, migration, and reset only.
+
+### Fixed
+
+- Fixed a quoted prompt vanishing from the live transcript before SQLite had the row. The optimistic bubble stays in the resident window, and the list pins it into view immediately instead of waiting for a session reload.
+
 ## [1.3.25] - 2026-08-31
 
 ### Changed

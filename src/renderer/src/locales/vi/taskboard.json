@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Tổng quan",
+    "kanban": "Bảng",
+    "list": "Danh sách",
+    "gantt": "Timeline"
+  },
+  "columns": {
+    "pending": "Cần làm",
+    "in_progress": "Đang làm",
+    "blocked": "Bị chặn",
+    "in_review": "Chờ duyệt",
+    "completed": "Xong"
+  },
+  "filters": {
+    "searchPlaceholder": "Tìm nhiệm vụ…",
+    "allSessions": "Mọi phiên",
+    "allPriorities": "Mọi mức ưu tiên",
+    "refresh": "Làm mới"
+  },
+  "priority": {
+    "urgent": "Khẩn",
+    "high": "Cao",
+    "medium": "Trung bình",
+    "low": "Thấp",
+    "none": "Không ưu tiên"
+  },
+  "card": {
+    "blockedByCount": "{{count}} đang chặn",
+    "due": "Hạn {{date}}",
+    "running": "Agent đang chạy"
+  },
+  "column": {
+    "empty": "Không có nhiệm vụ",
+    "confirmDone": "Xác nhận hoàn tất"
+  },
+  "empty": {
+    "title": "Chưa có nhiệm vụ",
+    "description": "Nhiệm vụ do agent tạo trên các phiên sẽ hiện ở đây. Nhờ agent lập kế hoạch cho việc phức tạp, hoặc tạo nhiệm vụ trong phiên cộng tác."
+  },
+  "detail": {
+    "title": "Chi tiết nhiệm vụ",
+    "subject": "Tiêu đề",
+    "description": "Mô tả",
+    "descriptionPlaceholder": "Không có mô tả",
+    "status": "Trạng thái",
+    "priority": "Ưu tiên",
+    "tags": "Thẻ",
+    "tagsPlaceholder": "the1, the2",
+    "dueAt": "Hạn chót",
+    "noDue": "Không có hạn",
+    "clearDue": "Xóa",
+    "session": "Phiên",
+    "sessionLoadFailed": "Không tìm thấy phiên đó",
+    "openSession": "Làm tiếp trong phiên",
+    "dependencies": "Phụ thuộc",
+    "blocks": "Đang chặn",
+    "blockedBy": "Bị chặn bởi",
+    "createdAt": "Tạo lúc",
+    "updatedAt": "Cập nhật lúc",
+    "delete": "Xóa nhiệm vụ",
+    "close": "Đóng",
+    "dispatchMessage": "Hãy tiếp tục làm nhiệm vụ: {{subject}}"
+  },
+  "list": {
+    "task": "Nhiệm vụ",
+    "session": "Phiên",
+    "priority": "Ưu tiên",
+    "tags": "Thẻ",
+    "updated": "Cập nhật",
+    "showCompleted": "Hiện mục đã xong"
+  },
+  "gantt": {
+    "noDated": "Không có nhiệm vụ trong khoảng này",
+    "today": "Hôm nay"
+  },
+  "dashboard": {
+    "total": "Tổng số nhiệm vụ",
+    "activeSessions": "Phiên có nhiệm vụ",
+    "blockedTasks": "Nhiệm vụ bị chặn",
+    "completionRate": "Tỷ lệ hoàn thành",
+    "byStatus": "Phân bố theo trạng thái",
+    "trend": "14 ngày gần đây",
+    "trendCreated": "Đã tạo",
+    "trendCompleted": "Đã xong",
+    "blockedList": "Đang bị chặn",
+    "noBlocked": "Không có gì bị chặn",
+    "recentSessions": "Phiên"
+  }
+}

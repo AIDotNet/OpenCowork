@@ -144,7 +144,11 @@
       "tpsHint": "最初の Token 到着後に生成された 1 秒あたりの出力トークン数です。各 API リクエストの完了時に計算されます。",
       "ttft": "TTFT",
       "ttftFull": "最初のトークンまでの時間",
-      "ttftHint": "リクエスト送信から最初のストリーム Token を受け取るまでの待ち時間です。TTFT が低いほど、モデルは早く応答を開始しています。"
+      "ttftHint": "リクエスト送信から最初のストリーム Token を受け取るまでの待ち時間です。TTFT が低いほど、モデルは早く応答を開始しています。",
+      "cacheCreateShort": "書き込み",
+      "cacheHitShort": "キャッシュ",
+      "inputShort": "入力",
+      "outputShort": "出力"
     },
     "runtimeStatus": {
       "awaitingApproval": "承認待ち: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "{{tool}} を実行中",
       "thinking": "思考中",
       "waiting": "待機中"
-    }
+    },
+    "contextCompressionFallback": "要約を利用できないため、古いコンテキストを削除しました",
+    "fileReference": {
+      "remove": "参照を削除",
+      "removePlugin": "プラグイン参照を削除"
+    },
+    "initBannerAction": "/init を実行",
+    "initBannerDismiss": "閉じる",
+    "initBannerText": "現在のフォルダーに AGENTS.md がありません。エージェント精度を上げるため、ワークスペースを初期化してください。"
   },
   "planReview": {
     "awaitingReview": "レビュー待ち",
@@ -177,7 +189,13 @@
     "approvedHint": "このプランは既に承認されています。",
     "copy": "プランをコピー",
     "download": "プランをダウンロード",
-    "expand": "サイドパネルで展開"
+    "expand": "サイドパネルで展開",
+    "rejectedHint": "修正を依頼しました。エージェントが計画を書き直しています。",
+    "requestRevision": "修正を依頼",
+    "revisionDesc": "変更してほしい点を書いてください。エージェントは計画モードに戻り、計画を書き直します。",
+    "revisionPlaceholder": "例: ステップ 3 を移行とロールアウトに分ける。",
+    "revisionSubmit": "修正依頼を送る",
+    "revisionTitle": "計画の修正を依頼"
   },
   "guide": {
     "title": "会話オンボーディング",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "バックグラウンドセッション",
     "backgroundInboxTitle": "必要な入力",
     "backgroundInboxDescription": "{{title}}はあなたの選択を待っています",
-    "backgroundToast": "背景セッションをお待ちしています"
+    "backgroundToast": "背景セッションをお待ちしています",
+    "previewEmpty": "オプションにカーソルを合わせるか選択すると、プレビューが表示されます。"
   },
   "goal": {
     "title": "目標",
@@ -824,10 +843,47 @@
       "summaryLabel": "圧縮された履歴の要約 {{index}} に移動: {{preview}}",
       "summaryPreview": "圧縮された履歴の要約",
       "toolOnlyPreview": "{{count}} 件のツール呼び出し",
-      "userLabel": "ユーザーメッセージ {{index}} に移動: {{preview}}"
+      "userLabel": "ユーザーメッセージ {{index}} に移動: {{preview}}",
+      "navigation": "会話ナビゲーション"
     },
     "pendingRetryTitle": "モデルに再接続中",
-    "pendingTeamTitle": "チームメンバーを調整中"
+    "pendingTeamTitle": "チームメンバーを調整中",
+    "homeCopy": {
+      "chat": [
+        [
+          "いま頭にある一文を言ってください",
+          "質問が途中でも大丈夫です",
+          "こちらで聞き方を整えられます"
+        ],
+        [
+          "チケットのように書く必要はありません",
+          "雑な下書きで十分です",
+          "そのまま投げてください"
+        ],
+        [
+          "賢い書き出しは要りません",
+          "本当に知りたいことが一つあれば十分です",
+          "残りは話しながら埋めます"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} はまだここにあります",
+          "問題も残っています",
+          "具体的な一文の方が、空の入力欄より役立ちます"
+        ],
+        [
+          "全部を一気に終わらせなくて大丈夫です",
+          "いちばん小さな切り口が本物であることが多いです",
+          "あなたが始めれば、こちらが続きます"
+        ],
+        [
+          "静かなリポジトリが健全だとは限りません",
+          "今日は気になっていた一点だけ直せば十分です",
+          "下から始めてください"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "プロジェクト選択なし",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} 個のツール",
     "extensionToolCount_one": "{{count}} 個のツール",
     "extensionToolCount_other": "{{count}} 個のツール",
-    "noCustomExtensions": "有効なカスタム拡張機能はありません"
+    "noCustomExtensions": "有効なカスタム拡張機能はありません",
+    "activeBadge": "有効",
+    "addActionsWithCount": "操作を追加（{{count}}）",
+    "addLabel": "追加",
+    "attachMediaDescription": "画像、ファイル、フォルダーを追加",
+    "attachMediaMenu": "ファイルとフォルダー",
+    "channelsDescription": "接続済みチャンネルにこのメッセージを送る",
+    "commandDescription": "次のメッセージでこのコマンドを使う",
+    "commandsDescription": "保存済みのコマンドテンプレートを実行",
+    "extensionsDescription": "このプロジェクトのカスタムツールを有効化",
+    "goalModeDescription": "会話を通して目標を維持する",
+    "mcpDescription": "外部ツールをこの会話に接続する",
+    "mcpServerDescription": "接続済み MCP サーバー",
+    "planModeDescription": "計画モードを有効化",
+    "skillDescription": "このスキルをメッセージに追加",
+    "toolsAndIntegrations": "ツールと統合"
   },
   "userMessage": {
     "you": "お問い合わせ",
@@ -1028,7 +1099,9 @@
       "copied": "コピッド",
       "descRuntimeUnavailable": "OpenCowork はローカルのネイティブワーカーに接続できませんでした。すでに再起動を試みています。メッセージを再送信するか、繰り返し発生する場合はネイティブワーカーを再ビルドしてください。",
       "sidecarUnavailableMessage": "ローカルのエージェントランタイムが一時的に利用できません。OpenCowork は再起動を試みました。このメッセージを再送信してください。開発環境で繰り返し発生する場合は、`npm run native:publish` を実行してから OpenCowork を再起動してください。",
-      "titleRuntimeUnavailable": "ローカルランタイムが利用できません"
+      "titleRuntimeUnavailable": "ローカルランタイムが利用できません",
+      "descRuntimeFatal": "ローカル Native Worker は自動復旧できません（古い、または非互換のバイナリ）。開発時は `npm run native:publish` で再ビルドするか、OpenCowork を再インストールしてからアプリを再起動してください。",
+      "titleRuntimeFatal": "ローカルランタイムの修復が必要です"
     },
     "processTools": "ツール呼び出し",
     "activeTools": "{{count}} 個のツールが実行中",
@@ -1049,7 +1122,8 @@
     "totalUsage": "合計使用量",
     "tpsHint": "1秒あたりに生成される出力トークン数",
     "ttftHint": "最初のトークンまでの時間",
-    "uncachedInput": "キャッシュされていない入力"
+    "uncachedInput": "キャッシュされていない入力",
+    "processSummary": "処理済み"
   },
   "messageActions": {
     "fork": "フォーク",

@@ -163,7 +163,7 @@
     "systemProxyDesc": "Установите прокси-адрес, используемый всем процессом приложения, например http://127.0.0.1:7890 или http://host:port.",
     "toolbarCollapsedByDefault": "Панель инструментов Collapse по умолчанию",
     "toolbarCollapsedByDefaultDesc": "Выключен по умолчанию. Инициирует состояние левой панели инструментов при открытии приложения.",
-    "chinese": "中",
+    "chinese": "中文",
     "english": "английский",
     "systemPromptPlaceholder": "Добавить пользовательские инструкции...",
     "teamTools": "Инструменты команды",
@@ -204,7 +204,8 @@
       "installing": "Подготовка обновления…",
       "greenBuild": "Сборка без установки",
       "manualDownloadHint": "Доступна более новая версия (v{{version}}). Для сборки без установки загрузите её вручную, закройте приложение и замените текущую папку.",
-      "openDownloadPage": "Открыть страницу загрузки"
+      "openDownloadPage": "Открыть страницу загрузки",
+      "compatBuild": "Совместимая сборка"
     },
     "projectDefaultDirectory": {
       "title": "Каталог проектов по умолчанию",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Интерфейс",
       "editor": "Редактор"
-    }
+    },
+    "autoUpdateCompatDesc": "Совместимая сборка (старые CPU без SSE4.2) не использует официальный канал автообновления. Скачайте соответствующий установщик *-win-x64-compat из GitHub Release."
   },
   "sync": {
     "title": "синхронизация",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Системные настройки",
-    "subtitle": "Время выполнения Shell, прокси и предпочтения исполнения на уровне ОС",
+    "subtitle": "Обновления приложения, runtime Shell, прокси и системные предпочтения выполнения",
     "platform": "Платформа: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(неизвестный проект) {{hash}}",
       "workerMissing": "Исполняемый файл воркера CodeGraph не найден. Соберите его командой `npm run codegraph:publish` (или `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Воркер запущен",
-      "workerStopped": "Воркер не запущен (запускается при первом использовании)"
+      "workerStopped": "Воркер не запущен (запускается при первом использовании)",
+      "availableLanguages": "Доступные языки: {{languages}}",
+      "coreLibraryMissing": "Библиотека runtime tree-sitter отсутствует или повреждена. Переустановите или обновите OpenCowork.",
+      "invalidFiles": "Недействительные файлы грамматики: {{files}}",
+      "invalidGrammarPackage": "Некоторые файлы грамматики CodeGraph недействительны. Переустановите или обновите OpenCowork.",
+      "languageGrammarsMissing": "Не найдены действительные библиотеки языковых грамматик. Переустановите или обновите OpenCowork.",
+      "missingLanguages": "Недоступные языки: {{languages}}",
+      "unrecognizedGrammars": "Нераспознанные библиотеки грамматик: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Инструмент codegraph_explore доступен только тогда, когда плагин включён и его грамматики языков готовы (загружены или предоставлены локально в dev-сборке)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Включить встроенный веб-поиск",
     "enableBuiltinSearchDesc": "Использовать нативный веб-поиск провайдера (Claude / OpenAI Responses) вместо клиентского инструмента.",
     "enableLongContext": "Включить контекст 1M",
-    "enableLongContextDesc": "Использовать окно 1M. Выкл оставляет короткий тариф 272K.",
+    "enableLongContextDesc": "Использовать окно 1M. Выкл оставляет стандартное окно 360K.",
     "kimiQuota5h": "Лимит на 5 часов",
     "kimiQuotaParallel": "Макс. параллелизм {{count}}",
     "kimiQuotaWeekly": "Недельный лимит",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Поддерживает генерацию изображений",
     "supportsImageGenerationDesc": "Эндпоинт реализует серверный инструмент image_generation OpenAI Responses.",
     "supportsWebsocket": "Поддерживает протокол WebSocket",
-    "supportsWebsocketDesc": "Эндпоинт предоставляет транспорт WebSocket OpenAI Responses."
+    "supportsWebsocketDesc": "Эндпоинт предоставляет транспорт WebSocket OpenAI Responses.",
+    "apiKeyHint": "Хранится локально вместе с настройками этого провайдера.",
+    "browserLogin": "Вход через браузер",
+    "customIcon": "Значок провайдера",
+    "customIconHint": "PNG, JPG, WebP, GIF или SVG. До 1 МБ.",
+    "enableAfterAdding": "Включить провайдера после добавления",
+    "enableAfterAddingHint": "Провайдера можно настроить сразу.",
+    "iconInvalidType": "Выберите файл изображения",
+    "iconTooLarge": "Значок должен быть меньше 1 МБ",
+    "iconUploadFailed": "Не удалось прочитать выбранный значок",
+    "modelMetaPricingTiers": "{{count}} ценовых уровней",
+    "pricingTierAdd": "Добавить уровень",
+    "pricingTierHint": "Уровень выбирается по размеру промпта (входные + кэш-токены) на запрос.",
+    "pricingTierRemove": "Удалить уровень",
+    "pricingTierThreshold": "От токенов промпта",
+    "pricingTiers": "Ступенчатые цены",
+    "pricingTiersDesc": "Для моделей, которые тарифицируются по размеру промпта. Каждый уровень заменяет ставки выше, когда запрос достигает своего минимума токенов промпта; оставьте цену пустой, чтобы сохранить базовую ставку.",
+    "removeIcon": "Удалить",
+    "replaceIcon": "Заменить",
+    "uploadIcon": "Загрузить значок"
   },
   "channel": {
     "title": "каналы",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Обновления и данные",
-    "subtitle": "Обновления приложения, резервные копии, миграция и сброс",
+    "title": "Управление данными",
+    "subtitle": "Резервные копии, миграция и сброс",
     "dangerZone": "Опасная зона",
     "dangerZoneDesc": "Эти действия нельзя отменить"
   }

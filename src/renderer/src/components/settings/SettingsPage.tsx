@@ -238,7 +238,11 @@ export function SettingsPage(): React.JSX.Element {
             className="flex-1 space-y-5 overflow-y-auto px-2.5 pb-2 pt-3"
           >
             {searching ? (
-              <SearchResultList results={results} onSelect={goTo} emptyLabel={t('page.searchEmpty')} />
+              <SearchResultList
+                results={results}
+                onSelect={goTo}
+                emptyLabel={t('page.searchEmpty')}
+              />
             ) : (
               SETTINGS_NAV_GROUPS.map((group, groupIndex) => (
                 <motion.div
@@ -399,7 +403,7 @@ function SearchResultList({
     <div className="space-y-0.5">
       {results.map((result) => (
         <button
-          key={`${result.tab}-${result.sectionId ?? 'root'}`}
+          key={`${result.tab}-${result.sectionId ?? 'root'}-${result.label}`}
           type="button"
           data-nav-item
           onClick={() => onSelect(result.tab, result.sectionId)}

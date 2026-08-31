@@ -111,7 +111,17 @@
     "projectSortName": "أبجديًا",
     "projectSortRecentlyUpdated": "الأحدث تحديثًا",
     "projectSortTitle": "ترتيب المشاريع: {{sort}}",
-    "revealInFolder": "فتح موقع المجلد"
+    "revealInFolder": "فتح موقع المجلد",
+    "changeProjectIcon": "تغيير الأيقونة",
+    "newAgentIn": "وكيل جديد في {{projectName}}",
+    "projectIconDefault": "المجلد الافتراضي",
+    "projectIconDialogDescription": "اختر أيقونة لـ «{{projectName}}» أو ارفع صورتك.",
+    "projectIconDialogTitle": "تغيير أيقونة المشروع",
+    "projectIconReplace": "استبدال الصورة",
+    "projectIconReset": "إعادة الافتراضي",
+    "projectIconSearch": "البحث عن أيقونات",
+    "projectIconUpload": "رفع صورة",
+    "taskBoardLabel": "لوحة المهام"
   },
   "sidebar_toast": {
     "sessionDeleted": "الجلسة حذفت",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "أعيدت تسمية الجلسة بذكاء",
     "dropNotFolder": "يرجى إفلات مجلد، وليس ملفًا",
     "projectsCreatedCount": "أُنشئ {{count}} مشروع",
-    "revealFailed": "تعذّر فتح الموقع"
+    "revealFailed": "تعذّر فتح الموقع",
+    "projectIconInvalidType": "يرجى اختيار ملف صورة",
+    "projectIconTooLarge": "يجب أن تكون الأيقونة أصغر من 1 ميغابايت",
+    "projectIconUploadFailed": "تعذّر قراءة الأيقونة المحددة"
   },
   "topbar": {
     "togglePanel": "فريق المناقشة",
@@ -198,11 +211,15 @@
     "builtinSearch": "البحث المدمج على الويب",
     "builtinSearchOff": "معطّل",
     "longContext": "سياق 1M",
-    "longContextOn": "نافذة 1M · تسعير السياق الطويل فوق 272K",
-    "longContextOff": "272K افتراضيًا · تسعير السياق القصير",
+    "longContextOn": "نافذة 1M · نافذة السياق الطويل الأصلية",
+    "longContextOff": "360K افتراضيًا · النافذة القياسية",
     "builtinSearchOn": "بحث المزوّد الأصلي مفعّل",
     "faster": "أسرع",
-    "smarter": "أذكى"
+    "smarter": "أذكى",
+    "computerUse": "استخدام الحاسوب",
+    "contextLength": "طول السياق",
+    "imageGeneration": "توليد الصور",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "البيئة",
@@ -692,7 +709,8 @@
     "translate": "التحويل",
     "ssh": "SSH",
     "settings": "التركيبات",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "لوحة المهام"
   },
   "resourcesPage": {
     "title": "الموارد",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "ترجمة إلى الإنجليزية",
     "assistantQuickTranslatePrompt": "ترجم نص السياق إلى موجّه توليد صورة طبيعي باللغة الإنجليزية. أخرِج النتيجة فقط.",
     "assistantStop": "إيقاف",
-    "retry": "إعادة المحاولة"
+    "retry": "إعادة المحاولة",
+    "addImageGeneration": "إضافة توليد صورة",
+    "addTextGeneration": "إضافة توليد نص",
+    "addVideoGeneration": "إضافة توليد فيديو",
+    "assistantActCancel": "أُلغي التوليد",
+    "assistantActCanvas": "حُدّثت اللوحة",
+    "assistantActCreateNode": "أُنشئ عقدة",
+    "assistantActCreateTrigger": "أُنشئ مشغّل",
+    "assistantActDeleteNodes": "حُذفت العقد",
+    "assistantActDeleteTrigger": "حُذف المشغّل",
+    "assistantActDisconnect": "فُصلت العقد",
+    "assistantActDuplicateNodes": "وُسخت العقد",
+    "assistantActEdit": "حُررت الصورة",
+    "assistantActGenerateVideo": "بدأ توليد الفيديو",
+    "assistantActMedia": "عولجت الوسائط",
+    "assistantActMove": "نُقلت العقد",
+    "assistantActResize": "غُيّر حجم العقدة",
+    "assistantActRetry": "أُعيدت محاولة العقدة",
+    "assistantActRun": "شُغّلت العقدة",
+    "assistantActSelect": "حُدّث التحديد",
+    "assistantActStatus": "فُحصت حالة العقدة",
+    "assistantActSubscribe": "تم الاشتراك في العقدة",
+    "assistantActUpdateNode": "حُدّثت العقدة",
+    "assistantActWait": "انتظار العقدة",
+    "assistantApprove": "موافقة",
+    "assistantAttachImage": "إرفاق صورة",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "إلغاء التشغيل النشط للعقدة {{nodeId}}. قد يحاسبك المزوّد على العمل المُرسل بالفعل.",
+        "title": "إلغاء التوليد؟"
+      },
+      "clear_canvas": {
+        "description": "إزالة كل العقد والوصلات والمشغّلات من هذه اللوحة.",
+        "title": "مسح اللوحة؟"
+      },
+      "delete_nodes": {
+        "description": "حذف {{count}} عقدة ووصلاتها.",
+        "title": "حذف العقد؟"
+      },
+      "delete_project": {
+        "description": "حذف اللوحة المحددة ورسمها المحفوظ. ستُنقل مساحة عمل Agent إلى سلة مهملات النظام.",
+        "title": "حذف مشروع اللوحة؟"
+      },
+      "replace_canvas": {
+        "description": "استيراد هذا JSON سيستبدل محتوى اللوحة الحالي.",
+        "title": "استبدال اللوحة؟"
+      },
+      "tool": {
+        "description": "راجع عملية الأداة هذه قبل السماح بها.\n{{input}}",
+        "title": "السماح لـ {{toolName}}؟"
+      }
+    },
+    "assistantDeleteMessage": "حذف الرسالة",
+    "assistantElapsed": "انتظار {{seconds}} ث",
+    "assistantExecuting": "جارٍ تنفيذ إجراء على اللوحة",
+    "assistantExecutingTool": "جارٍ تنفيذ {{tool}}",
+    "assistantImageInvalid": "بعض الصور غير مدعومة أو أكبر من 20 ميغابايت",
+    "assistantImagesAttached": "{{count}} صورة",
+    "assistantListening": "الاستماع إلى أحداث العقدة",
+    "assistantListeningHint": "سيواصل المساعد تلقائيًا عند انتهاء العقدة.",
+    "assistantPinSelection": "تثبيت المحدد ({{count}})",
+    "assistantRegenerate": "إعادة التوليد",
+    "assistantReject": "رفض",
+    "assistantReplayMissingContext": "جزء من سياق اللوحة الأصلي لم يعد متاحًا وتم تخطيه.",
+    "assistantRewrite": "تعديل وإعادة التوليد",
+    "assistantSideEffectsTitle": "الآثار الجانبية للأدوات ستبقى",
+    "assistantSideEffectsWarning": "تتضمن هذه المحادثة إجراءات أدوات. تعديل الرسائل أو حذفها لن يتراجع عن آثار اللوحة أو الملفات أو Shell أو MCP. المتابعة؟",
+    "assistantThought": "تفكير",
+    "assistantVisionRequired": "اختر نموذجًا يدعم الرؤية لإرسال الصور",
+    "cameraFixed": "كاميرا ثابتة",
+    "copyError": "نسخ الخطأ",
+    "deleteProject": "حذف اللوحة",
+    "deleteProjectConfirm": "حذف «{{name}}»؟ ستُنقل مساحة عمل Agent إلى سلة مهملات النظام.",
+    "errorCopied": "تم نسخ الخطأ",
+    "errorDetails": "تفاصيل الخطأ",
+    "errorDetailsHint": "راجع رد المزوّد الكامل أو انسخه لتشخيص المشكلة.",
+    "frameRole": "إطارات",
+    "frameRoleAuto": "مرجع",
+    "frameRoleFirstLast": "الأول ← الأخير",
+    "frameRoleHint": "ترتيب الإطارات يتبع ترتيب الوصلات.",
+    "generateAudio": "صوت",
+    "imageSize": "حجم الصورة",
+    "nodeImageGeneration": "توليد صورة",
+    "nodeTextGeneration": "توليد نص",
+    "nodeTriggers": "مشغّلات أحداث العقدة",
+    "nodeTriggersDesc": "شغّل عقدة أخرى عندما تتغير حالة تنفيذ هذه العقدة.",
+    "nodeVideoGeneration": "توليد فيديو",
+    "seed": "البذرة",
+    "soraReferenceExactSize": "صورة المرجع: {{size}}. يتطلّب Sora تطابق الحجم تمامًا.",
+    "soraReferenceUnsupportedSize": "صورة المرجع {{size}} لا تطابق حجمًا يدعمه Sora. غيّر الحجم أو قصّها أولًا.",
+    "soraSingleReference": "يقبل Sora مرجع إدخال واحدًا فقط. ستُرفع أول صورة متصلة فقط.",
+    "triggerAdd": "إضافة",
+    "triggerCycle": "سينشئ هذا المشغّل حلقة",
+    "triggerDuplicate": "هذا المشغّل موجود بالفعل",
+    "triggerEmpty": "لا مشغّلات لهذه العقدة",
+    "triggerEvents": {
+      "cancelled": "أُلغي التشغيل",
+      "failed": "فشل التشغيل",
+      "interrupted": "قُطع التشغيل",
+      "progress": "حُدّث التقدم",
+      "queued": "أُدرج التشغيل في الطابور",
+      "started": "بدأ التشغيل",
+      "succeeded": "نجح التشغيل",
+      "updated": "حُدّثت العقدة"
+    },
+    "triggerLastRun": "آخر تشغيل",
+    "triggerStatuses": {
+      "cancelled": "ملغى",
+      "failed": "فشل",
+      "idle": "خامل",
+      "interrupted": "مقطوع",
+      "queued": "في الطابور",
+      "running": "قيد التشغيل",
+      "succeeded": "ناجح"
+    },
+    "triggerSubscriptions": "{{count}} اشتراك نشط",
+    "triggerTarget": "اختر العقدة المستهدفة",
+    "watermark": "علامة مائية"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1265,7 +1400,10 @@
       "description": "يعرض الوضع الافتراضي للعملاء أداة codegraph_explore فقط. فعّل هذا لتسجيل أدوات البحث والعُقد والمستدعين والمُستدعَين والأثر والملفات والحالة أيضًا (يبقى السطح المعروض مصمَّمًا حسب حجم المشروع).",
       "title": "سطح الأدوات الكامل للعميل"
     },
-    "unknownRoot": "مشروع غير معروف ({{hash}})"
+    "unknownRoot": "مشروع غير معروف ({{hash}})",
+    "coreLibraryMissing": "مكتبة تشغيل tree-sitter مفقودة أو غير صالحة. أعد تثبيت OpenCowork أو حدّثه.",
+    "languageGrammarsMissing": "لم يُعثر على قواعد لغة CodeGraph صالحة. أعد تثبيت OpenCowork أو حدّثه.",
+    "workerMissing": "عامل CodeGraph مفقود. أعد تثبيت OpenCowork أو حدّثه."
   },
   "committed": "تم الالتزام",
   "files": "المستكشف",
@@ -1286,5 +1424,12 @@
   "scmTitle": "التحكم بالمصدر",
   "scmUndo": "تراجع",
   "scmUnstage": "إلغاء التجهيز",
-  "scmUnstageAll": "إلغاء تجهيز الكل"
+  "scmUnstageAll": "إلغاء تجهيز الكل",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "ذاكرة",
+    "memoryDetail": "الذاكرة {{detail}}",
+    "summary": "{{fps}} إطار/ث، CPU {{cpu}}، الذاكرة {{memory}}"
+  }
 }

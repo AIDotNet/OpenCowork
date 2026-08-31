@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Tableau de bord",
+    "kanban": "Tableau",
+    "list": "Liste",
+    "gantt": "Chronologie"
+  },
+  "columns": {
+    "pending": "À faire",
+    "in_progress": "En cours",
+    "blocked": "Bloqué",
+    "in_review": "À relire",
+    "completed": "Terminé"
+  },
+  "filters": {
+    "searchPlaceholder": "Rechercher des tâches…",
+    "allSessions": "Toutes les sessions",
+    "allPriorities": "Toutes les priorités",
+    "refresh": "Actualiser"
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "high": "Haute",
+    "medium": "Moyenne",
+    "low": "Basse",
+    "none": "Sans priorité"
+  },
+  "card": {
+    "blockedByCount": "{{count}} bloquant(s)",
+    "due": "Échéance {{date}}",
+    "running": "Agent en cours"
+  },
+  "column": {
+    "empty": "Aucune tâche",
+    "confirmDone": "Confirmer comme terminé"
+  },
+  "empty": {
+    "title": "Pas encore de tâches",
+    "description": "Les tâches créées par les agents dans les sessions apparaissent ici. Demandez à un agent de planifier un travail complexe, ou créez des tâches dans une session de collaboration."
+  },
+  "detail": {
+    "title": "Détails de la tâche",
+    "subject": "Titre",
+    "description": "Description",
+    "descriptionPlaceholder": "Aucune description",
+    "status": "Statut",
+    "priority": "Priorité",
+    "tags": "Étiquettes",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Date d’échéance",
+    "noDue": "Pas d’échéance",
+    "clearDue": "Effacer",
+    "session": "Session",
+    "sessionLoadFailed": "Impossible de trouver cette session",
+    "openSession": "Poursuivre dans la session",
+    "dependencies": "Dépendances",
+    "blocks": "Bloque",
+    "blockedBy": "Bloquée par",
+    "createdAt": "Créée",
+    "updatedAt": "Mise à jour",
+    "delete": "Supprimer la tâche",
+    "close": "Fermer",
+    "dispatchMessage": "Merci de continuer le travail sur la tâche : {{subject}}"
+  },
+  "list": {
+    "task": "Tâche",
+    "session": "Session",
+    "priority": "Priorité",
+    "tags": "Étiquettes",
+    "updated": "Mise à jour",
+    "showCompleted": "Afficher les terminées"
+  },
+  "gantt": {
+    "noDated": "Aucune tâche dans cette période",
+    "today": "Aujourd’hui"
+  },
+  "dashboard": {
+    "total": "Tâches au total",
+    "activeSessions": "Sessions avec des tâches",
+    "blockedTasks": "Tâches bloquées",
+    "completionRate": "Taux d’achèvement",
+    "byStatus": "Répartition par statut",
+    "trend": "14 derniers jours",
+    "trendCreated": "Créées",
+    "trendCompleted": "Terminées",
+    "blockedList": "Actuellement bloquées",
+    "noBlocked": "Rien n’est bloqué",
+    "recentSessions": "Sessions"
+  }
+}

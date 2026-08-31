@@ -163,7 +163,7 @@
     "systemProxyDesc": "Stel de proxy-URL in die gebruikt wordt door het hele appproces, bijvoorbeeld http://127.0.0.1:7890 of http://host:port.",
     "toolbarCollapsedByDefault": "Werkbalk standaard invouwen",
     "toolbarCollapsedByDefaultDesc": "Standaard uit. Initialiseer de status van de linker werkbalk wanneer de app wordt geopend.",
-    "chinese": "",
+    "chinese": "中文",
     "english": "Engels",
     "systemPromptPlaceholder": "Aangepaste instructies toevoegen...",
     "teamTools": "Teamtools",
@@ -204,7 +204,8 @@
       "installing": "Update voorbereiden…",
       "greenBuild": "Installatievrije build",
       "manualDownloadHint": "Er is een nieuwere versie (v{{version}}) beschikbaar. Download deze voor de installatievrije build handmatig, sluit de app af en vervang de huidige map.",
-      "openDownloadPage": "Downloadpagina openen"
+      "openDownloadPage": "Downloadpagina openen",
+      "compatBuild": "Compatibiliteitsbuild"
     },
     "projectDefaultDirectory": {
       "title": "Standaard projectmap",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Interface",
       "editor": "Editor"
-    }
+    },
+    "autoUpdateCompatDesc": "De compatibiliteitsbuild (oudere CPU’s zonder SSE4.2) gebruikt het officiële automatische-updatekanaal niet. Download de bijpassende *-win-x64-compat-installer van de GitHub Release."
   },
   "sync": {
     "title": "Synchroniseren",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Systeeminstellingen",
-    "subtitle": "Shell runtime, proxy, en OS-niveau uitvoering voorkeuren",
+    "subtitle": "App-updates, shell-runtime, proxy en uitvoeringsvoorkeuren op OS-niveau",
     "platform": "Platform: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(onbekend project) {{hash}}",
       "workerMissing": "De CodeGraph worker-binary is niet gevonden. Bouw deze met `npm run codegraph:publish` (of `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker actief",
-      "workerStopped": "Worker niet gestart (start bij eerste gebruik)"
+      "workerStopped": "Worker niet gestart (start bij eerste gebruik)",
+      "availableLanguages": "Beschikbare talen: {{languages}}",
+      "coreLibraryMissing": "De tree-sitter-runtimbibliotheek ontbreekt of is ongeldig. Installeer of werk OpenCowork bij.",
+      "invalidFiles": "Ongeldige grammaticabestanden: {{files}}",
+      "invalidGrammarPackage": "Sommige CodeGraph-grammaticabestanden zijn ongeldig. Installeer of werk OpenCowork bij.",
+      "languageGrammarsMissing": "Er zijn geen geldige taalgrammaticabibliotheken gevonden. Installeer of werk OpenCowork bij.",
+      "missingLanguages": "Niet-beschikbare talen: {{languages}}",
+      "unrecognizedGrammars": "Niet-herkende grammaticabibliotheken: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Het codegraph_explore-hulpmiddel wordt alleen blootgesteld wanneer de plugin is ingeschakeld en de taalgrammatica's gereed zijn (gedownload, of lokaal beschikbaar in een dev-build)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Ingebouwde websearch inschakelen",
     "enableBuiltinSearchDesc": "Gebruik de native websearch van de provider (Claude / OpenAI Responses) in plaats van een clienthulpmiddel.",
     "enableLongContext": "1M-context inschakelen",
-    "enableLongContextDesc": "Gebruik het 1M-venster. Uit houdt het 272K short-context-tarief.",
+    "enableLongContextDesc": "Gebruik het 1M-venster. Uit houdt het 360K-standaardvenster.",
     "kimiQuota5h": "5-uurslimiet",
     "kimiQuotaParallel": "Max. gelijktijdigheid {{count}}",
     "kimiQuotaWeekly": "Wekelijkse limiet",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Ondersteunt afbeeldingsgeneratie",
     "supportsImageGenerationDesc": "Het endpoint implementeert de OpenAI Responses image_generation-servertool.",
     "supportsWebsocket": "Ondersteunt WebSocket-protocol",
-    "supportsWebsocketDesc": "Het endpoint biedt het OpenAI Responses WebSocket-transport."
+    "supportsWebsocketDesc": "Het endpoint biedt het OpenAI Responses WebSocket-transport.",
+    "apiKeyHint": "Lokaal opgeslagen bij de instellingen van deze provider.",
+    "browserLogin": "Aanmelden via browser",
+    "customIcon": "Providerpictogram",
+    "customIconHint": "PNG, JPG, WebP, GIF of SVG. Maximaal 1 MB.",
+    "enableAfterAdding": "Provider na toevoegen inschakelen",
+    "enableAfterAddingHint": "De provider kan meteen worden geconfigureerd.",
+    "iconInvalidType": "Selecteer een afbeeldingsbestand",
+    "iconTooLarge": "Het pictogram moet kleiner zijn dan 1 MB",
+    "iconUploadFailed": "Het geselecteerde pictogram kon niet worden gelezen",
+    "modelMetaPricingTiers": "{{count}} prijsschijven",
+    "pricingTierAdd": "Schijf toevoegen",
+    "pricingTierHint": "De schijf wordt per verzoek gekozen op basis van promptgrootte (invoer- + cachetokens).",
+    "pricingTierRemove": "Schijf verwijderen",
+    "pricingTierThreshold": "Vanaf prompttokens",
+    "pricingTiers": "Getrapte prijzen",
+    "pricingTiersDesc": "Voor modellen die per promptgrootte worden gefactureerd. Elke schijf overschrijft de tarieven hierboven zodra een verzoek de drempel voor prompttokens bereikt; laat een prijs leeg om het basistarief te houden.",
+    "removeIcon": "Verwijderen",
+    "replaceIcon": "Vervangen",
+    "uploadIcon": "Pictogram uploaden"
   },
   "channel": {
     "title": "Kanaals",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Updates en gegevens",
-    "subtitle": "App-updates, back-ups, migratie en resetten",
+    "title": "Gegevensbeheer",
+    "subtitle": "Back-ups, migratie en resetten",
     "dangerZone": "Gevarenzone",
     "dangerZoneDesc": "Deze acties kunnen niet ongedaan worden gemaakt"
   }

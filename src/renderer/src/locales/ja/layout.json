@@ -111,7 +111,17 @@
     "projectSortName": "アルファベット順",
     "projectSortRecentlyUpdated": "更新日時（新しい順）",
     "projectSortTitle": "プロジェクトの並び替え: {{sort}}",
-    "revealInFolder": "フォルダの場所を開く"
+    "revealInFolder": "フォルダの場所を開く",
+    "changeProjectIcon": "アイコンを変更",
+    "newAgentIn": "{{projectName}} で新しい Agent",
+    "projectIconDefault": "デフォルトフォルダー",
+    "projectIconDialogDescription": "「{{projectName}}」のアイコンを選ぶか、自分の画像をアップロードしてください。",
+    "projectIconDialogTitle": "プロジェクトアイコンを変更",
+    "projectIconReplace": "画像を差し替え",
+    "projectIconReset": "デフォルトに戻す",
+    "projectIconSearch": "アイコンを検索",
+    "projectIconUpload": "画像をアップロード",
+    "taskBoardLabel": "タスクボード"
   },
   "sidebar_toast": {
     "sessionDeleted": "セッション削除",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "セッションはインテリジェントに名前を変更しました",
     "dropNotFolder": "ファイルではなくフォルダをドロップしてください",
     "projectsCreatedCount": "{{count}} 件のプロジェクトを作成しました",
-    "revealFailed": "場所を開けませんでした"
+    "revealFailed": "場所を開けませんでした",
+    "projectIconInvalidType": "画像ファイルを選択してください",
+    "projectIconTooLarge": "アイコンは 1 MB 未満である必要があります",
+    "projectIconUploadFailed": "選択したアイコンを読み取れませんでした"
   },
   "topbar": {
     "togglePanel": "トグルパネル",
@@ -198,11 +211,15 @@
     "builtinSearch": "組み込みWeb検索",
     "builtinSearchOff": "オフ",
     "longContext": "1Mコンテキスト",
-    "longContextOn": "1Mウィンドウ · 272K超はロングコンテキスト料金",
-    "longContextOff": "デフォルト272K · ショートコンテキスト料金",
+    "longContextOn": "1Mウィンドウ · ネイティブのロングコンテキスト",
+    "longContextOff": "デフォルト360K · 標準ウィンドウ",
     "builtinSearchOn": "プロバイダー標準検索が有効",
     "faster": "高速",
-    "smarter": "高精度"
+    "smarter": "高精度",
+    "computerUse": "コンピューター操作",
+    "contextLength": "コンテキスト長",
+    "imageGeneration": "画像生成",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "環境方針",
@@ -692,7 +709,8 @@
     "translate": "ログイン",
     "ssh": "SSHの特長",
     "settings": "コンテンツ",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "タスクボード"
   },
   "resourcesPage": {
     "title": "リソース",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "英語に翻訳",
     "assistantQuickTranslatePrompt": "コンテキストのテキストを自然な英語の画像生成プロンプトに翻訳してください。結果のみを出力してください。",
     "assistantStop": "停止",
-    "retry": "再試行"
+    "retry": "再試行",
+    "addImageGeneration": "画像生成を追加",
+    "addTextGeneration": "テキスト生成を追加",
+    "addVideoGeneration": "動画生成を追加",
+    "assistantActCancel": "生成をキャンセルしました",
+    "assistantActCanvas": "キャンバスを更新しました",
+    "assistantActCreateNode": "ノードを作成しました",
+    "assistantActCreateTrigger": "トリガーを作成しました",
+    "assistantActDeleteNodes": "ノードを削除しました",
+    "assistantActDeleteTrigger": "トリガーを削除しました",
+    "assistantActDisconnect": "ノードの接続を解除しました",
+    "assistantActDuplicateNodes": "ノードを複製しました",
+    "assistantActEdit": "画像を編集しました",
+    "assistantActGenerateVideo": "動画生成を開始しました",
+    "assistantActMedia": "メディアを処理しました",
+    "assistantActMove": "ノードを移動しました",
+    "assistantActResize": "ノードのサイズを変更しました",
+    "assistantActRetry": "ノードを再試行しました",
+    "assistantActRun": "ノードを実行しました",
+    "assistantActSelect": "選択を更新しました",
+    "assistantActStatus": "ノードの状態を確認しました",
+    "assistantActSubscribe": "ノードを購読しました",
+    "assistantActUpdateNode": "ノードを更新しました",
+    "assistantActWait": "ノードを待機しました",
+    "assistantApprove": "承認",
+    "assistantAttachImage": "画像を添付",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "ノード {{nodeId}} の実行中ジョブをキャンセルします。既に送信された処理には料金が発生する場合があります。",
+        "title": "生成をキャンセルしますか？"
+      },
+      "clear_canvas": {
+        "description": "このキャンバスからすべてのノード、接続、トリガーを削除します。",
+        "title": "キャンバスをクリアしますか？"
+      },
+      "delete_nodes": {
+        "description": "{{count}} 個のノードとその接続を削除します。",
+        "title": "ノードを削除しますか？"
+      },
+      "delete_project": {
+        "description": "選択したキャンバスとその保存済みグラフを削除します。Agent ワークスペースはシステムのゴミ箱へ移動します。",
+        "title": "キャンバスプロジェクトを削除しますか？"
+      },
+      "replace_canvas": {
+        "description": "この JSON を取り込むと、現在のキャンバス内容が置き換わります。",
+        "title": "キャンバスを置き換えますか？"
+      },
+      "tool": {
+        "description": "このツール操作を許可する前に確認してください。\n{{input}}",
+        "title": "{{toolName}} を許可しますか？"
+      }
+    },
+    "assistantDeleteMessage": "メッセージを削除",
+    "assistantElapsed": "{{seconds}} 秒待機中",
+    "assistantExecuting": "キャンバス操作を実行中",
+    "assistantExecutingTool": "{{tool}} を実行中",
+    "assistantImageInvalid": "一部の画像は非対応、または 20 MB を超えています",
+    "assistantImagesAttached": "{{count}} 枚の画像",
+    "assistantListening": "ノードイベントを監視中",
+    "assistantListeningHint": "ノードが完了するとアシスタントが自動で続行します。",
+    "assistantPinSelection": "選択を固定（{{count}}）",
+    "assistantRegenerate": "再生成",
+    "assistantReject": "拒否",
+    "assistantReplayMissingContext": "元のキャンバスコンテキストの一部が利用できなくなったため、スキップしました。",
+    "assistantRewrite": "編集して再生成",
+    "assistantSideEffectsTitle": "ツールの副作用は残ります",
+    "assistantSideEffectsWarning": "この会話にはツール操作が含まれます。メッセージの編集や削除では、キャンバス、ファイル、Shell、MCP の副作用は元に戻りません。続行しますか？",
+    "assistantThought": "思考",
+    "assistantVisionRequired": "画像を送るにはビジョン対応モデルを選んでください",
+    "cameraFixed": "カメラ固定",
+    "copyError": "エラーをコピー",
+    "deleteProject": "キャンバスを削除",
+    "deleteProjectConfirm": "「{{name}}」を削除しますか？Agent ワークスペースはシステムのゴミ箱へ移動します。",
+    "errorCopied": "エラーをコピーしました",
+    "errorDetails": "エラー詳細",
+    "errorDetailsHint": "プロバイダーの完全な応答を確認するか、トラブルシュート用にコピーしてください。",
+    "frameRole": "フレーム",
+    "frameRoleAuto": "参照",
+    "frameRoleFirstLast": "最初 → 最後",
+    "frameRoleHint": "フレーム順は接続順に従います。",
+    "generateAudio": "音声",
+    "imageSize": "画像サイズ",
+    "nodeImageGeneration": "画像生成",
+    "nodeTextGeneration": "テキスト生成",
+    "nodeTriggers": "ノードイベントトリガー",
+    "nodeTriggersDesc": "このノードの実行状態が変わったとき、別のノードを実行します。",
+    "nodeVideoGeneration": "動画生成",
+    "seed": "シード",
+    "soraReferenceExactSize": "参照画像: {{size}}。Sora は完全一致のサイズが必要です。",
+    "soraReferenceUnsupportedSize": "参照画像 {{size}} は対応する Sora サイズと一致しません。先にリサイズまたは切り抜いてください。",
+    "soraSingleReference": "Sora は入力参照を 1 枚だけ受け付けます。最初に接続された画像だけがアップロードされます。",
+    "triggerAdd": "追加",
+    "triggerCycle": "このトリガーは循環を作ります",
+    "triggerDuplicate": "このトリガーは既にあります",
+    "triggerEmpty": "このノードにトリガーはありません",
+    "triggerEvents": {
+      "cancelled": "実行がキャンセルされました",
+      "failed": "実行に失敗しました",
+      "interrupted": "実行が中断されました",
+      "progress": "進捗が更新されました",
+      "queued": "実行がキューに入りました",
+      "started": "実行を開始しました",
+      "succeeded": "実行が成功しました",
+      "updated": "ノードが更新されました"
+    },
+    "triggerLastRun": "前回の実行",
+    "triggerStatuses": {
+      "cancelled": "キャンセル",
+      "failed": "失敗",
+      "idle": "待機",
+      "interrupted": "中断",
+      "queued": "キュー中",
+      "running": "実行中",
+      "succeeded": "成功"
+    },
+    "triggerSubscriptions": "{{count}} 件の有効な購読",
+    "triggerTarget": "対象ノードを選択",
+    "watermark": "透かし"
   },
   "translatePage": {
     "title": "AI翻訳",
@@ -1265,7 +1400,10 @@
       "description": "デフォルトではエージェントに codegraph_explore のみを公開します。有効にすると search、node、callers、callees、impact、files、status も登録されます（プロジェクトの規模に応じて公開範囲は調整されます）。",
       "title": "エージェントツールをフル公開"
     },
-    "unknownRoot": "不明なプロジェクト（{{hash}}）"
+    "unknownRoot": "不明なプロジェクト（{{hash}}）",
+    "coreLibraryMissing": "tree-sitter ランタイムライブラリが見つからないか無効です。OpenCowork を再インストールまたは更新してください。",
+    "languageGrammarsMissing": "有効な CodeGraph 言語文法が見つかりません。OpenCowork を再インストールまたは更新してください。",
+    "workerMissing": "CodeGraph ワーカーが見つかりません。OpenCowork を再インストールまたは更新してください。"
   },
   "committed": "コミット済み",
   "files": "エクスプローラー",
@@ -1286,5 +1424,12 @@
   "scmTitle": "ソース管理",
   "scmUndo": "元に戻す",
   "scmUnstage": "ステージ解除",
-  "scmUnstageAll": "すべてステージ解除"
+  "scmUnstageAll": "すべてステージ解除",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "メモリ",
+    "memoryDetail": "メモリ {{detail}}",
+    "summary": "{{fps}} FPS、CPU {{cpu}}、メモリ {{memory}}"
+  }
 }

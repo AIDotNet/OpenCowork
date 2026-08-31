@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Panel",
+    "kanban": "Tablero",
+    "list": "Lista",
+    "gantt": "Línea de tiempo"
+  },
+  "columns": {
+    "pending": "Por hacer",
+    "in_progress": "En curso",
+    "blocked": "Bloqueado",
+    "in_review": "Para revisar",
+    "completed": "Hecho"
+  },
+  "filters": {
+    "searchPlaceholder": "Buscar tareas…",
+    "allSessions": "Todas las sesiones",
+    "allPriorities": "Todas las prioridades",
+    "refresh": "Actualizar"
+  },
+  "priority": {
+    "urgent": "Urgente",
+    "high": "Alta",
+    "medium": "Media",
+    "low": "Baja",
+    "none": "Sin prioridad"
+  },
+  "card": {
+    "blockedByCount": "{{count}} bloqueando",
+    "due": "Vence {{date}}",
+    "running": "Agente en ejecución"
+  },
+  "column": {
+    "empty": "No hay tareas",
+    "confirmDone": "Confirmar como hecha"
+  },
+  "empty": {
+    "title": "Aún no hay tareas",
+    "description": "Las tareas que creen los agentes en las sesiones aparecerán aquí. Pide a un agente que planifique un trabajo complejo o crea tareas en una sesión colaborativa."
+  },
+  "detail": {
+    "title": "Detalles de la tarea",
+    "subject": "Título",
+    "description": "Descripción",
+    "descriptionPlaceholder": "Sin descripción",
+    "status": "Estado",
+    "priority": "Prioridad",
+    "tags": "Etiquetas",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Fecha de vencimiento",
+    "noDue": "Sin fecha de vencimiento",
+    "clearDue": "Borrar",
+    "session": "Sesión",
+    "sessionLoadFailed": "No se encontró esa sesión",
+    "openSession": "Trabajarlo en la sesión",
+    "dependencies": "Dependencias",
+    "blocks": "Bloquea",
+    "blockedBy": "Bloqueada por",
+    "createdAt": "Creada",
+    "updatedAt": "Actualizada",
+    "delete": "Eliminar tarea",
+    "close": "Cerrar",
+    "dispatchMessage": "Sigue trabajando en la tarea: {{subject}}"
+  },
+  "list": {
+    "task": "Tarea",
+    "session": "Sesión",
+    "priority": "Prioridad",
+    "tags": "Etiquetas",
+    "updated": "Actualizada",
+    "showCompleted": "Mostrar completadas"
+  },
+  "gantt": {
+    "noDated": "No hay tareas en este intervalo",
+    "today": "Hoy"
+  },
+  "dashboard": {
+    "total": "Tareas totales",
+    "activeSessions": "Sesiones con tareas",
+    "blockedTasks": "Tareas bloqueadas",
+    "completionRate": "Tasa de finalización",
+    "byStatus": "Distribución por estado",
+    "trend": "Últimos 14 días",
+    "trendCreated": "Creadas",
+    "trendCompleted": "Completadas",
+    "blockedList": "Actualmente bloqueadas",
+    "noBlocked": "No hay nada bloqueado",
+    "recentSessions": "Sesiones"
+  }
+}

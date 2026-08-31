@@ -226,6 +226,7 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         layout: 'scroll',
         width: 'narrow',
         sections: [
+          { id: 'updates', labelKey: 'general.update.checkForUpdates' },
           { id: 'shell', labelKey: 'system.shell.endpoint.title' },
           { id: 'proxy', labelKey: 'general.systemProxy' },
           { id: 'workspace', labelKey: 'general.projectDefaultDirectory.title' },
@@ -240,7 +241,6 @@ export const SETTINGS_NAV_GROUPS: SettingsNavGroup[] = [
         layout: 'scroll',
         width: 'narrow',
         sections: [
-          { id: 'updates', labelKey: 'general.update.status' },
           { id: 'sessions', labelKey: 'general.data.title' },
           { id: 'migration', labelKey: 'migration.title' },
           { id: 'reset', labelKey: 'general.resetDefault' }
@@ -302,20 +302,29 @@ export interface SettingsSearchEntry {
   groupLabelKey: string
 }
 
-export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = SETTINGS_NAV_GROUPS.flatMap((group) =>
-  group.items.flatMap<SettingsSearchEntry>((item) => [
-    {
-      tab: item.id,
-      labelKey: item.labelKey,
-      contextKey: item.descKey,
-      groupLabelKey: group.labelKey
-    },
-    ...(item.sections ?? []).map((section) => ({
-      tab: item.id,
-      sectionId: section.id,
-      labelKey: section.labelKey,
-      contextKey: item.labelKey,
-      groupLabelKey: group.labelKey
-    }))
-  ])
-)
+export const SETTINGS_SEARCH_ENTRIES: SettingsSearchEntry[] = [
+  ...SETTINGS_NAV_GROUPS.flatMap((group) =>
+    group.items.flatMap<SettingsSearchEntry>((item) => [
+      {
+        tab: item.id,
+        labelKey: item.labelKey,
+        contextKey: item.descKey,
+        groupLabelKey: group.labelKey
+      },
+      ...(item.sections ?? []).map((section) => ({
+        tab: item.id,
+        sectionId: section.id,
+        labelKey: section.labelKey,
+        contextKey: item.labelKey,
+        groupLabelKey: group.labelKey
+      }))
+    ])
+  ),
+  {
+    tab: 'system',
+    sectionId: 'updates',
+    labelKey: 'general.autoUpdate',
+    contextKey: 'system.title',
+    groupLabelKey: 'page.groups.system'
+  }
+]

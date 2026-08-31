@@ -163,7 +163,7 @@
     "systemProxyDesc": "Đặt URL ủy nhiệm được dùng bởi toàn bộ tiến trình ứng dụng, ví dụ http tảng127.0. 1:7890 hay http vội:port.",
     "toolbarCollapsedByDefault": "Co lại thanh công cụ theo mặc định",
     "toolbarCollapsedByDefaultDesc": "Tắt theo mặc định. Khởi động trạng thái thanh công cụ bên trái khi ứng dụng mở.",
-    "chinese": "teppi82",
+    "chinese": "中文",
     "english": "Tiếng Anh",
     "systemPromptPlaceholder": "Thêm hướng dẫn tự chọn...",
     "teamTools": "Công cụ nhóm",
@@ -204,7 +204,8 @@
       "installing": "Đang chuẩn bị cập nhật…",
       "greenBuild": "Bản không cài đặt",
       "manualDownloadHint": "Có phiên bản mới hơn (v{{version}}). Với bản không cài đặt, hãy tải xuống thủ công, thoát ứng dụng và thay thế thư mục hiện tại.",
-      "openDownloadPage": "Mở trang tải xuống"
+      "openDownloadPage": "Mở trang tải xuống",
+      "compatBuild": "Bản tương thích"
     },
     "projectDefaultDirectory": {
       "title": "Thư mục dự án mặc định",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Giao diện",
       "editor": "Trình soạn thảo"
-    }
+    },
+    "autoUpdateCompatDesc": "Bản tương thích (CPU cũ không có SSE4.2) không dùng kênh cập nhật tự động chính thức. Tải trình cài *-win-x64-compat tương ứng từ GitHub Release."
   },
   "sync": {
     "title": "Đồng bộ",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Thiết lập hệ thống",
-    "subtitle": "Name",
+    "subtitle": "Cập nhật ứng dụng, runtime Shell, proxy và tùy chọn thực thi cấp hệ thống",
     "platform": "Nền: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(dự án không xác định) {{hash}}",
       "workerMissing": "Không tìm thấy tệp nhị phân worker của CodeGraph. Hãy build bằng `npm run codegraph:publish` (hoặc `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker đang chạy",
-      "workerStopped": "Worker chưa khởi động (sẽ khởi tạo khi dùng lần đầu)"
+      "workerStopped": "Worker chưa khởi động (sẽ khởi tạo khi dùng lần đầu)",
+      "availableLanguages": "Ngôn ngữ khả dụng: {{languages}}",
+      "coreLibraryMissing": "Thư viện runtime tree-sitter bị thiếu hoặc không hợp lệ. Cài lại hoặc cập nhật OpenCowork.",
+      "invalidFiles": "Tệp ngữ pháp không hợp lệ: {{files}}",
+      "invalidGrammarPackage": "Một số tệp ngữ pháp CodeGraph không hợp lệ. Cài lại hoặc cập nhật OpenCowork.",
+      "languageGrammarsMissing": "Không tìm thấy thư viện ngữ pháp ngôn ngữ hợp lệ. Cài lại hoặc cập nhật OpenCowork.",
+      "missingLanguages": "Ngôn ngữ không khả dụng: {{languages}}",
+      "unrecognizedGrammars": "Thư viện ngữ pháp không nhận diện: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Công cụ codegraph_explore chỉ được cung cấp khi plugin đã bật và ngữ pháp ngôn ngữ của nó đã sẵn sàng (đã tải xuống, hoặc có sẵn cục bộ trong bản dev)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Bật tìm kiếm web tích hợp",
     "enableBuiltinSearchDesc": "Dùng tìm kiếm web gốc của nhà cung cấp (Claude / OpenAI Responses) thay vì công cụ phía client.",
     "enableLongContext": "Bật ngữ cảnh 1M",
-    "enableLongContextDesc": "Dùng cửa sổ 1M. Tắt sẽ giữ mức giá ngữ cảnh ngắn 272K.",
+    "enableLongContextDesc": "Dùng cửa sổ 1M. Tắt sẽ giữ cửa sổ mặc định 360K.",
     "kimiQuota5h": "Giới hạn 5 giờ",
     "kimiQuotaParallel": "Đồng thời tối đa {{count}}",
     "kimiQuotaWeekly": "Giới hạn hàng tuần",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Hỗ trợ tạo ảnh",
     "supportsImageGenerationDesc": "Endpoint này triển khai công cụ image_generation phía máy chủ của OpenAI Responses.",
     "supportsWebsocket": "Hỗ trợ giao thức WebSocket",
-    "supportsWebsocketDesc": "Endpoint này cung cấp phương thức truyền tải WebSocket của OpenAI Responses."
+    "supportsWebsocketDesc": "Endpoint này cung cấp phương thức truyền tải WebSocket của OpenAI Responses.",
+    "apiKeyHint": "Được lưu cục bộ cùng cài đặt của nhà cung cấp này.",
+    "browserLogin": "Đăng nhập trình duyệt",
+    "customIcon": "Biểu tượng nhà cung cấp",
+    "customIconHint": "PNG, JPG, WebP, GIF hoặc SVG. Tối đa 1 MB.",
+    "enableAfterAdding": "Bật nhà cung cấp sau khi thêm",
+    "enableAfterAddingHint": "Có thể cấu hình nhà cung cấp ngay.",
+    "iconInvalidType": "Hãy chọn một tệp ảnh",
+    "iconTooLarge": "Biểu tượng phải nhỏ hơn 1 MB",
+    "iconUploadFailed": "Không đọc được biểu tượng đã chọn",
+    "modelMetaPricingTiers": "{{count}} bậc giá",
+    "pricingTierAdd": "Thêm bậc",
+    "pricingTierHint": "Bậc được chọn theo kích thước prompt (token đầu vào + cache) mỗi yêu cầu.",
+    "pricingTierRemove": "Xóa bậc",
+    "pricingTierThreshold": "Từ token prompt",
+    "pricingTiers": "Giá theo bậc",
+    "pricingTiersDesc": "Dành cho mô hình tính phí theo kích thước prompt. Mỗi bậc ghi đè mức giá phía trên khi yêu cầu đạt sàn token prompt; để trống giá để giữ mức cơ sở.",
+    "removeIcon": "Xóa",
+    "replaceIcon": "Thay",
+    "uploadIcon": "Tải biểu tượng"
   },
   "channel": {
     "title": "Kênh",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Cập nhật & Dữ liệu",
-    "subtitle": "Cập nhật ứng dụng, sao lưu, di chuyển và đặt lại",
+    "title": "Quản lý dữ liệu",
+    "subtitle": "Sao lưu, di chuyển và đặt lại",
     "dangerZone": "Vùng nguy hiểm",
     "dangerZoneDesc": "Các thao tác này không thể hoàn tác"
   }

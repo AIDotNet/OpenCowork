@@ -1,7 +1,9 @@
-/** OpenAI short-context pricing tier. Prompts above this use long-context rates. */
-export const GPT_STANDARD_CONTEXT_LENGTH = 272_000
-/** OpenAI long-context window used when the 1M toggle is enabled. */
+/** Default window for 1M-capable models when the long-context toggle is off. */
+export const GPT_STANDARD_CONTEXT_LENGTH = 360_000
+/** Native 1M+ window used when the long-context toggle is enabled. */
 export const GPT_LONG_CONTEXT_LENGTH = 1_048_576
+/** Models at or above this window get the 360K / 1M split. */
+const MILLION_TOKEN_CONTEXT_LENGTH = 1_000_000
 
 export type GptContextModel = {
   id?: string
@@ -36,13 +38,30 @@ function isGptFixedSmallContextModel(id?: string): boolean {
   return false
 }
 
+function tokenWindow(value?: number): number {
+  return typeof value === 'number' && value > 0 ? Math.floor(value) : 0
+}
+
+function hasMillionTokenWindow(
+  model?: Pick<GptContextModel, 'contextLength' | 'longContextLength'> | null
+): boolean {
+  return (
+    tokenWindow(model?.contextLength) >= MILLION_TOKEN_CONTEXT_LENGTH ||
+    tokenWindow(model?.longContextLength) >= MILLION_TOKEN_CONTEXT_LENGTH
+  )
+}
+
 export function modelSupportsGptLongContext(
-  model?: Pick<GptContextModel, 'id' | 'category' | 'supportsLongContext'> | null
+  model?: Pick<
+    GptContextModel,
+    'id' | 'category' | 'supportsLongContext' | 'contextLength' | 'longContextLength'
+  > | null
 ): boolean {
   if (!model) return false
   if ((model.category ?? 'chat') !== 'chat') return false
   if (model.supportsLongContext === false) return false
   if (model.supportsLongContext === true) return true
+  if (hasMillionTokenWindow(model)) return true
   return isGptChatModelId(model.id) && !isGptFixedSmallContextModel(model.id)
 }
 
@@ -53,22 +72,27 @@ export function isGptLongContextEnabled(
 }
 
 export function resolveGptLongContextLength(
-  model?: Pick<GptContextModel, 'contextLength' | 'longContextLength'> | null
+  model?: Pick<GptContextModel, 'id' | 'contextLength' | 'longContextLength'> | null
 ): number {
-  if (typeof model?.longContextLength === 'number' && model.longContextLength > 0) {
-    return Math.floor(model.longContextLength)
+  const storedLong = tokenWindow(model?.longContextLength)
+  if (storedLong > 0) {
+    return storedLong
   }
-  const configured =
-    typeof model?.contextLength === 'number' && model.contextLength > GPT_STANDARD_CONTEXT_LENGTH
-      ? Math.floor(model.contextLength)
-      : 0
-  if (configured > 0) {
-    return Math.max(configured, GPT_LONG_CONTEXT_LENGTH)
+  const configured = tokenWindow(model?.contextLength)
+  if (configured >= MILLION_TOKEN_CONTEXT_LENGTH) {
+    return configured
+  }
+  if (
+    configured > GPT_STANDARD_CONTEXT_LENGTH &&
+    isGptChatModelId(model?.id) &&
+    !isGptFixedSmallContextModel(model?.id)
+  ) {
+    return GPT_LONG_CONTEXT_LENGTH
   }
   return GPT_LONG_CONTEXT_LENGTH
 }
 
-/** Effective context window: 272K by default, 1M when the long-context toggle is on. */
+/** Effective context window: 360K by default, native 1M+ when the long-context toggle is on. */
 export function resolveEffectiveModelContextLength(
   model?: GptContextModel | null
 ): number | undefined {

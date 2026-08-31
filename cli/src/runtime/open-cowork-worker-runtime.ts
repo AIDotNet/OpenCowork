@@ -1619,6 +1619,8 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       supportsGptLongContext: modelSupportsGptLongContext({
         id: selection.modelId,
         category: stringValue(model.category) ?? undefined,
+        contextLength: numberValue(model.contextLength) ?? undefined,
+        longContextLength: numberValue(model.longContextLength) ?? undefined,
         supportsLongContext: model.supportsLongContext === true ? true : undefined
       }),
       supportsCacheTtl: providerType === 'anthropic',

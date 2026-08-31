@@ -111,7 +111,17 @@
     "projectSortName": "Alfabetisch",
     "projectSortRecentlyUpdated": "Recent bijgewerkt",
     "projectSortTitle": "Projecten sorteren: {{sort}}",
-    "revealInFolder": "Maplocatie openen"
+    "revealInFolder": "Maplocatie openen",
+    "changeProjectIcon": "Pictogram wijzigen",
+    "newAgentIn": "Nieuwe Agent in {{projectName}}",
+    "projectIconDefault": "Standaardmap",
+    "projectIconDialogDescription": "Kies een pictogram voor “{{projectName}}” of upload een eigen afbeelding.",
+    "projectIconDialogTitle": "Projectpictogram wijzigen",
+    "projectIconReplace": "Afbeelding vervangen",
+    "projectIconReset": "Terugzetten naar standaard",
+    "projectIconSearch": "Pictogrammen zoeken",
+    "projectIconUpload": "Afbeelding uploaden",
+    "taskBoardLabel": "Takenbord"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sessie verwijderd",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Sessie intelligent hernoemd",
     "dropNotFolder": "Sleep een map, geen bestand",
     "projectsCreatedCount": "{{count}} projecten aangemaakt",
-    "revealFailed": "Openen van locatie mislukt"
+    "revealFailed": "Openen van locatie mislukt",
+    "projectIconInvalidType": "Selecteer een afbeeldingsbestand",
+    "projectIconTooLarge": "Het pictogram moet kleiner zijn dan 1 MB",
+    "projectIconUploadFailed": "Het geselecteerde pictogram kon niet worden gelezen"
   },
   "topbar": {
     "togglePanel": "Paneel aan/uit",
@@ -198,11 +211,15 @@
     "builtinSearch": "Ingebouwde websearch",
     "builtinSearchOff": "Uit",
     "longContext": "1M-context",
-    "longContextOn": "1M-venster · long-context-tarief boven 272K",
-    "longContextOff": "272K standaard · short-context-tarief",
+    "longContextOn": "1M-venster · native long-context-venster",
+    "longContextOff": "360K standaard · standaardvenster",
     "builtinSearchOn": "Providernatieve zoekfunctie aan",
     "faster": "Sneller",
-    "smarter": "Slimmer"
+    "smarter": "Slimmer",
+    "computerUse": "Computergebruik",
+    "contextLength": "Contextlengte",
+    "imageGeneration": "Afbeeldinggeneratie",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Milieu",
@@ -692,7 +709,8 @@
     "translate": "Vertalen",
     "ssh": "SSH",
     "settings": "Instellingen",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Takenbord"
   },
   "resourcesPage": {
     "title": "Middelen",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Vertalen naar Engels",
     "assistantQuickTranslatePrompt": "Vertaal de contexttekst naar een natuurlijke Engelse prompt voor afbeeldingsgeneratie. Geef alleen het resultaat als uitvoer.",
     "assistantStop": "Stoppen",
-    "retry": "Opnieuw proberen"
+    "retry": "Opnieuw proberen",
+    "addImageGeneration": "Afbeeldinggeneratie toevoegen",
+    "addTextGeneration": "Tekstgeneratie toevoegen",
+    "addVideoGeneration": "Videogeneratie toevoegen",
+    "assistantActCancel": "Generatie geannuleerd",
+    "assistantActCanvas": "Canvas bijgewerkt",
+    "assistantActCreateNode": "Knooppunt gemaakt",
+    "assistantActCreateTrigger": "Trigger gemaakt",
+    "assistantActDeleteNodes": "Knooppunten verwijderd",
+    "assistantActDeleteTrigger": "Trigger verwijderd",
+    "assistantActDisconnect": "Knooppunten ontkoppeld",
+    "assistantActDuplicateNodes": "Knooppunten gedupliceerd",
+    "assistantActEdit": "Afbeelding bewerkt",
+    "assistantActGenerateVideo": "Videogeneratie gestart",
+    "assistantActMedia": "Media verwerkt",
+    "assistantActMove": "Knooppunten verplaatst",
+    "assistantActResize": "Knooppunt herschaald",
+    "assistantActRetry": "Knooppunt opnieuw geprobeerd",
+    "assistantActRun": "Knooppunt uitgevoerd",
+    "assistantActSelect": "Selectie bijgewerkt",
+    "assistantActStatus": "Knooppuntstatus gecontroleerd",
+    "assistantActSubscribe": "Geabonneerd op knooppunt",
+    "assistantActUpdateNode": "Knooppunt bijgewerkt",
+    "assistantActWait": "Gewacht op knooppunt",
+    "assistantApprove": "Goedkeuren",
+    "assistantAttachImage": "Afbeelding bijvoegen",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Annuleer de actieve run van knooppunt {{nodeId}}. De provider kan werk dat al is verzonden nog steeds in rekening brengen.",
+        "title": "Generatie annuleren?"
+      },
+      "clear_canvas": {
+        "description": "Verwijder alle knooppunten, verbindingen en triggers van dit canvas.",
+        "title": "Canvas leegmaken?"
+      },
+      "delete_nodes": {
+        "description": "Verwijder {{count}} knooppunt(en) en hun verbindingen.",
+        "title": "Knooppunten verwijderen?"
+      },
+      "delete_project": {
+        "description": "Verwijder het geselecteerde canvas en de opgeslagen graaf. De Agent-werkruimte gaat naar de systeemprullenbak.",
+        "title": "Canvasproject verwijderen?"
+      },
+      "replace_canvas": {
+        "description": "Dit JSON importeren vervangt de huidige canvasinhoud.",
+        "title": "Canvas vervangen?"
+      },
+      "tool": {
+        "description": "Controleer deze toolactie voordat je die toestaat.\n{{input}}",
+        "title": "{{toolName}} toestaan?"
+      }
+    },
+    "assistantDeleteMessage": "Bericht verwijderen",
+    "assistantElapsed": "{{seconds}} s wachten",
+    "assistantExecuting": "Canvasactie uitvoeren",
+    "assistantExecutingTool": "{{tool}} uitvoeren",
+    "assistantImageInvalid": "Sommige afbeeldingen worden niet ondersteund of zijn groter dan 20 MB",
+    "assistantImagesAttached": "{{count}} afbeelding(en)",
+    "assistantListening": "Luisteren naar knooppuntgebeurtenissen",
+    "assistantListeningHint": "De assistent gaat automatisch verder als het knooppunt klaar is.",
+    "assistantPinSelection": "Selectie vastzetten ({{count}})",
+    "assistantRegenerate": "Opnieuw genereren",
+    "assistantReject": "Weigeren",
+    "assistantReplayMissingContext": "Een deel van de oorspronkelijke canvascontext is niet meer beschikbaar en is overgeslagen.",
+    "assistantRewrite": "Bewerken en opnieuw genereren",
+    "assistantSideEffectsTitle": "Bijwerkingen van tools blijven bestaan",
+    "assistantSideEffectsWarning": "Dit gesprek bevat toolacties. Berichten bewerken of verwijderen maakt canvas-, bestand-, Shell- of MCP-bijwerkingen niet ongedaan. Doorgaan?",
+    "assistantThought": "Gedachte",
+    "assistantVisionRequired": "Kies een model met visie om afbeeldingen te sturen",
+    "cameraFixed": "Camera vastgezet",
+    "copyError": "Fout kopiëren",
+    "deleteProject": "Canvas verwijderen",
+    "deleteProjectConfirm": "“{{name}}” verwijderen? De Agent-werkruimte gaat naar de systeemprullenbak.",
+    "errorCopied": "Fout gekopieerd",
+    "errorDetails": "Foutgegevens",
+    "errorDetailsHint": "Bekijk het volledige providerantwoord of kopieer het voor probleemoplossing.",
+    "frameRole": "Frames",
+    "frameRoleAuto": "Referentie",
+    "frameRoleFirstLast": "Eerste → Laatste",
+    "frameRoleHint": "De framevolgorde volgt de verbindingsvolgorde.",
+    "generateAudio": "Audio",
+    "imageSize": "Afbeeldingsgrootte",
+    "nodeImageGeneration": "Afbeeldinggeneratie",
+    "nodeTextGeneration": "Tekstgeneratie",
+    "nodeTriggers": "Knooppuntgebeurtenis-triggers",
+    "nodeTriggersDesc": "Voer een ander knooppunt uit wanneer de uitvoeringsstatus van dit knooppunt verandert.",
+    "nodeVideoGeneration": "Videogeneratie",
+    "seed": "Seed",
+    "soraReferenceExactSize": "Referentieafbeelding: {{size}}. Sora vereist een exacte groottematch.",
+    "soraReferenceUnsupportedSize": "Referentieafbeelding {{size}} komt niet overeen met een ondersteunde Sora-grootte. Schaal of snijd die eerst bij.",
+    "soraSingleReference": "Sora accepteert één invoerreferentie. Alleen de eerste verbonden afbeelding wordt geüpload.",
+    "triggerAdd": "Toevoegen",
+    "triggerCycle": "Deze trigger zou een lus maken",
+    "triggerDuplicate": "Deze trigger bestaat al",
+    "triggerEmpty": "Geen triggers voor dit knooppunt",
+    "triggerEvents": {
+      "cancelled": "Run geannuleerd",
+      "failed": "Run mislukt",
+      "interrupted": "Run onderbroken",
+      "progress": "Voortgang bijgewerkt",
+      "queued": "Run in wachtrij",
+      "started": "Run gestart",
+      "succeeded": "Run geslaagd",
+      "updated": "Knooppunt bijgewerkt"
+    },
+    "triggerLastRun": "Laatste run",
+    "triggerStatuses": {
+      "cancelled": "Geannuleerd",
+      "failed": "Mislukt",
+      "idle": "Inactief",
+      "interrupted": "Onderbroken",
+      "queued": "In wachtrij",
+      "running": "Bezig",
+      "succeeded": "Geslaagd"
+    },
+    "triggerSubscriptions": "{{count}} actieve abonnement(en)",
+    "triggerTarget": "Doelknooppunt kiezen",
+    "watermark": "Watermerk"
   },
   "translatePage": {
     "title": "AI vertalen",
@@ -1265,7 +1400,10 @@
       "description": "Standaard wordt alleen codegraph_explore aan agents blootgesteld. Schakel in om ook search, node, callers, callees, impact, files en status te registreren (het oppervlak wordt nog steeds afgestemd op de projectgrootte).",
       "title": "Volledig agent-toolbereik"
     },
-    "unknownRoot": "Onbekend project ({{hash}})"
+    "unknownRoot": "Onbekend project ({{hash}})",
+    "coreLibraryMissing": "De tree-sitter-runtimbibliotheek ontbreekt of is ongeldig. Installeer of werk OpenCowork bij.",
+    "languageGrammarsMissing": "Er zijn geen geldige CodeGraph-taalgrammatica’s gevonden. Installeer of werk OpenCowork bij.",
+    "workerMissing": "De CodeGraph-worker ontbreekt. Installeer of werk OpenCowork bij."
   },
   "committed": "Gecommit",
   "files": "Verkenner",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Broncodebeheer",
   "scmUndo": "Ongedaan maken",
   "scmUnstage": "Unstagen",
-  "scmUnstageAll": "Alles unstagen"
+  "scmUnstageAll": "Alles unstagen",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "MEM",
+    "memoryDetail": "Geheugen {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, geheugen {{memory}}"
+  }
 }

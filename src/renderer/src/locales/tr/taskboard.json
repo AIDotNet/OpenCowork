@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Özet",
+    "kanban": "Pano",
+    "list": "Liste",
+    "gantt": "Zaman çizelgesi"
+  },
+  "columns": {
+    "pending": "Yapılacak",
+    "in_progress": "Devam ediyor",
+    "blocked": "Engellendi",
+    "in_review": "İncelemede",
+    "completed": "Bitti"
+  },
+  "filters": {
+    "searchPlaceholder": "Görev ara…",
+    "allSessions": "Tüm oturumlar",
+    "allPriorities": "Tüm öncelikler",
+    "refresh": "Yenile"
+  },
+  "priority": {
+    "urgent": "Acil",
+    "high": "Yüksek",
+    "medium": "Orta",
+    "low": "Düşük",
+    "none": "Öncelik yok"
+  },
+  "card": {
+    "blockedByCount": "{{count}} engelleyen",
+    "due": "Son tarih {{date}}",
+    "running": "Ajan çalışıyor"
+  },
+  "column": {
+    "empty": "Görev yok",
+    "confirmDone": "Tamamlandı olarak onayla"
+  },
+  "empty": {
+    "title": "Henüz görev yok",
+    "description": "Oturumlarda ajanların oluşturduğu görevler burada toplanır. Bir ajandan karmaşık işi planlamasını isteyin veya bir işbirliği oturumunda görev oluşturun."
+  },
+  "detail": {
+    "title": "Görev ayrıntıları",
+    "subject": "Başlık",
+    "description": "Açıklama",
+    "descriptionPlaceholder": "Açıklama yok",
+    "status": "Durum",
+    "priority": "Öncelik",
+    "tags": "Etiketler",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Son tarih",
+    "noDue": "Son tarih yok",
+    "clearDue": "Temizle",
+    "session": "Oturum",
+    "sessionLoadFailed": "Bu oturum bulunamadı",
+    "openSession": "Oturumda çalışmaya devam et",
+    "dependencies": "Bağımlılıklar",
+    "blocks": "Engeller",
+    "blockedBy": "Engelleyen",
+    "createdAt": "Oluşturuldu",
+    "updatedAt": "Güncellendi",
+    "delete": "Görevi sil",
+    "close": "Kapat",
+    "dispatchMessage": "Lütfen göreve devam edin: {{subject}}"
+  },
+  "list": {
+    "task": "Görev",
+    "session": "Oturum",
+    "priority": "Öncelik",
+    "tags": "Etiketler",
+    "updated": "Güncellendi",
+    "showCompleted": "Tamamlananları göster"
+  },
+  "gantt": {
+    "noDated": "Bu aralıkta görev yok",
+    "today": "Bugün"
+  },
+  "dashboard": {
+    "total": "Toplam görev",
+    "activeSessions": "Görevi olan oturumlar",
+    "blockedTasks": "Engellenen görevler",
+    "completionRate": "Tamamlanma oranı",
+    "byStatus": "Duruma göre dağılım",
+    "trend": "Son 14 gün",
+    "trendCreated": "Oluşturulan",
+    "trendCompleted": "Tamamlanan",
+    "blockedList": "Şu anda engellenenler",
+    "noBlocked": "Hiçbir şey engellenmedi",
+    "recentSessions": "Oturumlar"
+  }
+}

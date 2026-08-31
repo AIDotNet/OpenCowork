@@ -111,7 +111,17 @@
     "projectSortName": "ตามตัวอักษร",
     "projectSortRecentlyUpdated": "ปรับปรุงล่าสุด",
     "projectSortTitle": "เรียงโครงการ: {{sort}}",
-    "revealInFolder": "เปิดตําแหน่งโฟลเดอร์"
+    "revealInFolder": "เปิดตําแหน่งโฟลเดอร์",
+    "changeProjectIcon": "เปลี่ยนไอคอน",
+    "newAgentIn": "Agent ใหม่ใน {{projectName}}",
+    "projectIconDefault": "โฟลเดอร์เริ่มต้น",
+    "projectIconDialogDescription": "เลือกไอคอนสำหรับ “{{projectName}}” หรืออัปโหลดรูปของคุณเอง",
+    "projectIconDialogTitle": "เปลี่ยนไอคอนโปรเจกต์",
+    "projectIconReplace": "แทนที่รูป",
+    "projectIconReset": "กลับเป็นค่าเริ่มต้น",
+    "projectIconSearch": "ค้นหาไอคอน",
+    "projectIconUpload": "อัปโหลดรูป",
+    "taskBoardLabel": "บอร์ดงาน"
   },
   "sidebar_toast": {
     "sessionDeleted": "ลบกลุ่มงาน",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "วาระงานที่ถูกเปลี่ยนชื่ออย่างชาญฉลาด",
     "dropNotFolder": "โปรดวางโฟลเดอร์ ไม่ใช่แฟ้ม",
     "projectsCreatedCount": "สร้างโครงการแล้ว {{count}} โครงการ",
-    "revealFailed": "เปิดตําแหน่งล้มเหลว"
+    "revealFailed": "เปิดตําแหน่งล้มเหลว",
+    "projectIconInvalidType": "โปรดเลือกไฟล์รูปภาพ",
+    "projectIconTooLarge": "ไอคอนต้องเล็กกว่า 1 MB",
+    "projectIconUploadFailed": "อ่านไอคอนที่เลือกไม่ได้"
   },
   "topbar": {
     "togglePanel": "เปิด/ ปิดถาด",
@@ -198,11 +211,15 @@
     "builtinSearch": "ค้นหาเว็บในตัว",
     "builtinSearchOff": "ปิด",
     "longContext": "บริบท 1M",
-    "longContextOn": "หน้าต่าง 1M · คิดราคาบริบทยาวเมื่อเกิน 272K",
-    "longContextOff": "ค่าเริ่มต้น 272K · ราคาบริบทสั้น",
+    "longContextOn": "หน้าต่าง 1M · หน้าต่างบริบทยาวดั้งเดิม",
+    "longContextOff": "ค่าเริ่มต้น 360K · หน้าต่างมาตรฐาน",
     "builtinSearchOn": "เปิดใช้การค้นหาแบบเนทีฟของผู้ให้บริการ",
     "faster": "เร็วขึ้น",
-    "smarter": "ฉลาดขึ้น"
+    "smarter": "ฉลาดขึ้น",
+    "computerUse": "ควบคุมคอมพิวเตอร์",
+    "contextLength": "ความยาวบริบท",
+    "imageGeneration": "การสร้างภาพ",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "สภาพแวดล้อม",
@@ -692,7 +709,8 @@
     "translate": "แปล",
     "ssh": "SSH",
     "settings": "ตั้งค่า",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "บอร์ดงาน"
   },
   "resourcesPage": {
     "title": "ทรัพยากร",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "แปลเป็นภาษาอังกฤษ",
     "assistantQuickTranslatePrompt": "แปลข้อความในบริบทนี้เป็นพรอมต์สร้างภาพภาษาอังกฤษที่เป็นธรรมชาติ แสดงผลเฉพาะผลลัพธ์เท่านั้น",
     "assistantStop": "หยุด",
-    "retry": "ลองใหม่"
+    "retry": "ลองใหม่",
+    "addImageGeneration": "เพิ่มการสร้างภาพ",
+    "addTextGeneration": "เพิ่มการสร้างข้อความ",
+    "addVideoGeneration": "เพิ่มการสร้างวิดีโอ",
+    "assistantActCancel": "ยกเลิกการสร้างแล้ว",
+    "assistantActCanvas": "อัปเดตแคนวาสแล้ว",
+    "assistantActCreateNode": "สร้างโหนดแล้ว",
+    "assistantActCreateTrigger": "สร้างทริกเกอร์แล้ว",
+    "assistantActDeleteNodes": "ลบโหนดแล้ว",
+    "assistantActDeleteTrigger": "ลบทริกเกอร์แล้ว",
+    "assistantActDisconnect": "ตัดการเชื่อมต่อโหนดแล้ว",
+    "assistantActDuplicateNodes": "ทำสำเนาโหนดแล้ว",
+    "assistantActEdit": "แก้ไขภาพแล้ว",
+    "assistantActGenerateVideo": "เริ่มสร้างวิดีโอแล้ว",
+    "assistantActMedia": "ประมวลผลสื่อแล้ว",
+    "assistantActMove": "ย้ายโหนดแล้ว",
+    "assistantActResize": "ปรับขนาดโหนดแล้ว",
+    "assistantActRetry": "ลองโหนดอีกครั้งแล้ว",
+    "assistantActRun": "รันโหนดแล้ว",
+    "assistantActSelect": "อัปเดตการเลือกแล้ว",
+    "assistantActStatus": "ตรวจสถานะโหนดแล้ว",
+    "assistantActSubscribe": "สมัครติดตามโหนดแล้ว",
+    "assistantActUpdateNode": "อัปเดตโหนดแล้ว",
+    "assistantActWait": "รอโหนดแล้ว",
+    "assistantApprove": "อนุมัติ",
+    "assistantAttachImage": "แนบภาพ",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "ยกเลิกงานที่กำลังรันของโหนด {{nodeId}} ผู้ให้บริการอาจยังคิดเงินงานที่ส่งไปแล้ว",
+        "title": "ยกเลิกการสร้างไหม?"
+      },
+      "clear_canvas": {
+        "description": "ลบโหนด การเชื่อมต่อ และทริกเกอร์ทั้งหมดออกจากแคนวาสนี้",
+        "title": "ล้างแคนวาสไหม?"
+      },
+      "delete_nodes": {
+        "description": "ลบ {{count}} โหนดและการเชื่อมต่อของพวกมัน",
+        "title": "ลบโหนดไหม?"
+      },
+      "delete_project": {
+        "description": "ลบแคนวาสที่เลือกและกราฟที่บันทึกไว้ พื้นที่ทำงานของ Agent จะถูกย้ายไปถังขยะของระบบ",
+        "title": "ลบโปรเจกต์แคนวาสไหม?"
+      },
+      "replace_canvas": {
+        "description": "นำเข้า JSON นี้จะแทนที่เนื้อหาแคนวาสปัจจุบัน",
+        "title": "แทนที่แคนวาสไหม?"
+      },
+      "tool": {
+        "description": "ตรวจสอบการทำงานของเครื่องมือนี้ก่อนอนุญาต\n{{input}}",
+        "title": "อนุญาต {{toolName}} ไหม?"
+      }
+    },
+    "assistantDeleteMessage": "ลบข้อความ",
+    "assistantElapsed": "รออยู่ {{seconds}} วินาที",
+    "assistantExecuting": "กำลังดำเนินการบนแคนวาส",
+    "assistantExecutingTool": "กำลังรัน {{tool}}",
+    "assistantImageInvalid": "บางภาพไม่รองรับหรือใหญ่กว่า 20 MB",
+    "assistantImagesAttached": "{{count}} ภาพ",
+    "assistantListening": "กำลังฟังเหตุการณ์ของโหนด",
+    "assistantListeningHint": "ผู้ช่วยจะทำงานต่อโดยอัตโนมัติเมื่อโหนดเสร็จ",
+    "assistantPinSelection": "ปักหมุดที่เลือก ({{count}})",
+    "assistantRegenerate": "สร้างใหม่",
+    "assistantReject": "ปฏิเสธ",
+    "assistantReplayMissingContext": "บริบทแคนวาสเดิมบางส่วนใช้ไม่ได้อีกแล้ว จึงข้ามไป",
+    "assistantRewrite": "แก้ไขแล้วสร้างใหม่",
+    "assistantSideEffectsTitle": "ผลข้างเคียงของเครื่องมือจะยังอยู่",
+    "assistantSideEffectsWarning": "บทสนทนานี้มีการเรียกเครื่องมือ การแก้ไขหรือลบข้อความจะไม่ย้อนผลบนแคนวาส ไฟล์ เชลล์ หรือ MCP ทำต่อไหม?",
+    "assistantThought": "ความคิด",
+    "assistantVisionRequired": "เลือกโมเดลที่รองรับภาพก่อนส่งรูป",
+    "cameraFixed": "กล้องคงที่",
+    "copyError": "คัดลอกข้อผิดพลาด",
+    "deleteProject": "ลบแคนวาส",
+    "deleteProjectConfirm": "ลบ “{{name}}” ไหม? พื้นที่ทำงานของ Agent จะถูกย้ายไปถังขยะของระบบ",
+    "errorCopied": "คัดลอกข้อผิดพลาดแล้ว",
+    "errorDetails": "รายละเอียดข้อผิดพลาด",
+    "errorDetailsHint": "ดูการตอบกลับทั้งหมดจากผู้ให้บริการ หรือคัดลอกไว้แก้ปัญหา",
+    "frameRole": "เฟรม",
+    "frameRoleAuto": "อ้างอิง",
+    "frameRoleFirstLast": "แรก → สุดท้าย",
+    "frameRoleHint": "ลำดับเฟรมตามลำดับการเชื่อมต่อ",
+    "generateAudio": "เสียง",
+    "imageSize": "ขนาดภาพ",
+    "nodeImageGeneration": "สร้างภาพ",
+    "nodeTextGeneration": "สร้างข้อความ",
+    "nodeTriggers": "ทริกเกอร์เหตุการณ์โหนด",
+    "nodeTriggersDesc": "รันโหนดอื่นเมื่อสถานะการทำงานของโหนดนี้เปลี่ยน",
+    "nodeVideoGeneration": "สร้างวิดีโอ",
+    "seed": "ซีด",
+    "soraReferenceExactSize": "ภาพอ้างอิง: {{size}} Sora ต้องมีขนาดตรงกันทุกประการ",
+    "soraReferenceUnsupportedSize": "ภาพอ้างอิง {{size}} ไม่ตรงกับขนาดที่ Sora รองรับ ปรับขนาดหรือครอปก่อน",
+    "soraSingleReference": "Sora รับภาพอ้างอิงได้เพียงหนึ่งภาพ จะอัปโหลดเฉพาะภาพที่เชื่อมต่ออันแรก",
+    "triggerAdd": "เพิ่ม",
+    "triggerCycle": "ทริกเกอร์นี้จะสร้างวงวน",
+    "triggerDuplicate": "ทริกเกอร์นี้มีอยู่แล้ว",
+    "triggerEmpty": "โหนดนี้ยังไม่มีทริกเกอร์",
+    "triggerEvents": {
+      "cancelled": "ยกเลิกการรันแล้ว",
+      "failed": "การรันล้มเหลว",
+      "interrupted": "การรันถูกขัดจังหวะ",
+      "progress": "อัปเดตความคืบหน้าแล้ว",
+      "queued": "เข้าคิวการรันแล้ว",
+      "started": "เริ่มรันแล้ว",
+      "succeeded": "รันสำเร็จ",
+      "updated": "อัปเดตโหนดแล้ว"
+    },
+    "triggerLastRun": "รันล่าสุด",
+    "triggerStatuses": {
+      "cancelled": "ยกเลิกแล้ว",
+      "failed": "ล้มเหลว",
+      "idle": "ว่าง",
+      "interrupted": "ถูกขัดจังหวะ",
+      "queued": "อยู่ในคิว",
+      "running": "กำลังรัน",
+      "succeeded": "สำเร็จ"
+    },
+    "triggerSubscriptions": "การติดตามที่ใช้งานอยู่ {{count}} รายการ",
+    "triggerTarget": "เลือกโหนดปลายทาง",
+    "watermark": "ลายน้ำ"
   },
   "translatePage": {
     "title": "แปลภาษา AI",
@@ -1265,7 +1400,10 @@
       "description": "ค่าเริ่มต้นจะเปิดให้เอเจนต์ใช้ได้เฉพาะ codegraph_explore เท่านั้น เปิดใช้งานเพื่อลงทะเบียนเครื่องมือเพิ่มเติมได้แก่ search, node, callers, callees, impact, files และ status (ขอบเขตยังคงถูกปรับตามขนาดของโครงการ)",
       "title": "เปิดเครื่องมือทั้งหมดให้เอเจนต์"
     },
-    "unknownRoot": "โครงการที่ไม่ทราบชื่อ ({{hash}})"
+    "unknownRoot": "โครงการที่ไม่ทราบชื่อ ({{hash}})",
+    "coreLibraryMissing": "ไลบรารีรันไทม์ tree-sitter หายไปหรือไม่ถูกต้อง ติดตั้ง OpenCowork ใหม่หรืออัปเดต",
+    "languageGrammarsMissing": "ไม่พบไวยากรณ์ภาษา CodeGraph ที่ใช้ได้ ติดตั้ง OpenCowork ใหม่หรืออัปเดต",
+    "workerMissing": "ไม่พบเวิร์กเกอร์ CodeGraph ติดตั้ง OpenCowork ใหม่หรืออัปเดต"
   },
   "committed": "คอมมิตแล้ว",
   "files": "ตัวสํารวจแฟ้ม",
@@ -1286,5 +1424,12 @@
   "scmTitle": "ระบบควบคุมซอร์สโค้ด",
   "scmUndo": "เลิกทํา",
   "scmUnstage": "ยกเลิกการจัดเตรียม",
-  "scmUnstageAll": "ยกเลิกการจัดเตรียมทั้งหมด"
+  "scmUnstageAll": "ยกเลิกการจัดเตรียมทั้งหมด",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "หน่วยความจำ",
+    "memoryDetail": "หน่วยความจำ {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, หน่วยความจำ {{memory}}"
+  }
 }

@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Dasbor",
+    "kanban": "Papan",
+    "list": "Daftar",
+    "gantt": "Linimasa"
+  },
+  "columns": {
+    "pending": "Perlu dikerjakan",
+    "in_progress": "Sedang dikerjakan",
+    "blocked": "Terblokir",
+    "in_review": "Menunggu tinjauan",
+    "completed": "Selesai"
+  },
+  "filters": {
+    "searchPlaceholder": "Cari tugas…",
+    "allSessions": "Semua sesi",
+    "allPriorities": "Semua prioritas",
+    "refresh": "Muat ulang"
+  },
+  "priority": {
+    "urgent": "Mendesak",
+    "high": "Tinggi",
+    "medium": "Sedang",
+    "low": "Rendah",
+    "none": "Tanpa prioritas"
+  },
+  "card": {
+    "blockedByCount": "{{count}} menghalangi",
+    "due": "Jatuh tempo {{date}}",
+    "running": "Agen sedang berjalan"
+  },
+  "column": {
+    "empty": "Tidak ada tugas",
+    "confirmDone": "Konfirmasi selesai"
+  },
+  "empty": {
+    "title": "Belum ada tugas",
+    "description": "Tugas yang dibuat agen di berbagai sesi akan muncul di sini. Minta agen merencanakan pekerjaan rumit, atau buat tugas di sesi kolaborasi."
+  },
+  "detail": {
+    "title": "Detail tugas",
+    "subject": "Judul",
+    "description": "Deskripsi",
+    "descriptionPlaceholder": "Tidak ada deskripsi",
+    "status": "Status",
+    "priority": "Prioritas",
+    "tags": "Tag",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Tenggat",
+    "noDue": "Tidak ada tenggat",
+    "clearDue": "Hapus",
+    "session": "Sesi",
+    "sessionLoadFailed": "Sesi itu tidak ditemukan",
+    "openSession": "Lanjutkan di sesi",
+    "dependencies": "Ketergantungan",
+    "blocks": "Menghalangi",
+    "blockedBy": "Terhalang oleh",
+    "createdAt": "Dibuat",
+    "updatedAt": "Diperbarui",
+    "delete": "Hapus tugas",
+    "close": "Tutup",
+    "dispatchMessage": "Lanjutkan mengerjakan tugas: {{subject}}"
+  },
+  "list": {
+    "task": "Tugas",
+    "session": "Sesi",
+    "priority": "Prioritas",
+    "tags": "Tag",
+    "updated": "Diperbarui",
+    "showCompleted": "Tampilkan yang selesai"
+  },
+  "gantt": {
+    "noDated": "Tidak ada tugas dalam rentang ini",
+    "today": "Hari ini"
+  },
+  "dashboard": {
+    "total": "Total tugas",
+    "activeSessions": "Sesi yang punya tugas",
+    "blockedTasks": "Tugas terblokir",
+    "completionRate": "Tingkat penyelesaian",
+    "byStatus": "Sebaran status",
+    "trend": "14 hari terakhir",
+    "trendCreated": "Dibuat",
+    "trendCompleted": "Selesai",
+    "blockedList": "Sedang terblokir",
+    "noBlocked": "Tidak ada yang terblokir",
+    "recentSessions": "Sesi"
+  }
+}

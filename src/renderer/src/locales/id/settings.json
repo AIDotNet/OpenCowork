@@ -163,7 +163,7 @@
     "systemProxyDesc": "Set proxy URL yang digunakan oleh seluruh proses app, sebagai contoh http: / / 127.0.0.1: 7890 atau http: / / host: port.",
     "toolbarCollapsedByDefault": "Lipat bilah alat secara baku",
     "toolbarCollapsedByDefaultDesc": "Secara baku. Inisialisasi keadaan toolbar kiri ketika aplikasi terbuka.",
-    "chinese": "Aboenim",
+    "chinese": "中文",
     "english": "Inggris",
     "systemPromptPlaceholder": "Tambahkan instruksi gubahan...",
     "teamTools": "Perkakas Tim",
@@ -204,7 +204,8 @@
       "installing": "Menyiapkan update…",
       "greenBuild": "Build no-install",
       "manualDownloadHint": "Versi baru (v{{version}}) tersedia. Untuk build no-install, unduh secara manual, tutup aplikasi, dan ganti folder saat ini.",
-      "openDownloadPage": "Buka halaman unduhan"
+      "openDownloadPage": "Buka halaman unduhan",
+      "compatBuild": "Build kompatibilitas"
     },
     "projectDefaultDirectory": {
       "title": "Direktori projek bawaan",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Antarmuka",
       "editor": "Editor"
-    }
+    },
+    "autoUpdateCompatDesc": "Build kompatibilitas (CPU lama tanpa SSE4.2) tidak memakai kanal pembaruan otomatis resmi. Unduh penginstal *-win-x64-compat yang sesuai dari GitHub Release."
   },
   "sync": {
     "title": "Selaraskan",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Pengaturan Sistem",
-    "subtitle": "Shell waktu berjalan, proksi, dan preferensi eksekusi tingkat OS-",
+    "subtitle": "Pembaruan aplikasi, runtime shell, proksi, dan preferensi eksekusi tingkat OS",
     "platform": "Platform: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(proyek tak dikenal) {{hash}}",
       "workerMissing": "Binary worker CodeGraph tidak ditemukan. Bangun dengan `npm run codegraph:publish` (atau `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker berjalan",
-      "workerStopped": "Worker belum dimulai (dijalankan saat pertama kali dipakai)"
+      "workerStopped": "Worker belum dimulai (dijalankan saat pertama kali dipakai)",
+      "availableLanguages": "Bahasa tersedia: {{languages}}",
+      "coreLibraryMissing": "Pustaka runtime tree-sitter hilang atau tidak valid. Instal ulang atau perbarui OpenCowork.",
+      "invalidFiles": "Berkas tata bahasa tidak valid: {{files}}",
+      "invalidGrammarPackage": "Beberapa berkas tata bahasa CodeGraph tidak valid. Instal ulang atau perbarui OpenCowork.",
+      "languageGrammarsMissing": "Tidak ditemukan pustaka tata bahasa yang valid. Instal ulang atau perbarui OpenCowork.",
+      "missingLanguages": "Bahasa tidak tersedia: {{languages}}",
+      "unrecognizedGrammars": "Pustaka tata bahasa tak dikenali: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Alat codegraph_explore hanya dipaparkan ketika pengaya diaktifkan dan grammar bahasanya siap (terunduh, atau tersedia secara lokal di build dev)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Aktifkan pencarian web bawaan",
     "enableBuiltinSearchDesc": "Gunakan pencarian web native penyedia (Claude / OpenAI Responses) alih-alih alat klien.",
     "enableLongContext": "Aktifkan konteks 1M",
-    "enableLongContextDesc": "Gunakan jendela 1M. Mati mempertahankan tarif konteks pendek 272K.",
+    "enableLongContextDesc": "Gunakan jendela 1M. Mati mempertahankan jendela default 360K.",
     "kimiQuota5h": "Batas 5 Jam",
     "kimiQuotaParallel": "Konkurensi maks {{count}}",
     "kimiQuotaWeekly": "Batas Mingguan",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Mendukung pembuatan gambar",
     "supportsImageGenerationDesc": "Endpoint mengimplementasikan alat server image_generation OpenAI Responses.",
     "supportsWebsocket": "Mendukung protokol WebSocket",
-    "supportsWebsocketDesc": "Endpoint menawarkan transport WebSocket OpenAI Responses."
+    "supportsWebsocketDesc": "Endpoint menawarkan transport WebSocket OpenAI Responses.",
+    "apiKeyHint": "Disimpan secara lokal bersama pengaturan penyedia ini.",
+    "browserLogin": "Masuk lewat browser",
+    "customIcon": "Ikon penyedia",
+    "customIconHint": "PNG, JPG, WebP, GIF, atau SVG. Maksimal 1 MB.",
+    "enableAfterAdding": "Aktifkan penyedia setelah ditambahkan",
+    "enableAfterAddingHint": "Penyedia bisa langsung dikonfigurasi.",
+    "iconInvalidType": "Pilih berkas gambar",
+    "iconTooLarge": "Ikon harus lebih kecil dari 1 MB",
+    "iconUploadFailed": "Ikon yang dipilih tidak bisa dibaca",
+    "modelMetaPricingTiers": "{{count}} tingkat harga",
+    "pricingTierAdd": "Tambah tingkat",
+    "pricingTierHint": "Tingkat dipilih berdasarkan ukuran prompt (token masukan + cache) per permintaan.",
+    "pricingTierRemove": "Hapus tingkat",
+    "pricingTierThreshold": "Dari token prompt",
+    "pricingTiers": "Harga berjenjang",
+    "pricingTiersDesc": "Untuk model yang ditagih berdasarkan ukuran prompt. Setiap tingkat menimpa tarif di atas setelah permintaan mencapai batas bawah token prompt; biarkan harga kosong untuk mempertahankan tarif dasar.",
+    "removeIcon": "Hapus",
+    "replaceIcon": "Ganti",
+    "uploadIcon": "Unggah ikon"
   },
   "channel": {
     "title": "Kanal",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Pembaruan & Data",
-    "subtitle": "Pembaruan aplikasi, cadangan, migrasi, dan reset",
+    "title": "Manajemen Data",
+    "subtitle": "Cadangan, migrasi, dan reset",
     "dangerZone": "Zona Berbahaya",
     "dangerZoneDesc": "Tindakan ini tidak dapat dibatalkan"
   }

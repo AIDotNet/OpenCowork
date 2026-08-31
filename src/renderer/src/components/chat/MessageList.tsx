@@ -1674,6 +1674,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
       }))
   }, [inlineCompactSummaryState.summaryIds, renderableMessages])
   const lastUserMessageId = transcriptAnalysis.lastRealUserMessageId
+  const lastUserMessageIsQuoted =
+    lastUserMessageId != null && messageLookup.get(lastUserMessageId)?.source === 'quoted'
   const pendingAskUserQuestion = React.useMemo(
     () => findPendingAskUserQuestion(rows, toolResultsLookup, messageLookup),
     [messageLookup, rows, toolResultsLookup]
@@ -1691,6 +1693,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     hasNewer,
     rows,
     lastUserMessageId,
+    lastUserMessageIsQuoted,
     messageLookupHas,
     streamingMessageId,
     isSessionOutputting,

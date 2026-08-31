@@ -21,6 +21,7 @@ import {
 } from '@renderer/stores/settings-store'
 import { IPC } from '@renderer/lib/ipc/channels'
 import { ipcClient } from '@renderer/lib/ipc/ipc-client'
+import { AppUpdateSection } from '../AppUpdateSection'
 import { SettingHint, SettingRow, SettingsPanel, SettingsSection } from '../settings-primitives'
 
 interface ShellEndpointOption {
@@ -165,6 +166,8 @@ export function SystemPanel(): React.JSX.Element {
 
   return (
     <SettingsPanel title={t('system.title')} description={t('system.subtitle')}>
+      <AppUpdateSection />
+
       <SettingsSection
         id="shell"
         title={t('system.shell.endpoint.title')}
@@ -328,7 +331,8 @@ export function SystemPanel(): React.JSX.Element {
         </div>
         <SettingHint>
           {t('general.projectDefaultDirectory.effective', {
-            path: effectiveProjectDirectory || t('general.projectDefaultDirectory.effectiveFallback')
+            path:
+              effectiveProjectDirectory || t('general.projectDefaultDirectory.effectiveFallback')
           })}
         </SettingHint>
       </SettingsSection>

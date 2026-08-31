@@ -204,7 +204,8 @@
       "installing": "Preparando actualización…",
       "greenBuild": "Compilación sin instalación",
       "manualDownloadHint": "Hay una versión más reciente disponible (v{{version}}). Para la compilación sin instalación, descárguela manualmente, cierre la aplicación y reemplace la carpeta actual.",
-      "openDownloadPage": "Abrir página de descarga"
+      "openDownloadPage": "Abrir página de descarga",
+      "compatBuild": "Compilación de compatibilidad"
     },
     "projectDefaultDirectory": {
       "title": "directorio de proyecto predeterminado",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Interfaz",
       "editor": "Editor"
-    }
+    },
+    "autoUpdateCompatDesc": "La compilación de compatibilidad (CPU antiguas sin SSE4.2) no usa el canal oficial de actualización automática. Descarga el instalador *-win-x64-compat correspondiente desde la GitHub Release."
   },
   "sync": {
     "title": "Sync",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Configuración del sistema",
-    "subtitle": "Preferencias de ejecución a nivel de Shell, proxy y OS",
+    "subtitle": "Actualizaciones de la app, runtime de Shell, proxy y preferencias de ejecución del sistema",
     "platform": "Plataforma: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(proyecto desconocido) {{hash}}",
       "workerMissing": "No se encontró el binario del worker de CodeGraph. Compílelo con `npm run codegraph:publish` (o `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker en ejecución",
-      "workerStopped": "Worker no iniciado (se inicia en el primer uso)"
+      "workerStopped": "Worker no iniciado (se inicia en el primer uso)",
+      "availableLanguages": "Lenguajes disponibles: {{languages}}",
+      "coreLibraryMissing": "Falta la biblioteca de runtime de tree-sitter o no es válida. Reinstala o actualiza OpenCowork.",
+      "invalidFiles": "Archivos de gramática no válidos: {{files}}",
+      "invalidGrammarPackage": "Algunos archivos de gramática de CodeGraph no son válidos. Reinstala o actualiza OpenCowork.",
+      "languageGrammarsMissing": "No se encontraron bibliotecas de gramática de lenguaje válidas. Reinstala o actualiza OpenCowork.",
+      "missingLanguages": "Lenguajes no disponibles: {{languages}}",
+      "unrecognizedGrammars": "Bibliotecas de gramática no reconocidas: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "La herramienta codegraph_explore solo se expone cuando el plugin está habilitado y sus gramáticas de lenguaje están listas (descargadas, o disponibles localmente en una compilación de desarrollo)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Habilitar búsqueda web integrada",
     "enableBuiltinSearchDesc": "Use la búsqueda web nativa del proveedor (Claude / OpenAI Responses) en lugar de una herramienta del cliente.",
     "enableLongContext": "Activar contexto 1M",
-    "enableLongContextDesc": "Usar la ventana de 1M. Desactivado mantiene la tarifa corta de 272K.",
+    "enableLongContextDesc": "Usar la ventana de 1M. Desactivado mantiene la ventana 360K por defecto.",
     "kimiQuota5h": "Límite de 5 horas",
     "kimiQuotaParallel": "Concurrencia máx. {{count}}",
     "kimiQuotaWeekly": "Límite semanal",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Admite generación de imágenes",
     "supportsImageGenerationDesc": "El endpoint implementa la herramienta de servidor image_generation de OpenAI Responses.",
     "supportsWebsocket": "Admite el protocolo WebSocket",
-    "supportsWebsocketDesc": "El endpoint ofrece el transporte WebSocket de OpenAI Responses."
+    "supportsWebsocketDesc": "El endpoint ofrece el transporte WebSocket de OpenAI Responses.",
+    "apiKeyHint": "Se guarda localmente con la configuración de este proveedor.",
+    "browserLogin": "Inicio de sesión en el navegador",
+    "customIcon": "Icono del proveedor",
+    "customIconHint": "PNG, JPG, WebP, GIF o SVG. Hasta 1 MB.",
+    "enableAfterAdding": "Activar el proveedor después de añadirlo",
+    "enableAfterAddingHint": "El proveedor se puede configurar de inmediato.",
+    "iconInvalidType": "Selecciona un archivo de imagen",
+    "iconTooLarge": "El icono debe ser menor de 1 MB",
+    "iconUploadFailed": "No se pudo leer el icono seleccionado",
+    "modelMetaPricingTiers": "{{count}} tramos de precio",
+    "pricingTierAdd": "Añadir tramo",
+    "pricingTierHint": "El tramo se elige según el tamaño del prompt (tokens de entrada + caché) por solicitud.",
+    "pricingTierRemove": "Quitar tramo",
+    "pricingTierThreshold": "Desde tokens de prompt",
+    "pricingTiers": "Precios por tramos",
+    "pricingTiersDesc": "Para modelos facturados por tamaño de prompt. Cada tramo sustituye las tarifas de arriba cuando una solicitud alcanza su mínimo de tokens de prompt; deja un precio vacío para conservar la tarifa base.",
+    "removeIcon": "Quitar",
+    "replaceIcon": "Reemplazar",
+    "uploadIcon": "Subir icono"
   },
   "channel": {
     "title": "Canales",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Actualizaciones y datos",
-    "subtitle": "Actualizaciones, copias de seguridad, migración y restablecimiento",
+    "title": "Gestión de datos",
+    "subtitle": "Copias de seguridad, migración y restablecimiento",
     "dangerZone": "Zona de riesgo",
     "dangerZoneDesc": "Estas acciones no se pueden deshacer"
   }

@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "แดชบอร์ด",
+    "kanban": "บอร์ด",
+    "list": "รายการ",
+    "gantt": "ไทม์ไลน์"
+  },
+  "columns": {
+    "pending": "ต้องทำ",
+    "in_progress": "กำลังทำ",
+    "blocked": "ติดขัด",
+    "in_review": "รอตรวจ",
+    "completed": "เสร็จแล้ว"
+  },
+  "filters": {
+    "searchPlaceholder": "ค้นหางาน…",
+    "allSessions": "ทุกเซสชัน",
+    "allPriorities": "ทุกความสำคัญ",
+    "refresh": "รีเฟรช"
+  },
+  "priority": {
+    "urgent": "เร่งด่วน",
+    "high": "สูง",
+    "medium": "ปานกลาง",
+    "low": "ต่ำ",
+    "none": "ไม่ระบุความสำคัญ"
+  },
+  "card": {
+    "blockedByCount": "ถูกบล็อก {{count}} รายการ",
+    "due": "ครบกำหนด {{date}}",
+    "running": "เอเจนต์กำลังทำงาน"
+  },
+  "column": {
+    "empty": "ไม่มีงาน",
+    "confirmDone": "ยืนยันว่าเสร็จ"
+  },
+  "empty": {
+    "title": "ยังไม่มีงาน",
+    "description": "งานที่เอเจนต์สร้างในแต่ละเซสชันจะรวมอยู่ที่นี่ ขอให้เอเจนต์วางแผนงานที่ซับซ้อน หรือสร้างงานในเซสชันร่วมกัน"
+  },
+  "detail": {
+    "title": "รายละเอียดงาน",
+    "subject": "หัวข้อ",
+    "description": "คำอธิบาย",
+    "descriptionPlaceholder": "ไม่มีคำอธิบาย",
+    "status": "สถานะ",
+    "priority": "ความสำคัญ",
+    "tags": "แท็ก",
+    "tagsPlaceholder": "แท็ก1, แท็ก2",
+    "dueAt": "วันครบกำหนด",
+    "noDue": "ไม่มีวันครบกำหนด",
+    "clearDue": "ล้าง",
+    "session": "เซสชัน",
+    "sessionLoadFailed": "ไม่พบเซสชันนั้น",
+    "openSession": "ไปทำงานต่อในเซสชัน",
+    "dependencies": "งานที่ขึ้นต่อกัน",
+    "blocks": "กำลังบล็อก",
+    "blockedBy": "ถูกบล็อกโดย",
+    "createdAt": "สร้างเมื่อ",
+    "updatedAt": "อัปเดตเมื่อ",
+    "delete": "ลบงาน",
+    "close": "ปิด",
+    "dispatchMessage": "โปรดทำงานนี้ต่อ: {{subject}}"
+  },
+  "list": {
+    "task": "งาน",
+    "session": "เซสชัน",
+    "priority": "ความสำคัญ",
+    "tags": "แท็ก",
+    "updated": "อัปเดต",
+    "showCompleted": "แสดงงานที่เสร็จแล้ว"
+  },
+  "gantt": {
+    "noDated": "ไม่มีงานในช่วงนี้",
+    "today": "วันนี้"
+  },
+  "dashboard": {
+    "total": "งานทั้งหมด",
+    "activeSessions": "เซสชันที่มีงาน",
+    "blockedTasks": "งานที่ติดขัด",
+    "completionRate": "อัตราความสำเร็จ",
+    "byStatus": "สัดส่วนตามสถานะ",
+    "trend": "14 วันที่ผ่านมา",
+    "trendCreated": "สร้างใหม่",
+    "trendCompleted": "เสร็จสิ้น",
+    "blockedList": "กำลังติดขัดอยู่",
+    "noBlocked": "ไม่มีงานที่ติดขัด",
+    "recentSessions": "เซสชัน"
+  }
+}

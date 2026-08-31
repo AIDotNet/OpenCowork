@@ -111,7 +111,17 @@
     "projectSortName": "Alfabético",
     "projectSortRecentlyUpdated": "Actualizado recientemente",
     "projectSortTitle": "Ordenar proyectos: {{sort}}",
-    "revealInFolder": "Abrir ubicación de la carpeta"
+    "revealInFolder": "Abrir ubicación de la carpeta",
+    "changeProjectIcon": "Cambiar icono",
+    "newAgentIn": "Nuevo Agent en {{projectName}}",
+    "projectIconDefault": "Carpeta predeterminada",
+    "projectIconDialogDescription": "Elige un icono para “{{projectName}}” o sube tu propia imagen.",
+    "projectIconDialogTitle": "Cambiar icono del proyecto",
+    "projectIconReplace": "Reemplazar imagen",
+    "projectIconReset": "Restablecer predeterminado",
+    "projectIconSearch": "Buscar iconos",
+    "projectIconUpload": "Subir imagen",
+    "taskBoardLabel": "Tablero de tareas"
   },
   "sidebar_toast": {
     "sessionDeleted": "Período de sesiones suprimido",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Sesión renombrada inteligentemente",
     "dropNotFolder": "Suelte una carpeta, no un archivo",
     "projectsCreatedCount": "Se crearon {{count}} proyectos",
-    "revealFailed": "No se pudo abrir la ubicación"
+    "revealFailed": "No se pudo abrir la ubicación",
+    "projectIconInvalidType": "Selecciona un archivo de imagen",
+    "projectIconTooLarge": "El icono debe ser menor de 1 MB",
+    "projectIconUploadFailed": "No se pudo leer el icono seleccionado"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -198,11 +211,15 @@
     "builtinSearch": "Búsqueda web integrada",
     "builtinSearchOff": "Desactivado",
     "longContext": "Contexto 1M",
-    "longContextOn": "Ventana 1M · tarifas de contexto largo sobre 272K",
-    "longContextOff": "272K por defecto · tarifa de contexto corto",
+    "longContextOn": "Ventana 1M · ventana nativa de contexto largo",
+    "longContextOff": "360K por defecto · ventana estándar",
     "builtinSearchOn": "Búsqueda nativa del proveedor activada",
     "faster": "Más rápido",
-    "smarter": "Más inteligente"
+    "smarter": "Más inteligente",
+    "computerUse": "Uso del ordenador",
+    "contextLength": "Longitud de contexto",
+    "imageGeneration": "Generación de imagen",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Medio ambiente",
@@ -692,7 +709,8 @@
     "translate": "Traducir",
     "ssh": "SSH",
     "settings": "Ajustes",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Tablero de tareas"
   },
   "resourcesPage": {
     "title": "Recursos",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Traducir al inglés",
     "assistantQuickTranslatePrompt": "Traduce el texto de contexto a un prompt de generación de imágenes en inglés natural. Muestra solo el resultado.",
     "assistantStop": "Detener",
-    "retry": "Reintentar"
+    "retry": "Reintentar",
+    "addImageGeneration": "Añadir generación de imagen",
+    "addTextGeneration": "Añadir generación de texto",
+    "addVideoGeneration": "Añadir generación de vídeo",
+    "assistantActCancel": "Generación cancelada",
+    "assistantActCanvas": "Lienzo actualizado",
+    "assistantActCreateNode": "Nodo creado",
+    "assistantActCreateTrigger": "Activador creado",
+    "assistantActDeleteNodes": "Nodos eliminados",
+    "assistantActDeleteTrigger": "Activador eliminado",
+    "assistantActDisconnect": "Nodos desconectados",
+    "assistantActDuplicateNodes": "Nodos duplicados",
+    "assistantActEdit": "Imagen editada",
+    "assistantActGenerateVideo": "Generación de vídeo iniciada",
+    "assistantActMedia": "Medios procesados",
+    "assistantActMove": "Nodos movidos",
+    "assistantActResize": "Nodo redimensionado",
+    "assistantActRetry": "Nodo reintentado",
+    "assistantActRun": "Nodo ejecutado",
+    "assistantActSelect": "Selección actualizada",
+    "assistantActStatus": "Estado del nodo comprobado",
+    "assistantActSubscribe": "Nodo suscrito",
+    "assistantActUpdateNode": "Nodo actualizado",
+    "assistantActWait": "Espera del nodo",
+    "assistantApprove": "Aprobar",
+    "assistantAttachImage": "Adjuntar imagen",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Cancelar la ejecución activa del nodo {{nodeId}}. El proveedor puede cobrar el trabajo ya enviado.",
+        "title": "¿Cancelar la generación?"
+      },
+      "clear_canvas": {
+        "description": "Quitar todos los nodos, conexiones y activadores de este lienzo.",
+        "title": "¿Vaciar el lienzo?"
+      },
+      "delete_nodes": {
+        "description": "Eliminar {{count}} nodo(s) y sus conexiones.",
+        "title": "¿Eliminar nodos?"
+      },
+      "delete_project": {
+        "description": "Eliminar el lienzo seleccionado y su grafo guardado. El espacio de trabajo del Agent se moverá a la papelera del sistema.",
+        "title": "¿Eliminar el proyecto de lienzo?"
+      },
+      "replace_canvas": {
+        "description": "Importar este JSON reemplazará el contenido actual del lienzo.",
+        "title": "¿Reemplazar el lienzo?"
+      },
+      "tool": {
+        "description": "Revisa esta operación de herramienta antes de permitirla.\n{{input}}",
+        "title": "¿Permitir {{toolName}}?"
+      }
+    },
+    "assistantDeleteMessage": "Eliminar mensaje",
+    "assistantElapsed": "Esperando {{seconds}} s",
+    "assistantExecuting": "Ejecutando acción del lienzo",
+    "assistantExecutingTool": "Ejecutando {{tool}}",
+    "assistantImageInvalid": "Algunas imágenes no son compatibles o superan 20 MB",
+    "assistantImagesAttached": "{{count}} imagen(es)",
+    "assistantListening": "Escuchando eventos del nodo",
+    "assistantListeningHint": "El asistente continuará automáticamente cuando el nodo termine.",
+    "assistantPinSelection": "Fijar selección ({{count}})",
+    "assistantRegenerate": "Regenerar",
+    "assistantReject": "Rechazar",
+    "assistantReplayMissingContext": "Parte del contexto original del lienzo ya no está disponible y se omitió.",
+    "assistantRewrite": "Editar y regenerar",
+    "assistantSideEffectsTitle": "Los efectos secundarios de las herramientas permanecerán",
+    "assistantSideEffectsWarning": "Esta conversación incluye acciones de herramientas. Editar o eliminar mensajes no deshará los efectos en el lienzo, archivos, Shell o MCP. ¿Continuar?",
+    "assistantThought": "Pensamiento",
+    "assistantVisionRequired": "Elige un modelo con visión para enviar imágenes",
+    "cameraFixed": "Cámara fija",
+    "copyError": "Copiar error",
+    "deleteProject": "Eliminar lienzo",
+    "deleteProjectConfirm": "¿Eliminar “{{name}}”? El espacio de trabajo del Agent se moverá a la papelera del sistema.",
+    "errorCopied": "Error copiado",
+    "errorDetails": "Detalles del error",
+    "errorDetailsHint": "Revisa la respuesta completa del proveedor o cópiala para diagnosticar el problema.",
+    "frameRole": "Fotogramas",
+    "frameRoleAuto": "Referencia",
+    "frameRoleFirstLast": "Primero → Último",
+    "frameRoleHint": "El orden de los fotogramas sigue el de las conexiones.",
+    "generateAudio": "Audio",
+    "imageSize": "Tamaño de imagen",
+    "nodeImageGeneration": "Generación de imagen",
+    "nodeTextGeneration": "Generación de texto",
+    "nodeTriggers": "Activadores de eventos de nodo",
+    "nodeTriggersDesc": "Ejecuta otro nodo cuando cambie el estado de ejecución de este.",
+    "nodeVideoGeneration": "Generación de vídeo",
+    "seed": "Semilla",
+    "soraReferenceExactSize": "Imagen de referencia: {{size}}. Sora exige que el tamaño coincida exactamente.",
+    "soraReferenceUnsupportedSize": "La imagen de referencia {{size}} no coincide con un tamaño Sora compatible. Redimensiónala o recórtala primero.",
+    "soraSingleReference": "Sora acepta una sola imagen de referencia. Solo se subirá la primera imagen conectada.",
+    "triggerAdd": "Añadir",
+    "triggerCycle": "Este activador crearía un ciclo",
+    "triggerDuplicate": "Este activador ya existe",
+    "triggerEmpty": "Este nodo no tiene activadores",
+    "triggerEvents": {
+      "cancelled": "Ejecución cancelada",
+      "failed": "Ejecución fallida",
+      "interrupted": "Ejecución interrumpida",
+      "progress": "Progreso actualizado",
+      "queued": "Ejecución en cola",
+      "started": "Ejecución iniciada",
+      "succeeded": "Ejecución correcta",
+      "updated": "Nodo actualizado"
+    },
+    "triggerLastRun": "Última ejecución",
+    "triggerStatuses": {
+      "cancelled": "Cancelado",
+      "failed": "Fallido",
+      "idle": "Inactivo",
+      "interrupted": "Interrumpido",
+      "queued": "En cola",
+      "running": "En ejecución",
+      "succeeded": "Correcto"
+    },
+    "triggerSubscriptions": "{{count}} suscripción(es) activa(s)",
+    "triggerTarget": "Elegir nodo de destino",
+    "watermark": "Marca de agua"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1265,7 +1400,10 @@
       "description": "Por defecto solo se expone codegraph_explore a los agentes. Habilite esto para registrar también search, node, callers, callees, impact, files y status (la superficie se sigue ajustando según el tamaño del proyecto).",
       "title": "Superficie completa de herramientas del agente"
     },
-    "unknownRoot": "Proyecto desconocido ({{hash}})"
+    "unknownRoot": "Proyecto desconocido ({{hash}})",
+    "coreLibraryMissing": "Falta la biblioteca de runtime de tree-sitter o no es válida. Reinstala o actualiza OpenCowork.",
+    "languageGrammarsMissing": "No se encontraron gramáticas de lenguaje CodeGraph válidas. Reinstala o actualiza OpenCowork.",
+    "workerMissing": "Falta el worker de CodeGraph. Reinstala o actualiza OpenCowork."
   },
   "committed": "Confirmado",
   "files": "Explorador",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Control de versiones",
   "scmUndo": "Deshacer",
   "scmUnstage": "Quitar de preparación",
-  "scmUnstageAll": "Quitar todo de preparación"
+  "scmUnstageAll": "Quitar todo de preparación",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "MEM",
+    "memoryDetail": "Memoria {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, memoria {{memory}}"
+  }
 }

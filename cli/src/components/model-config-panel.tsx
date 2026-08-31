@@ -79,7 +79,7 @@ function valueFor(entry: ModelConfigEntry, draft: ModelConfigDraft): string {
     case 'builtinSearchEnabled':
       return draft.builtinSearchEnabled ? 'On' : 'Off'
     case 'enableLongContext':
-      return draft.enableLongContext ? '1M' : '272K'
+      return draft.enableLongContext ? '1M' : '360K'
     case 'websocketMode':
       return draft.websocketMode === 'auto' ? 'Auto' : 'Off'
     case 'imageGenerationEnabled':
@@ -193,7 +193,7 @@ export function ModelConfigPanel({
       next.push({
         category: 'Limits',
         description:
-          'GPT models default to the 272K short-context pricing tier. Enable 1M to use the long-context window.',
+          '1M-capable models default to the 360K window. Enable 1M to use the native long-context window.',
         key: 'enableLongContext',
         kind: 'boolean',
         label: '1M context'

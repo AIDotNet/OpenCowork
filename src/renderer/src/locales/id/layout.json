@@ -111,7 +111,17 @@
     "projectSortName": "Abjad",
     "projectSortRecentlyUpdated": "Baru-baru ini diperbarui",
     "projectSortTitle": "Urutkan proyek: {{sort}}",
-    "revealInFolder": "Buka lokasi folder"
+    "revealInFolder": "Buka lokasi folder",
+    "changeProjectIcon": "Ubah ikon",
+    "newAgentIn": "Agent baru di {{projectName}}",
+    "projectIconDefault": "Folder default",
+    "projectIconDialogDescription": "Pilih ikon untuk “{{projectName}}”, atau unggah gambar Anda sendiri.",
+    "projectIconDialogTitle": "Ubah ikon proyek",
+    "projectIconReplace": "Ganti gambar",
+    "projectIconReset": "Kembalikan default",
+    "projectIconSearch": "Cari ikon",
+    "projectIconUpload": "Unggah gambar",
+    "taskBoardLabel": "Papan tugas"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sesi dihapus",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Sesi berubah nama cerdas",
     "dropNotFolder": "Silakan jatuhkan folder, bukan berkas",
     "projectsCreatedCount": "{{count}} proyek dibuat",
-    "revealFailed": "Gagal membuka lokasi"
+    "revealFailed": "Gagal membuka lokasi",
+    "projectIconInvalidType": "Pilih berkas gambar",
+    "projectIconTooLarge": "Ikon harus lebih kecil dari 1 MB",
+    "projectIconUploadFailed": "Tidak dapat membaca ikon yang dipilih"
   },
   "topbar": {
     "togglePanel": "Jungkitkan Panel",
@@ -198,11 +211,15 @@
     "builtinSearch": "Pencarian web bawaan",
     "builtinSearchOff": "Mati",
     "longContext": "Konteks 1M",
-    "longContextOn": "Jendela 1M · tarif konteks panjang di atas 272K",
-    "longContextOff": "Default 272K · tarif konteks pendek",
+    "longContextOn": "Jendela 1M · jendela konteks panjang asli",
+    "longContextOff": "Default 360K · jendela standar",
     "builtinSearchOn": "Pencarian native penyedia aktif",
     "faster": "Lebih cepat",
-    "smarter": "Lebih cerdas"
+    "smarter": "Lebih cerdas",
+    "computerUse": "Penggunaan komputer",
+    "contextLength": "Panjang konteks",
+    "imageGeneration": "Pembuatan gambar",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Lingkungan",
@@ -692,7 +709,8 @@
     "translate": "Terjemahkan",
     "ssh": "SSH",
     "settings": "Pengaturan",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Papan tugas"
   },
   "resourcesPage": {
     "title": "Sumber Daya",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Terjemahkan ke bahasa Inggris",
     "assistantQuickTranslatePrompt": "Terjemahkan teks konteks menjadi prompt pembuatan gambar bahasa Inggris yang natural. Keluarkan hanya hasilnya.",
     "assistantStop": "Berhenti",
-    "retry": "Coba lagi"
+    "retry": "Coba lagi",
+    "addImageGeneration": "Tambah pembuatan gambar",
+    "addTextGeneration": "Tambah pembuatan teks",
+    "addVideoGeneration": "Tambah pembuatan video",
+    "assistantActCancel": "Pembuatan dibatalkan",
+    "assistantActCanvas": "Kanvas diperbarui",
+    "assistantActCreateNode": "Node dibuat",
+    "assistantActCreateTrigger": "Pemicu dibuat",
+    "assistantActDeleteNodes": "Node dihapus",
+    "assistantActDeleteTrigger": "Pemicu dihapus",
+    "assistantActDisconnect": "Node diputus",
+    "assistantActDuplicateNodes": "Node diduplikasi",
+    "assistantActEdit": "Gambar diedit",
+    "assistantActGenerateVideo": "Pembuatan video dimulai",
+    "assistantActMedia": "Media diproses",
+    "assistantActMove": "Node dipindahkan",
+    "assistantActResize": "Ukuran node diubah",
+    "assistantActRetry": "Node dicoba lagi",
+    "assistantActRun": "Node dijalankan",
+    "assistantActSelect": "Seleksi diperbarui",
+    "assistantActStatus": "Status node diperiksa",
+    "assistantActSubscribe": "Berlangganan node",
+    "assistantActUpdateNode": "Node diperbarui",
+    "assistantActWait": "Menunggu node",
+    "assistantApprove": "Setujui",
+    "assistantAttachImage": "Lampirkan gambar",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Batalkan proses aktif untuk node {{nodeId}}. Penyedia tetap dapat menagih pekerjaan yang sudah dikirim.",
+        "title": "Batalkan pembuatan?"
+      },
+      "clear_canvas": {
+        "description": "Hapus semua node, koneksi, dan pemicu dari kanvas ini.",
+        "title": "Kosongkan kanvas?"
+      },
+      "delete_nodes": {
+        "description": "Hapus {{count}} node beserta koneksinya.",
+        "title": "Hapus node?"
+      },
+      "delete_project": {
+        "description": "Hapus kanvas yang dipilih dan graf tersimpannya. Ruang kerja Agent akan dipindahkan ke tempat sampah sistem.",
+        "title": "Hapus proyek kanvas?"
+      },
+      "replace_canvas": {
+        "description": "Mengimpor JSON ini akan mengganti isi kanvas saat ini.",
+        "title": "Ganti kanvas?"
+      },
+      "tool": {
+        "description": "Tinjau operasi alat ini sebelum mengizinkannya.\n{{input}}",
+        "title": "Izinkan {{toolName}}?"
+      }
+    },
+    "assistantDeleteMessage": "Hapus pesan",
+    "assistantElapsed": "Menunggu {{seconds}} dtk",
+    "assistantExecuting": "Menjalankan aksi kanvas",
+    "assistantExecutingTool": "Menjalankan {{tool}}",
+    "assistantImageInvalid": "Beberapa gambar tidak didukung atau lebih besar dari 20 MB",
+    "assistantImagesAttached": "{{count}} gambar",
+    "assistantListening": "Mendengarkan peristiwa node",
+    "assistantListeningHint": "Asisten akan lanjut otomatis saat node selesai.",
+    "assistantPinSelection": "Sematkan pilihan ({{count}})",
+    "assistantRegenerate": "Buat ulang",
+    "assistantReject": "Tolak",
+    "assistantReplayMissingContext": "Sebagian konteks kanvas asli tidak lagi tersedia dan dilewati.",
+    "assistantRewrite": "Edit lalu buat ulang",
+    "assistantSideEffectsTitle": "Efek samping alat akan tetap ada",
+    "assistantSideEffectsWarning": "Percakapan ini berisi aksi alat. Mengedit atau menghapus pesan tidak membatalkan efek pada kanvas, berkas, Shell, atau MCP. Lanjutkan?",
+    "assistantThought": "Pemikiran",
+    "assistantVisionRequired": "Pilih model yang mendukung penglihatan untuk mengirim gambar",
+    "cameraFixed": "Kamera tetap",
+    "copyError": "Salin galat",
+    "deleteProject": "Hapus kanvas",
+    "deleteProjectConfirm": "Hapus “{{name}}”? Ruang kerja Agent akan dipindahkan ke tempat sampah sistem.",
+    "errorCopied": "Galat disalin",
+    "errorDetails": "Detail galat",
+    "errorDetailsHint": "Tinjau respons lengkap penyedia atau salin untuk pemecahan masalah.",
+    "frameRole": "Bingkai",
+    "frameRoleAuto": "Referensi",
+    "frameRoleFirstLast": "Pertama → Terakhir",
+    "frameRoleHint": "Urutan bingkai mengikuti urutan koneksi.",
+    "generateAudio": "Audio",
+    "imageSize": "Ukuran gambar",
+    "nodeImageGeneration": "Pembuatan gambar",
+    "nodeTextGeneration": "Pembuatan teks",
+    "nodeTriggers": "Pemicu peristiwa node",
+    "nodeTriggersDesc": "Jalankan node lain saat status eksekusi node ini berubah.",
+    "nodeVideoGeneration": "Pembuatan video",
+    "seed": "Seed",
+    "soraReferenceExactSize": "Gambar referensi: {{size}}. Sora mensyaratkan ukuran yang sama persis.",
+    "soraReferenceUnsupportedSize": "Gambar referensi {{size}} tidak cocok dengan ukuran Sora yang didukung. Ubah ukuran atau potong dulu.",
+    "soraSingleReference": "Sora hanya menerima satu referensi masukan. Hanya gambar terhubung pertama yang diunggah.",
+    "triggerAdd": "Tambah",
+    "triggerCycle": "Pemicu ini akan membuat siklus",
+    "triggerDuplicate": "Pemicu ini sudah ada",
+    "triggerEmpty": "Tidak ada pemicu untuk node ini",
+    "triggerEvents": {
+      "cancelled": "Proses dibatalkan",
+      "failed": "Proses gagal",
+      "interrupted": "Proses terputus",
+      "progress": "Progres diperbarui",
+      "queued": "Proses masuk antrean",
+      "started": "Proses dimulai",
+      "succeeded": "Proses berhasil",
+      "updated": "Node diperbarui"
+    },
+    "triggerLastRun": "Proses terakhir",
+    "triggerStatuses": {
+      "cancelled": "Dibatalkan",
+      "failed": "Gagal",
+      "idle": "Siaga",
+      "interrupted": "Terputus",
+      "queued": "Dalam antrean",
+      "running": "Berjalan",
+      "succeeded": "Berhasil"
+    },
+    "triggerSubscriptions": "{{count}} langganan aktif",
+    "triggerTarget": "Pilih node tujuan",
+    "watermark": "Tanda air"
   },
   "translatePage": {
     "title": "Al Terjemahkan",
@@ -1265,7 +1400,10 @@
       "description": "Secara baku hanya codegraph_explore yang dipaparkan ke agen. Aktifkan untuk juga mendaftarkan search, node, callers, callees, impact, files, dan status (permukaan tetap disesuaikan dengan ukuran proyek).",
       "title": "Permukaan alat agen penuh"
     },
-    "unknownRoot": "Proyek tak dikenal ({{hash}})"
+    "unknownRoot": "Proyek tak dikenal ({{hash}})",
+    "coreLibraryMissing": "Pustaka runtime tree-sitter hilang atau tidak valid. Instal ulang atau perbarui OpenCowork.",
+    "languageGrammarsMissing": "Tidak ada tata bahasa bahasa CodeGraph yang valid. Instal ulang atau perbarui OpenCowork.",
+    "workerMissing": "Worker CodeGraph hilang. Instal ulang atau perbarui OpenCowork."
   },
   "committed": "Ter-commit",
   "files": "Explorer",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Kontrol Sumber",
   "scmUndo": "Tak Jadi",
   "scmUnstage": "Batalkan stage",
-  "scmUnstageAll": "Batalkan stage semua"
+  "scmUnstageAll": "Batalkan stage semua",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "MEM",
+    "memoryDetail": "Memori {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, memori {{memory}}"
+  }
 }

@@ -163,7 +163,7 @@
     "systemProxyDesc": "Tüm uygulama sürecinde kullanılan URL proxyunu ayarlayın, örneğin http://127.0.0.1:7890 veya http://host:port.",
     "toolbarCollapsedByDefault": "Colalt araç çubuğu varsayılan",
     "toolbarCollapsedByDefaultDesc": "Varsayılan olarak kapalı. Uygulama açılırken sol araç çubuğu durumu.",
-    "chinese": "",
+    "chinese": "中文",
     "english": "İngilizce İngilizce İngilizce English",
     "systemPromptPlaceholder": "Özel talimatları ekleyin...",
     "teamTools": "Takım Araçları",
@@ -192,7 +192,7 @@
       "currentVersion": "Current v {{version}}",
       "latestVersion": "En son v {{version}}",
       "checking": "Checking...",
-      "checkForUpdates": "güncelleştirme için kontrol",
+      "checkForUpdates": "Güncellemeleri denetle",
       "updating": "Updating...",
       "updateNow": "Güncelleme şimdi",
       "failedToCheck": "Güncellemeleri kontrol etmek için başarısız oldu: {{error}}",
@@ -204,7 +204,8 @@
       "installing": "Güncelleme hazırlanıyor…",
       "greenBuild": "Kurulumsuz sürüm",
       "manualDownloadHint": "Daha yeni bir sürüm (v{{version}}) mevcut. Kurulumsuz sürüm için, manuel olarak indirin, uygulamadan çıkın ve mevcut klasörü değiştirin.",
-      "openDownloadPage": "İndirme sayfasını aç"
+      "openDownloadPage": "İndirme sayfasını aç",
+      "compatBuild": "Uyumluluk derlemesi"
     },
     "projectDefaultDirectory": {
       "title": "Varsayılan proje rehberi",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Arayüz",
       "editor": "Düzenleyici"
-    }
+    },
+    "autoUpdateCompatDesc": "Uyumluluk derlemesi (SSE4.2 olmayan eski CPU’lar) resmi otomatik güncelleme kanalını kullanmaz. GitHub Release’den eşleşen *-win-x64-compat yükleyicisini indirin."
   },
   "sync": {
     "title": "Sen",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Sistem Ayarları",
-    "subtitle": "Shell runtime, proxy ve OS- level execution tercihleri",
+    "subtitle": "Uygulama güncellemeleri, kabuk çalışma zamanı, proxy ve işletim sistemi düzeyinde yürütme tercihleri",
     "platform": "Platform: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(bilinmeyen proje) {{hash}}",
       "workerMissing": "CodeGraph worker ikili dosyası bulunamadı. `npm run codegraph:publish` (veya `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`) ile derleyin.",
       "workerRunning": "Worker çalışıyor",
-      "workerStopped": "Worker başlatılmadı (ilk kullanımda başlatılır)"
+      "workerStopped": "Worker başlatılmadı (ilk kullanımda başlatılır)",
+      "availableLanguages": "Kullanılabilir diller: {{languages}}",
+      "coreLibraryMissing": "tree-sitter çalışma zamanı kitaplığı eksik veya geçersiz. OpenCowork’u yeniden kurun veya güncelleyin.",
+      "invalidFiles": "Geçersiz dilbilgisi dosyaları: {{files}}",
+      "invalidGrammarPackage": "Bazı CodeGraph dilbilgisi dosyaları geçersiz. OpenCowork’u yeniden kurun veya güncelleyin.",
+      "languageGrammarsMissing": "Geçerli dil dilbilgisi kitaplığı bulunamadı. OpenCowork’u yeniden kurun veya güncelleyin.",
+      "missingLanguages": "Kullanılamayan diller: {{languages}}",
+      "unrecognizedGrammars": "Tanınmayan dilbilgisi kitaplıkları: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "codegraph_explore aracı yalnızca eklenti etkin ve dil dilbilgileri hazır olduğunda (indirilmiş veya bir geliştirme sürümünde yerel olarak sağlanmış) kullanıma sunulur."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Yerleşik web aramasını etkinleştir",
     "enableBuiltinSearchDesc": "Bir istemci aracı yerine sağlayıcının yerel web aramasını (Claude / OpenAI Responses) kullan.",
     "enableLongContext": "1M bağlamı etkinleştir",
-    "enableLongContextDesc": "1M penceresini kullan. Kapalıyken 272K kısa bağlam ücreti geçerlidir.",
+    "enableLongContextDesc": "1M penceresini kullan. Kapalıyken varsayılan 360K pencere geçerlidir.",
     "kimiQuota5h": "5 Saatlik Limit",
     "kimiQuotaParallel": "Maks. eşzamanlılık {{count}}",
     "kimiQuotaWeekly": "Haftalık Limit",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Görsel oluşturmayı destekler",
     "supportsImageGenerationDesc": "Uç nokta, OpenAI Responses image_generation sunucu aracını uygular.",
     "supportsWebsocket": "WebSocket protokolünü destekler",
-    "supportsWebsocketDesc": "Uç nokta, OpenAI Responses WebSocket taşımasını sunar."
+    "supportsWebsocketDesc": "Uç nokta, OpenAI Responses WebSocket taşımasını sunar.",
+    "apiKeyHint": "Bu sağlayıcının ayarlarıyla birlikte yerelde saklanır.",
+    "browserLogin": "Tarayıcıyla giriş",
+    "customIcon": "Sağlayıcı simgesi",
+    "customIconHint": "PNG, JPG, WebP, GIF veya SVG. En fazla 1 MB.",
+    "enableAfterAdding": "Ekledikten sonra sağlayıcıyı etkinleştir",
+    "enableAfterAddingHint": "Sağlayıcı hemen yapılandırılabilir.",
+    "iconInvalidType": "Lütfen bir görüntü dosyası seçin",
+    "iconTooLarge": "Simge 1 MB’tan küçük olmalıdır",
+    "iconUploadFailed": "Seçilen simge okunamadı",
+    "modelMetaPricingTiers": "{{count}} fiyat basamağı",
+    "pricingTierAdd": "Basamak ekle",
+    "pricingTierHint": "Basamak, istek başına istem boyutuna (girdi + önbellek token’ları) göre seçilir.",
+    "pricingTierRemove": "Basamağı kaldır",
+    "pricingTierThreshold": "İstem token’ından itibaren",
+    "pricingTiers": "Kademeli fiyatlandırma",
+    "pricingTiersDesc": "İstem boyutuna göre faturalanan modeller için. Her basamak, bir istek kendi istem token tabanına ulaşınca yukarıdaki tarifeleri geçersiz kılar; temel tarifeyi korumak için fiyatı boş bırakın.",
+    "removeIcon": "Kaldır",
+    "replaceIcon": "Değiştir",
+    "uploadIcon": "Simge yükle"
   },
   "channel": {
     "title": "Kanallar",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Güncellemeler ve Veriler",
-    "subtitle": "Uygulama güncellemeleri, yedekleme, taşıma ve sıfırlama",
+    "title": "Veri Yönetimi",
+    "subtitle": "Yedekleme, taşıma ve sıfırlama",
     "dangerZone": "Tehlikeli Bölge",
     "dangerZoneDesc": "Bu işlemler geri alınamaz"
   }

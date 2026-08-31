@@ -144,7 +144,11 @@
       "tpsHint": "Uitvoertokens per seconde na aankomst van het eerste token. De waarde wordt berekend na afronding van elk API-verzoek.",
       "ttft": "TTFT",
       "ttftFull": "Tijd tot eerste token",
-      "ttftHint": "Tijd vanaf het versturen van het verzoek tot het eerste gestreamde token. Een lagere TTFT betekent dat het model sneller begon te antwoorden."
+      "ttftHint": "Tijd vanaf het versturen van het verzoek tot het eerste gestreamde token. Een lagere TTFT betekent dat het model sneller begon te antwoorden.",
+      "cacheCreateShort": "Schrijven",
+      "cacheHitShort": "Cache",
+      "inputShort": "In",
+      "outputShort": "Uit"
     },
     "runtimeStatus": {
       "awaitingApproval": "In afwachting van goedkeuring: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "{{tool}} uitvoeren",
       "thinking": "Denken",
       "waiting": "Wachten"
-    }
+    },
+    "contextCompressionFallback": "Samenvatting niet beschikbaar; oudere context verwijderd",
+    "fileReference": {
+      "remove": "Verwijzing verwijderen",
+      "removePlugin": "Pluginverwijzing verwijderen"
+    },
+    "initBannerAction": "/init uitvoeren",
+    "initBannerDismiss": "Sluiten",
+    "initBannerText": "Geen AGENTS.md in de huidige map. Initialiseer de workspacecontext voor betere agentprestaties."
   },
   "planReview": {
     "awaitingReview": "In afwachting van de evaluatie",
@@ -177,7 +189,13 @@
     "approvedHint": "Dit plan is al goedgekeurd.",
     "copy": "Plan kopiëren",
     "download": "Plan downloaden",
-    "expand": "Uitvouwen in zijpaneel"
+    "expand": "Uitvouwen in zijpaneel",
+    "rejectedHint": "Herziening gevraagd. De agent werkt dit plan opnieuw uit.",
+    "requestRevision": "Herziening vragen",
+    "revisionDesc": "Beschrijf wat er moet veranderen. De agent gaat terug naar de planmodus en herschrijft het plan.",
+    "revisionPlaceholder": "Bijvoorbeeld: splits stap 3 in migratie en uitrol.",
+    "revisionSubmit": "Herzieningsverzoek versturen",
+    "revisionTitle": "Planherziening vragen"
   },
   "guide": {
     "title": "Gespreksgids",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "Achtergrondsessie",
     "backgroundInboxTitle": "Invoer nodig",
     "backgroundInboxDescription": "{{title}} wacht op uw keuze",
-    "backgroundToast": "Achtergrondsessie wacht op uw keuze"
+    "backgroundToast": "Achtergrondsessie wacht op uw keuze",
+    "previewEmpty": "Beweeg over of selecteer een optie om de preview te zien."
   },
   "goal": {
     "title": "Doel",
@@ -824,10 +843,47 @@
       "summaryLabel": "Ga naar samengevatte geschiedenis {{index}}: {{preview}}",
       "summaryPreview": "Samengevatte geschiedenis",
       "toolOnlyPreview": "{{count}} gereedschapsaanroepen",
-      "userLabel": "Ga naar gebruikersbericht {{index}}: {{preview}}"
+      "userLabel": "Ga naar gebruikersbericht {{index}}: {{preview}}",
+      "navigation": "Conversatienavigatie"
     },
     "pendingRetryTitle": "Opnieuw verbinden met het model",
-    "pendingTeamTitle": "Teamleden coördineren"
+    "pendingTeamTitle": "Teamleden coördineren",
+    "homeCopy": {
+      "chat": [
+        [
+          "Zeg de zin die je echt in je hoofd hebt",
+          "Onvolledige vragen zijn nog steeds vragen",
+          "Ik help je ze af te maken"
+        ],
+        [
+          "Het hoeft niet als een ticket te klinken",
+          "Een rommelige schets is genoeg om te starten",
+          "Gooi het erin"
+        ],
+        [
+          "Je hebt geen slimme opening nodig",
+          "Eén ding dat je echt wilt begrijpen is genoeg",
+          "De rest vullen we onderweg"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} is er nog",
+          "Het probleem ook",
+          "Eén concrete zin wint van een leeg invoerveld"
+        ],
+        [
+          "Probeer niet alles in één keer af te ronden",
+          "De kleinste snede is meestal de echte",
+          "Jij begint, ik volg"
+        ],
+        [
+          "Een stille repo is geen gezonde repo",
+          "Vandaag kun je alleen het storende stukje oplossen",
+          "Begin hieronder"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "Geen project geselecteerd",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} hulpmiddelen",
     "extensionToolCount_one": "{{count}} hulpmiddel",
     "extensionToolCount_other": "{{count}} hulpmiddelen",
-    "noCustomExtensions": "Geen aangepaste extensies ingeschakeld"
+    "noCustomExtensions": "Geen aangepaste extensies ingeschakeld",
+    "activeBadge": "Actief",
+    "addActionsWithCount": "Acties toevoegen ({{count}})",
+    "addLabel": "Toevoegen",
+    "attachMediaDescription": "Afbeeldingen, bestanden of mappen toevoegen",
+    "attachMediaMenu": "Bestanden en mappen",
+    "channelsDescription": "Dit bericht naar verbonden kanalen sturen",
+    "commandDescription": "Dit commando in het volgende bericht gebruiken",
+    "commandsDescription": "Een opgeslagen commando-sjabloon uitvoeren",
+    "extensionsDescription": "Aangepaste tools voor dit project inschakelen",
+    "goalModeDescription": "Een doel actief houden tijdens het gesprek",
+    "mcpDescription": "Externe tools aan dit gesprek koppelen",
+    "mcpServerDescription": "Verbonden MCP-server",
+    "planModeDescription": "Planmodus inschakelen",
+    "skillDescription": "Deze skill aan het bericht toevoegen",
+    "toolsAndIntegrations": "Tools en integraties"
   },
   "userMessage": {
     "you": "Jij",
@@ -1028,7 +1099,9 @@
       "copied": "gekopieerd",
       "descRuntimeUnavailable": "OpenCowork kon de lokale Native Worker niet bereiken. Er is al geprobeerd deze opnieuw te starten; probeer het bericht opnieuw of herbouw de native worker als dit blijft gebeuren.",
       "sidecarUnavailableMessage": "De lokale agent-runtime is tijdelijk niet beschikbaar. OpenCowork heeft geprobeerd deze opnieuw te starten; probeer dit bericht opnieuw. Als dit tijdens ontwikkeling blijft gebeuren, voer `npm run native:publish` uit en herstart OpenCowork.",
-      "titleRuntimeUnavailable": "Lokale runtime niet beschikbaar"
+      "titleRuntimeUnavailable": "Lokale runtime niet beschikbaar",
+      "descRuntimeFatal": "De lokale Native Worker kan zichzelf niet herstellen (verouderde of incompatibele binary). Bouw hem opnieuw met `npm run native:publish` (ontwikkeling) of installeer OpenCowork opnieuw en start de app daarna opnieuw.",
+      "titleRuntimeFatal": "Lokale runtime moet worden gerepareerd"
     },
     "processTools": "Toolaanroepen",
     "activeTools": "{{count}} actieve hulpmiddelen",
@@ -1049,7 +1122,8 @@
     "totalUsage": "Totaal gebruik",
     "tpsHint": "Uitvoertokens gegenereerd per seconde",
     "ttftHint": "Tijd tot eerste token",
-    "uncachedInput": "Niet-gecachte invoer"
+    "uncachedInput": "Niet-gecachte invoer",
+    "processSummary": "Verwerkt"
   },
   "messageActions": {
     "fork": "Vork",

@@ -144,7 +144,11 @@
       "tpsHint": "Token keluaran yang dihasilkan per detik setelah token pertama tiba. Dihitung setelah setiap permintaan API selesai.",
       "ttft": "TTFT",
       "ttftFull": "Waktu hingga token pertama",
-      "ttftHint": "Waktu dari pengiriman permintaan hingga token streaming pertama diterima. TTFT yang lebih rendah berarti model mulai merespons lebih cepat."
+      "ttftHint": "Waktu dari pengiriman permintaan hingga token streaming pertama diterima. TTFT yang lebih rendah berarti model mulai merespons lebih cepat.",
+      "cacheCreateShort": "Tulis",
+      "cacheHitShort": "Cache",
+      "inputShort": "Masuk",
+      "outputShort": "Keluar"
     },
     "runtimeStatus": {
       "awaitingApproval": "Menunggu persetujuan: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "Menjalankan {{tool}}",
       "thinking": "Berpikir",
       "waiting": "Menunggu"
-    }
+    },
+    "contextCompressionFallback": "Ringkasan tidak tersedia; konteks lama dihapus",
+    "fileReference": {
+      "remove": "Hapus referensi",
+      "removePlugin": "Hapus referensi plugin"
+    },
+    "initBannerAction": "Jalankan /init",
+    "initBannerDismiss": "Tutup",
+    "initBannerText": "Tidak ada AGENTS.md di folder saat ini. Inisialisasi konteks ruang kerja agar agen bekerja lebih baik."
   },
   "planReview": {
     "awaitingReview": "Menunggu Ulasan",
@@ -177,7 +189,13 @@
     "approvedHint": "Rencana ini sudah disetujui.",
     "copy": "Salin rencana",
     "download": "Unduh rencana",
-    "expand": "Perluas di panel samping"
+    "expand": "Perluas di panel samping",
+    "rejectedHint": "Revisi diminta. Agen sedang menulis ulang rencana ini.",
+    "requestRevision": "Minta revisi",
+    "revisionDesc": "Jelaskan apa yang harus diubah. Agen kembali ke mode rencana dan menulis ulang rencana.",
+    "revisionPlaceholder": "Misalnya: pecah langkah 3 menjadi migrasi dan peluncuran.",
+    "revisionSubmit": "Kirim permintaan revisi",
+    "revisionTitle": "Minta revisi rencana"
   },
   "guide": {
     "title": "Panduan percakapan",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "Sesi latar belakang",
     "backgroundInboxTitle": "Perlu masukan",
     "backgroundInboxDescription": "{{title}} sedang menunggu pilihan Anda",
-    "backgroundToast": "Sesi latar belakang sedang menunggu pilihan Anda"
+    "backgroundToast": "Sesi latar belakang sedang menunggu pilihan Anda",
+    "previewEmpty": "Arahkan kursor atau pilih opsi untuk melihat pratinjau."
   },
   "goal": {
     "title": "Gol",
@@ -824,10 +843,47 @@
       "summaryLabel": "Lompat ke ringkasan riwayat terkompresi {{index}}: {{preview}}",
       "summaryPreview": "Ringkasan riwayat terkompresi",
       "toolOnlyPreview": "{{count}} panggilan alat",
-      "userLabel": "Lompat ke pesan pengguna {{index}}: {{preview}}"
+      "userLabel": "Lompat ke pesan pengguna {{index}}: {{preview}}",
+      "navigation": "Navigasi percakapan"
     },
     "pendingRetryTitle": "Menyambung ulang ke model",
-    "pendingTeamTitle": "Mengoordinasikan rekan tim"
+    "pendingTeamTitle": "Mengoordinasikan rekan tim",
+    "homeCopy": {
+      "chat": [
+        [
+          "Ucapkan kalimat yang benar-benar ada di kepala",
+          "Pertanyaan yang belum lengkap tetap pertanyaan",
+          "Saya bisa membantu merampungkannya"
+        ],
+        [
+          "Tidak harus terdengar seperti tiket",
+          "Draf berantakan sudah cukup untuk mulai",
+          "Lempar saja ke sini"
+        ],
+        [
+          "Tidak perlu pembuka yang cerdas",
+          "Satu hal yang benar-benar ingin dipahami sudah cukup",
+          "Sisanya kita isi sambil jalan"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} masih di sini",
+          "Masalahnya juga",
+          "Satu kalimat konkret lebih berguna daripada kotak kosong"
+        ],
+        [
+          "Jangan coba menyelesaikan semuanya sekaligus",
+          "Potongan terkecil biasanya yang asli",
+          "Kamu mulai, saya mengikuti"
+        ],
+        [
+          "Repo yang sunyi belum tentu sehat",
+          "Hari ini kamu cukup memperbaiki hal yang mengganggu",
+          "Mulai dari bawah"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "Tak ada proyek yang dipilih",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} alat",
     "extensionToolCount_one": "{{count}} alat",
     "extensionToolCount_other": "{{count}} alat",
-    "noCustomExtensions": "Tidak ada ekstensi kustom yang diaktifkan"
+    "noCustomExtensions": "Tidak ada ekstensi kustom yang diaktifkan",
+    "activeBadge": "Aktif",
+    "addActionsWithCount": "Tambah tindakan ({{count}})",
+    "addLabel": "Tambah",
+    "attachMediaDescription": "Tambah gambar, berkas, atau folder",
+    "attachMediaMenu": "Berkas dan folder",
+    "channelsDescription": "Kirim pesan ini ke saluran terhubung",
+    "commandDescription": "Gunakan perintah ini di pesan berikutnya",
+    "commandsDescription": "Jalankan templat perintah tersimpan",
+    "extensionsDescription": "Aktifkan alat kustom untuk proyek ini",
+    "goalModeDescription": "Tetap aktifkan tujuan sepanjang percakapan",
+    "mcpDescription": "Hubungkan alat eksternal ke percakapan ini",
+    "mcpServerDescription": "Server MCP terhubung",
+    "planModeDescription": "Aktifkan mode rencana",
+    "skillDescription": "Tambahkan skill ini ke pesan",
+    "toolsAndIntegrations": "Alat & integrasi"
   },
   "userMessage": {
     "you": "Kau",
@@ -1028,7 +1099,9 @@
       "copied": "Disalin",
       "descRuntimeUnavailable": "OpenCowork tidak dapat menjangkau Native Worker lokal. Sudah dicoba memulai ulang secara otomatis; coba kirim ulang pesan atau bangun ulang native worker jika ini terus terjadi.",
       "sidecarUnavailableMessage": "Runtime agen lokal untuk sementara tidak tersedia. OpenCowork sudah mencoba memulai ulangnya; coba kirim ulang pesan ini. Jika terus terjadi saat pengembangan, jalankan `npm run native:publish` lalu mulai ulang OpenCowork.",
-      "titleRuntimeUnavailable": "Runtime lokal tidak tersedia"
+      "titleRuntimeUnavailable": "Runtime lokal tidak tersedia",
+      "descRuntimeFatal": "Native Worker lokal tidak bisa pulih sendiri (binari usang atau tidak kompatibel). Bangun ulang dengan `npm run native:publish` (pengembangan) atau instal ulang OpenCowork, lalu mulai ulang aplikasi.",
+      "titleRuntimeFatal": "Runtime lokal perlu diperbaiki"
     },
     "processTools": "Panggilan alat",
     "activeTools": "{{count}} alat aktif",
@@ -1049,7 +1122,8 @@
     "totalUsage": "Penggunaan total",
     "tpsHint": "Token keluaran yang dihasilkan per detik",
     "ttftHint": "Waktu hingga token pertama",
-    "uncachedInput": "Masukan tanpa cache"
+    "uncachedInput": "Masukan tanpa cache",
+    "processSummary": "Diproses"
   },
   "messageActions": {
     "fork": "Garpu",

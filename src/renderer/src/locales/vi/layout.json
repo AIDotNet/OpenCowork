@@ -111,7 +111,17 @@
     "projectSortName": "Theo bảng chữ cái",
     "projectSortRecentlyUpdated": "Cập nhật gần đây",
     "projectSortTitle": "Sắp xếp dự án: {{sort}}",
-    "revealInFolder": "Mở vị trí thư mục"
+    "revealInFolder": "Mở vị trí thư mục",
+    "changeProjectIcon": "Đổi biểu tượng",
+    "newAgentIn": "Agent mới trong {{projectName}}",
+    "projectIconDefault": "Thư mục mặc định",
+    "projectIconDialogDescription": "Chọn biểu tượng cho “{{projectName}}” hoặc tải ảnh của bạn.",
+    "projectIconDialogTitle": "Đổi biểu tượng dự án",
+    "projectIconReplace": "Thay ảnh",
+    "projectIconReset": "Khôi phục mặc định",
+    "projectIconSearch": "Tìm biểu tượng",
+    "projectIconUpload": "Tải ảnh lên",
+    "taskBoardLabel": "Bảng công việc"
   },
   "sidebar_toast": {
     "sessionDeleted": "Phiên chạy đã xoá",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Phiên chạy được đổi tên một cách thông minh",
     "dropNotFolder": "Vui lòng thả một thư mục, không phải tập tin",
     "projectsCreatedCount": "Đã tạo {{count}} dự án",
-    "revealFailed": "Mở vị trí thất bại"
+    "revealFailed": "Mở vị trí thất bại",
+    "projectIconInvalidType": "Hãy chọn một tệp ảnh",
+    "projectIconTooLarge": "Biểu tượng phải nhỏ hơn 1 MB",
+    "projectIconUploadFailed": "Không đọc được biểu tượng đã chọn"
   },
   "topbar": {
     "togglePanel": "Bật/ tắt bảng điều khiển",
@@ -198,11 +211,15 @@
     "builtinSearch": "Tìm kiếm web tích hợp",
     "builtinSearchOff": "Tắt",
     "longContext": "Ngữ cảnh 1M",
-    "longContextOn": "Cửa sổ 1M · giá ngữ cảnh dài trên 272K",
-    "longContextOff": "Mặc định 272K · giá ngữ cảnh ngắn",
+    "longContextOn": "Cửa sổ 1M · cửa sổ ngữ cảnh dài gốc",
+    "longContextOff": "Mặc định 360K · cửa sổ chuẩn",
     "builtinSearchOn": "Bật tìm kiếm gốc của nhà cung cấp",
     "faster": "Nhanh hơn",
-    "smarter": "Thông minh hơn"
+    "smarter": "Thông minh hơn",
+    "computerUse": "Điều khiển máy tính",
+    "contextLength": "Độ dài ngữ cảnh",
+    "imageGeneration": "Tạo ảnh",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Môi trường",
@@ -692,7 +709,8 @@
     "translate": "Dịch",
     "ssh": "SSH",
     "settings": "Thiết lập",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Bảng công việc"
   },
   "resourcesPage": {
     "title": "Tài nguyên",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Dịch sang tiếng Anh",
     "assistantQuickTranslatePrompt": "Dịch văn bản trong ngữ cảnh thành một prompt tạo ảnh tiếng Anh tự nhiên. Chỉ xuất ra kết quả.",
     "assistantStop": "Dừng",
-    "retry": "Thử lại"
+    "retry": "Thử lại",
+    "addImageGeneration": "Thêm tạo ảnh",
+    "addTextGeneration": "Thêm tạo văn bản",
+    "addVideoGeneration": "Thêm tạo video",
+    "assistantActCancel": "Đã hủy tạo",
+    "assistantActCanvas": "Đã cập nhật canvas",
+    "assistantActCreateNode": "Đã tạo nút",
+    "assistantActCreateTrigger": "Đã tạo trigger",
+    "assistantActDeleteNodes": "Đã xóa nút",
+    "assistantActDeleteTrigger": "Đã xóa trigger",
+    "assistantActDisconnect": "Đã ngắt kết nối nút",
+    "assistantActDuplicateNodes": "Đã nhân bản nút",
+    "assistantActEdit": "Đã sửa ảnh",
+    "assistantActGenerateVideo": "Đã bắt đầu tạo video",
+    "assistantActMedia": "Đã xử lý media",
+    "assistantActMove": "Đã di chuyển nút",
+    "assistantActResize": "Đã đổi kích thước nút",
+    "assistantActRetry": "Đã thử lại nút",
+    "assistantActRun": "Đã chạy nút",
+    "assistantActSelect": "Đã cập nhật lựa chọn",
+    "assistantActStatus": "Đã kiểm tra trạng thái nút",
+    "assistantActSubscribe": "Đã đăng ký nút",
+    "assistantActUpdateNode": "Đã cập nhật nút",
+    "assistantActWait": "Đã chờ nút",
+    "assistantApprove": "Cho phép",
+    "assistantAttachImage": "Đính kèm ảnh",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Hủy lần chạy đang hoạt động của nút {{nodeId}}. Nhà cung cấp vẫn có thể tính phí phần việc đã gửi.",
+        "title": "Hủy tạo?"
+      },
+      "clear_canvas": {
+        "description": "Xóa mọi nút, kết nối và trigger khỏi canvas này.",
+        "title": "Xóa canvas?"
+      },
+      "delete_nodes": {
+        "description": "Xóa {{count}} nút và các kết nối của chúng.",
+        "title": "Xóa nút?"
+      },
+      "delete_project": {
+        "description": "Xóa canvas đã chọn và đồ thị đã lưu. Không gian làm việc Agent sẽ được chuyển vào thùng rác hệ thống.",
+        "title": "Xóa dự án canvas?"
+      },
+      "replace_canvas": {
+        "description": "Nhập JSON này sẽ thay thế nội dung canvas hiện tại.",
+        "title": "Thay thế canvas?"
+      },
+      "tool": {
+        "description": "Xem lại thao tác công cụ này trước khi cho phép.\n{{input}}",
+        "title": "Cho phép {{toolName}}?"
+      }
+    },
+    "assistantDeleteMessage": "Xóa tin nhắn",
+    "assistantElapsed": "Đang chờ {{seconds}} giây",
+    "assistantExecuting": "Đang thực hiện thao tác canvas",
+    "assistantExecutingTool": "Đang chạy {{tool}}",
+    "assistantImageInvalid": "Một số ảnh không được hỗ trợ hoặc lớn hơn 20 MB",
+    "assistantImagesAttached": "{{count}} ảnh",
+    "assistantListening": "Đang lắng nghe sự kiện nút",
+    "assistantListeningHint": "Trợ lý sẽ tiếp tục tự động khi nút kết thúc.",
+    "assistantPinSelection": "Ghim lựa chọn ({{count}})",
+    "assistantRegenerate": "Tạo lại",
+    "assistantReject": "Từ chối",
+    "assistantReplayMissingContext": "Một phần ngữ cảnh canvas ban đầu không còn và đã bị bỏ qua.",
+    "assistantRewrite": "Sửa rồi tạo lại",
+    "assistantSideEffectsTitle": "Tác dụng phụ của công cụ vẫn còn",
+    "assistantSideEffectsWarning": "Cuộc trò chuyện này có thao tác công cụ. Sửa hoặc xóa tin nhắn sẽ không hoàn tác thay đổi trên canvas, tệp, Shell hay MCP. Tiếp tục?",
+    "assistantThought": "Suy nghĩ",
+    "assistantVisionRequired": "Chọn mô hình hỗ trợ thị giác để gửi ảnh",
+    "cameraFixed": "Khóa camera",
+    "copyError": "Sao chép lỗi",
+    "deleteProject": "Xóa canvas",
+    "deleteProjectConfirm": "Xóa “{{name}}”? Không gian làm việc Agent sẽ được chuyển vào thùng rác hệ thống.",
+    "errorCopied": "Đã sao chép lỗi",
+    "errorDetails": "Chi tiết lỗi",
+    "errorDetailsHint": "Xem toàn bộ phản hồi của nhà cung cấp hoặc sao chép để xử lý sự cố.",
+    "frameRole": "Khung hình",
+    "frameRoleAuto": "Tham chiếu",
+    "frameRoleFirstLast": "Đầu → Cuối",
+    "frameRoleHint": "Thứ tự khung hình theo thứ tự kết nối.",
+    "generateAudio": "Âm thanh",
+    "imageSize": "Kích thước ảnh",
+    "nodeImageGeneration": "Tạo ảnh",
+    "nodeTextGeneration": "Tạo văn bản",
+    "nodeTriggers": "Trigger sự kiện nút",
+    "nodeTriggersDesc": "Chạy nút khác khi trạng thái thực thi của nút này thay đổi.",
+    "nodeVideoGeneration": "Tạo video",
+    "seed": "Seed",
+    "soraReferenceExactSize": "Ảnh tham chiếu: {{size}}. Sora yêu cầu kích thước khớp chính xác.",
+    "soraReferenceUnsupportedSize": "Ảnh tham chiếu {{size}} không khớp kích thước Sora được hỗ trợ. Hãy đổi kích thước hoặc cắt trước.",
+    "soraSingleReference": "Sora chỉ nhận một ảnh tham chiếu. Chỉ ảnh kết nối đầu tiên được tải lên.",
+    "triggerAdd": "Thêm",
+    "triggerCycle": "Trigger này sẽ tạo vòng lặp",
+    "triggerDuplicate": "Trigger này đã tồn tại",
+    "triggerEmpty": "Nút này chưa có trigger",
+    "triggerEvents": {
+      "cancelled": "Đã hủy lần chạy",
+      "failed": "Lần chạy thất bại",
+      "interrupted": "Lần chạy bị gián đoạn",
+      "progress": "Đã cập nhật tiến độ",
+      "queued": "Đã xếp hàng lần chạy",
+      "started": "Đã bắt đầu lần chạy",
+      "succeeded": "Lần chạy thành công",
+      "updated": "Đã cập nhật nút"
+    },
+    "triggerLastRun": "Lần chạy gần nhất",
+    "triggerStatuses": {
+      "cancelled": "Đã hủy",
+      "failed": "Thất bại",
+      "idle": "Nghỉ",
+      "interrupted": "Gián đoạn",
+      "queued": "Đang chờ",
+      "running": "Đang chạy",
+      "succeeded": "Thành công"
+    },
+    "triggerSubscriptions": "{{count}} đăng ký đang hoạt động",
+    "triggerTarget": "Chọn nút đích",
+    "watermark": "Watermark"
   },
   "translatePage": {
     "title": "Al Dịch",
@@ -1265,7 +1400,10 @@
       "description": "Mặc định chỉ cung cấp codegraph_explore cho các đặc vụ. Bật để đăng ký thêm search, node, callers, callees, impact, files và status (bề mặt công cụ vẫn được điều chỉnh theo kích thước dự án).",
       "title": "Đầy đủ công cụ cho đặc vụ"
     },
-    "unknownRoot": "Dự án không xác định ({{hash}})"
+    "unknownRoot": "Dự án không xác định ({{hash}})",
+    "coreLibraryMissing": "Thư viện runtime tree-sitter bị thiếu hoặc không hợp lệ. Cài lại hoặc cập nhật OpenCowork.",
+    "languageGrammarsMissing": "Không tìm thấy ngữ pháp ngôn ngữ CodeGraph hợp lệ. Cài lại hoặc cập nhật OpenCowork.",
+    "workerMissing": "Thiếu worker CodeGraph. Cài lại hoặc cập nhật OpenCowork."
   },
   "committed": "Đã commit",
   "files": "Trình khám phá",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Quản lý mã nguồn",
   "scmUndo": "Hoàn tác",
   "scmUnstage": "Bỏ stage",
-  "scmUnstageAll": "Bỏ stage tất cả"
+  "scmUnstageAll": "Bỏ stage tất cả",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "BỘ NHỚ",
+    "memoryDetail": "Bộ nhớ {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, bộ nhớ {{memory}}"
+  }
 }

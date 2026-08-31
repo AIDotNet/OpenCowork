@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Overzicht",
+    "kanban": "Bord",
+    "list": "Lijst",
+    "gantt": "Tijdlijn"
+  },
+  "columns": {
+    "pending": "Te doen",
+    "in_progress": "Bezig",
+    "blocked": "Geblokkeerd",
+    "in_review": "Ter controle",
+    "completed": "Klaar"
+  },
+  "filters": {
+    "searchPlaceholder": "Taken zoeken…",
+    "allSessions": "Alle sessies",
+    "allPriorities": "Alle prioriteiten",
+    "refresh": "Vernieuwen"
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "high": "Hoog",
+    "medium": "Gemiddeld",
+    "low": "Laag",
+    "none": "Geen prioriteit"
+  },
+  "card": {
+    "blockedByCount": "{{count}} blokkerend",
+    "due": "Deadline {{date}}",
+    "running": "Agent actief"
+  },
+  "column": {
+    "empty": "Geen taken",
+    "confirmDone": "Bevestig als klaar"
+  },
+  "empty": {
+    "title": "Nog geen taken",
+    "description": "Taken die agenten in sessies aanmaken verschijnen hier. Vraag een agent complex werk te plannen, of maak taken in een samenwerk-sessie."
+  },
+  "detail": {
+    "title": "Taakdetails",
+    "subject": "Titel",
+    "description": "Beschrijving",
+    "descriptionPlaceholder": "Geen beschrijving",
+    "status": "Status",
+    "priority": "Prioriteit",
+    "tags": "Tags",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Deadline",
+    "noDue": "Geen deadline",
+    "clearDue": "Wissen",
+    "session": "Sessie",
+    "sessionLoadFailed": "Die sessie is niet gevonden",
+    "openSession": "Verderwerken in de sessie",
+    "dependencies": "Afhankelijkheden",
+    "blocks": "Blokkeert",
+    "blockedBy": "Geblokkeerd door",
+    "createdAt": "Aangemaakt",
+    "updatedAt": "Bijgewerkt",
+    "delete": "Taak verwijderen",
+    "close": "Sluiten",
+    "dispatchMessage": "Ga door met de taak: {{subject}}"
+  },
+  "list": {
+    "task": "Taak",
+    "session": "Sessie",
+    "priority": "Prioriteit",
+    "tags": "Tags",
+    "updated": "Bijgewerkt",
+    "showCompleted": "Voltooide tonen"
+  },
+  "gantt": {
+    "noDated": "Geen taken in dit bereik",
+    "today": "Vandaag"
+  },
+  "dashboard": {
+    "total": "Totaal aantal taken",
+    "activeSessions": "Sessies met taken",
+    "blockedTasks": "Geblokkeerde taken",
+    "completionRate": "Voltooiingspercentage",
+    "byStatus": "Verdeling per status",
+    "trend": "Laatste 14 dagen",
+    "trendCreated": "Aangemaakt",
+    "trendCompleted": "Voltooid",
+    "blockedList": "Nu geblokkeerd",
+    "noBlocked": "Er is niets geblokkeerd",
+    "recentSessions": "Sessies"
+  }
+}

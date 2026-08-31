@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Übersicht",
+    "kanban": "Board",
+    "list": "Liste",
+    "gantt": "Zeitachse"
+  },
+  "columns": {
+    "pending": "Offen",
+    "in_progress": "In Bearbeitung",
+    "blocked": "Blockiert",
+    "in_review": "Zur Prüfung",
+    "completed": "Erledigt"
+  },
+  "filters": {
+    "searchPlaceholder": "Aufgaben suchen…",
+    "allSessions": "Alle Sitzungen",
+    "allPriorities": "Alle Prioritäten",
+    "refresh": "Aktualisieren"
+  },
+  "priority": {
+    "urgent": "Dringend",
+    "high": "Hoch",
+    "medium": "Mittel",
+    "low": "Niedrig",
+    "none": "Keine Priorität"
+  },
+  "card": {
+    "blockedByCount": "{{count}} blockierend",
+    "due": "Fällig {{date}}",
+    "running": "Agent läuft"
+  },
+  "column": {
+    "empty": "Keine Aufgaben",
+    "confirmDone": "Als erledigt bestätigen"
+  },
+  "empty": {
+    "title": "Noch keine Aufgaben",
+    "description": "Aufgaben, die Agenten in Sitzungen anlegen, erscheinen hier. Lass einen Agenten komplexe Arbeit planen oder erstelle Aufgaben in einer Cowork-Sitzung."
+  },
+  "detail": {
+    "title": "Aufgabendetails",
+    "subject": "Titel",
+    "description": "Beschreibung",
+    "descriptionPlaceholder": "Keine Beschreibung",
+    "status": "Status",
+    "priority": "Priorität",
+    "tags": "Tags",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Fälligkeitsdatum",
+    "noDue": "Kein Fälligkeitsdatum",
+    "clearDue": "Löschen",
+    "session": "Sitzung",
+    "sessionLoadFailed": "Diese Sitzung wurde nicht gefunden",
+    "openSession": "In der Sitzung weiterarbeiten",
+    "dependencies": "Abhängigkeiten",
+    "blocks": "Blockiert",
+    "blockedBy": "Blockiert durch",
+    "createdAt": "Erstellt",
+    "updatedAt": "Aktualisiert",
+    "delete": "Aufgabe löschen",
+    "close": "Schließen",
+    "dispatchMessage": "Bitte arbeite weiter an der Aufgabe: {{subject}}"
+  },
+  "list": {
+    "task": "Aufgabe",
+    "session": "Sitzung",
+    "priority": "Priorität",
+    "tags": "Tags",
+    "updated": "Aktualisiert",
+    "showCompleted": "Erledigte anzeigen"
+  },
+  "gantt": {
+    "noDated": "Keine Aufgaben in diesem Zeitraum",
+    "today": "Heute"
+  },
+  "dashboard": {
+    "total": "Aufgaben insgesamt",
+    "activeSessions": "Sitzungen mit Aufgaben",
+    "blockedTasks": "Blockierte Aufgaben",
+    "completionRate": "Abschlussquote",
+    "byStatus": "Statusverteilung",
+    "trend": "Letzte 14 Tage",
+    "trendCreated": "Erstellt",
+    "trendCompleted": "Erledigt",
+    "blockedList": "Derzeit blockiert",
+    "noBlocked": "Nichts ist blockiert",
+    "recentSessions": "Sitzungen"
+  }
+}

@@ -111,7 +111,17 @@
     "projectSortName": "Alphabétique",
     "projectSortRecentlyUpdated": "Récemment mis à jour",
     "projectSortTitle": "Trier les projets : {{sort}}",
-    "revealInFolder": "Ouvrir l'emplacement du dossier"
+    "revealInFolder": "Ouvrir l'emplacement du dossier",
+    "changeProjectIcon": "Changer l’icône",
+    "newAgentIn": "Nouvel agent dans {{projectName}}",
+    "projectIconDefault": "Dossier par défaut",
+    "projectIconDialogDescription": "Choisissez une icône pour « {{projectName}} », ou importez votre propre image.",
+    "projectIconDialogTitle": "Changer l’icône du projet",
+    "projectIconReplace": "Remplacer l’image",
+    "projectIconReset": "Rétablir la valeur par défaut",
+    "projectIconSearch": "Rechercher des icônes",
+    "projectIconUpload": "Importer une image",
+    "taskBoardLabel": "Tableau des tâches"
   },
   "sidebar_toast": {
     "sessionDeleted": "Session supprimée",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Session rebaptisée intelligemment",
     "dropNotFolder": "Veuillez déposer un dossier, pas un fichier",
     "projectsCreatedCount": "{{count}} projets créés",
-    "revealFailed": "Impossible d'ouvrir l'emplacement"
+    "revealFailed": "Impossible d'ouvrir l'emplacement",
+    "projectIconInvalidType": "Veuillez sélectionner un fichier image",
+    "projectIconTooLarge": "L’icône doit faire moins de 1 Mo",
+    "projectIconUploadFailed": "Impossible de lire l’icône sélectionnée"
   },
   "topbar": {
     "togglePanel": "Basculer le panneau",
@@ -198,11 +211,15 @@
     "builtinSearch": "Recherche web intégrée",
     "builtinSearchOff": "Désactivée",
     "longContext": "Contexte 1M",
-    "longContextOn": "Fenêtre 1M · tarifs long contexte au-delà de 272K",
-    "longContextOff": "272K par défaut · rester au tarif court",
+    "longContextOn": "Fenêtre 1M · fenêtre native long contexte",
+    "longContextOff": "360K par défaut · fenêtre standard",
     "builtinSearchOn": "Recherche native du fournisseur activée",
     "faster": "Plus rapide",
-    "smarter": "Plus intelligent"
+    "smarter": "Plus intelligent",
+    "computerUse": "Contrôle de l’ordinateur",
+    "contextLength": "Longueur de contexte",
+    "imageGeneration": "Génération d’image",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Environnement",
@@ -692,7 +709,8 @@
     "translate": "Traduire",
     "ssh": "SSH",
     "settings": "Paramètres",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Tableau des tâches"
   },
   "resourcesPage": {
     "title": "Ressources",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Traduire en anglais",
     "assistantQuickTranslatePrompt": "Traduisez le texte de contexte en une invite de génération d'image en anglais naturel. Ne produisez que le résultat.",
     "assistantStop": "Arrêter",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "addImageGeneration": "Ajouter une génération d’image",
+    "addTextGeneration": "Ajouter une génération de texte",
+    "addVideoGeneration": "Ajouter une génération vidéo",
+    "assistantActCancel": "Génération annulée",
+    "assistantActCanvas": "Canevas mis à jour",
+    "assistantActCreateNode": "Nœud créé",
+    "assistantActCreateTrigger": "Déclencheur créé",
+    "assistantActDeleteNodes": "Nœuds supprimés",
+    "assistantActDeleteTrigger": "Déclencheur supprimé",
+    "assistantActDisconnect": "Nœuds déconnectés",
+    "assistantActDuplicateNodes": "Nœuds dupliqués",
+    "assistantActEdit": "Image modifiée",
+    "assistantActGenerateVideo": "Génération vidéo lancée",
+    "assistantActMedia": "Média traité",
+    "assistantActMove": "Nœuds déplacés",
+    "assistantActResize": "Nœud redimensionné",
+    "assistantActRetry": "Nœud relancé",
+    "assistantActRun": "Nœud exécuté",
+    "assistantActSelect": "Sélection mise à jour",
+    "assistantActStatus": "État du nœud vérifié",
+    "assistantActSubscribe": "Nœud abonné",
+    "assistantActUpdateNode": "Nœud mis à jour",
+    "assistantActWait": "Attente du nœud",
+    "assistantApprove": "Approuver",
+    "assistantAttachImage": "Joindre une image",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Annuler l’exécution en cours du nœud {{nodeId}}. Le fournisseur peut tout de même facturer le travail déjà envoyé.",
+        "title": "Annuler la génération ?"
+      },
+      "clear_canvas": {
+        "description": "Retirer tous les nœuds, connexions et déclencheurs de ce canevas.",
+        "title": "Vider le canevas ?"
+      },
+      "delete_nodes": {
+        "description": "Supprimer {{count}} nœud(s) et leurs connexions.",
+        "title": "Supprimer les nœuds ?"
+      },
+      "delete_project": {
+        "description": "Supprimer le canevas sélectionné et son graphe enregistré. L’espace de travail Agent sera déplacé vers la corbeille du système.",
+        "title": "Supprimer le projet de canevas ?"
+      },
+      "replace_canvas": {
+        "description": "L’importation de ce JSON remplacera le contenu actuel du canevas.",
+        "title": "Remplacer le canevas ?"
+      },
+      "tool": {
+        "description": "Vérifiez cette opération d’outil avant de l’autoriser.\n{{input}}",
+        "title": "Autoriser {{toolName}} ?"
+      }
+    },
+    "assistantDeleteMessage": "Supprimer le message",
+    "assistantElapsed": "Attente de {{seconds}} s",
+    "assistantExecuting": "Exécution d’une action sur le canevas",
+    "assistantExecutingTool": "Exécution de {{tool}}",
+    "assistantImageInvalid": "Certaines images ne sont pas prises en charge ou dépassent 20 Mo",
+    "assistantImagesAttached": "{{count}} image(s)",
+    "assistantListening": "Écoute des événements de nœud",
+    "assistantListeningHint": "L’assistant poursuivra automatiquement lorsque le nœud sera terminé.",
+    "assistantPinSelection": "Épingler la sélection ({{count}})",
+    "assistantRegenerate": "Régénérer",
+    "assistantReject": "Refuser",
+    "assistantReplayMissingContext": "Une partie du contexte d’origine du canevas n’est plus disponible et a été ignorée.",
+    "assistantRewrite": "Modifier et régénérer",
+    "assistantSideEffectsTitle": "Les effets de bord des outils resteront",
+    "assistantSideEffectsWarning": "Cette conversation contient des actions d’outils. Modifier ou supprimer des messages n’annulera pas les effets sur le canevas, les fichiers, le Shell ou MCP. Continuer ?",
+    "assistantThought": "Réflexion",
+    "assistantVisionRequired": "Choisissez un modèle compatible vision pour envoyer des images",
+    "cameraFixed": "Caméra fixe",
+    "copyError": "Copier l’erreur",
+    "deleteProject": "Supprimer le canevas",
+    "deleteProjectConfirm": "Supprimer « {{name}} » ? L’espace de travail Agent sera déplacé vers la corbeille du système.",
+    "errorCopied": "Erreur copiée",
+    "errorDetails": "Détails de l’erreur",
+    "errorDetailsHint": "Consultez la réponse complète du fournisseur ou copiez-la pour le dépannage.",
+    "frameRole": "Images",
+    "frameRoleAuto": "Référence",
+    "frameRoleFirstLast": "Première → Dernière",
+    "frameRoleHint": "L’ordre des images suit l’ordre des connexions.",
+    "generateAudio": "Audio",
+    "imageSize": "Taille de l’image",
+    "nodeImageGeneration": "Génération d’image",
+    "nodeTextGeneration": "Génération de texte",
+    "nodeTriggers": "Déclencheurs d’événements de nœud",
+    "nodeTriggersDesc": "Exécuter un autre nœud lorsque l’état d’exécution de celui-ci change.",
+    "nodeVideoGeneration": "Génération vidéo",
+    "seed": "Graine",
+    "soraReferenceExactSize": "Image de référence : {{size}}. Sora exige une taille exactement identique.",
+    "soraReferenceUnsupportedSize": "L’image de référence {{size}} ne correspond à aucune taille Sora prise en charge. Redimensionnez-la ou recadrez-la d’abord.",
+    "soraSingleReference": "Sora n’accepte qu’une seule image de référence. Seule la première image connectée sera envoyée.",
+    "triggerAdd": "Ajouter",
+    "triggerCycle": "Ce déclencheur créerait une boucle",
+    "triggerDuplicate": "Ce déclencheur existe déjà",
+    "triggerEmpty": "Aucun déclencheur pour ce nœud",
+    "triggerEvents": {
+      "cancelled": "Exécution annulée",
+      "failed": "Exécution échouée",
+      "interrupted": "Exécution interrompue",
+      "progress": "Progression mise à jour",
+      "queued": "Exécution en file",
+      "started": "Exécution démarrée",
+      "succeeded": "Exécution réussie",
+      "updated": "Nœud mis à jour"
+    },
+    "triggerLastRun": "Dernière exécution",
+    "triggerStatuses": {
+      "cancelled": "Annulé",
+      "failed": "Échoué",
+      "idle": "Inactif",
+      "interrupted": "Interrompu",
+      "queued": "En file",
+      "running": "En cours",
+      "succeeded": "Réussi"
+    },
+    "triggerSubscriptions": "{{count}} abonnement(s) actif(s)",
+    "triggerTarget": "Choisir le nœud cible",
+    "watermark": "Filigrane"
   },
   "translatePage": {
     "title": "Traduire",
@@ -1265,7 +1400,10 @@
       "description": "Par défaut, seul codegraph_explore est exposé aux agents. Activez pour également enregistrer search, node, callers, callees, impact, files et status (la surface reste adaptée à la taille du projet).",
       "title": "Surface d'outils complète pour l'agent"
     },
-    "unknownRoot": "Projet inconnu ({{hash}})"
+    "unknownRoot": "Projet inconnu ({{hash}})",
+    "coreLibraryMissing": "La bibliothèque d’exécution tree-sitter est absente ou invalide. Réinstallez ou mettez à jour OpenCowork.",
+    "languageGrammarsMissing": "Aucune grammaire de langage CodeGraph valide n’a été trouvée. Réinstallez ou mettez à jour OpenCowork.",
+    "workerMissing": "Le worker CodeGraph est introuvable. Réinstallez ou mettez à jour OpenCowork."
   },
   "committed": "Validé",
   "files": "Explorateur",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Contrôle des sources",
   "scmUndo": "Annuler",
   "scmUnstage": "Désindexer",
-  "scmUnstageAll": "Tout désindexer"
+  "scmUnstageAll": "Tout désindexer",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "MÉM",
+    "memoryDetail": "Mémoire {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, mémoire {{memory}}"
+  }
 }

@@ -40,6 +40,7 @@ interface UseMessageListViewportArgs {
   hasNewer: boolean
   rows: ViewportRow[]
   lastUserMessageId: string | null
+  lastUserMessageIsQuoted?: boolean
   messageLookupHas: (id: string) => boolean
   streamingMessageId: string | null
   isSessionOutputting: boolean
@@ -62,6 +63,7 @@ export function useMessageListViewport({
   hasNewer,
   rows,
   lastUserMessageId,
+  lastUserMessageIsQuoted = false,
   messageLookupHas,
   streamingMessageId,
   isSessionOutputting,
@@ -92,6 +94,7 @@ export function useMessageListViewport({
   const loadedRangeStartRef = React.useRef(loadedRangeStart)
   loadedRangeStartRef.current = loadedRangeStart
   const lastPinnedUserMessageIdRef = React.useRef<string | null | undefined>(undefined)
+  const handledTranscriptRevealNonceRef = React.useRef(0)
   const wasOutputtingRef = React.useRef(isSessionOutputting)
   const isLoadingOlderRef = React.useRef(false)
   const loadOlderRef = React.useRef<(intent?: OlderLoadIntent) => Promise<number>>(async () => 0)
@@ -102,6 +105,7 @@ export function useMessageListViewport({
   const initialStartedAtRef = React.useRef<number | null>(null)
   const fillPagesRef = React.useRef(0)
 
+  const transcriptReveal = useChatStore((state) => state.transcriptReveal)
   const [phase, setPhase] = React.useState<MessageWindowPhase>(sessionId ? 'loading' : 'ready')
   const [isFollowing, setIsFollowing] = React.useState(true)
   const [turnSpacerHeight, setTurnSpacerHeight] = React.useState(0)
@@ -598,6 +602,7 @@ export function useMessageListViewport({
     isLoadingOlderRef.current = false
     setIsLoadingOlder(false)
     lastPinnedUserMessageIdRef.current = undefined
+    handledTranscriptRevealNonceRef.current = 0
     setTurnSpacerHeight(0)
     initialStableFramesRef.current = 0
     initialLastHeightRef.current = null
@@ -654,7 +659,10 @@ export function useMessageListViewport({
     const previousId = lastPinnedUserMessageIdRef.current
     lastPinnedUserMessageIdRef.current = lastUserMessageId
     if (!lastUserMessageId) return
-    if (modeRef.current === 'browsing' || restoringRef.current) return
+    if (restoringRef.current) return
+    // Quoted inserts happen while the user is often browsing the live run.
+    // Reveal that bubble immediately instead of waiting for a session reload.
+    if (modeRef.current === 'browsing' && !lastUserMessageIsQuoted) return
     if (previousId && !messageLookupHas(previousId)) return
     setMode('following')
     syncTurnSpacer()
@@ -662,12 +670,52 @@ export function useMessageListViewport({
     requestPinBottom({ force: true, maxFrames: VIEWPORT.followSettleFrames })
   }, [
     lastUserMessageId,
+    lastUserMessageIsQuoted,
     messageLookupHas,
     phase,
     pinBottom,
     requestPinBottom,
     setMode,
     syncTurnSpacer
+  ])
+
+  React.useLayoutEffect(() => {
+    if (!sessionId || !transcriptReveal) return
+    if (transcriptReveal.sessionId !== sessionId) return
+    if (handledTranscriptRevealNonceRef.current === transcriptReveal.nonce) return
+    if (phase !== 'ready' && phase !== 'positioning') return
+    const revealMessageId = transcriptReveal.messageId
+    if (!messageLookupHas(revealMessageId) && !rows.some((row) => row.key === revealMessageId)) {
+      return
+    }
+
+    handledTranscriptRevealNonceRef.current = transcriptReveal.nonce
+    restoringRef.current = false
+    userIntentUntilRef.current = 0
+    setMode('following')
+    syncTurnSpacer()
+    if (hasNewer) {
+      void useChatStore
+        .getState()
+        .ensureSessionWindow(sessionId, true)
+        .finally(() => {
+          requestPinBottom({ force: true, maxFrames: VIEWPORT.followPinFrames })
+        })
+      return
+    }
+    pinBottom()
+    requestPinBottom({ force: true, maxFrames: VIEWPORT.followPinFrames })
+  }, [
+    hasNewer,
+    messageLookupHas,
+    phase,
+    pinBottom,
+    requestPinBottom,
+    rows,
+    sessionId,
+    setMode,
+    syncTurnSpacer,
+    transcriptReveal
   ])
 
   React.useLayoutEffect(() => {

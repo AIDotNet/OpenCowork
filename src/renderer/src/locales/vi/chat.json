@@ -144,7 +144,11 @@
       "tpsHint": "Số token đầu ra được tạo mỗi giây sau token đầu tiên. Được tính khi mỗi yêu cầu API kết thúc.",
       "ttft": "TTFT",
       "ttftFull": "Thời gian tới token đầu tiên",
-      "ttftHint": "Thời gian từ lúc gửi request đến khi nhận token stream đầu tiên. TTFT càng thấp thì mô hình bắt đầu phản hồi càng sớm."
+      "ttftHint": "Thời gian từ lúc gửi request đến khi nhận token stream đầu tiên. TTFT càng thấp thì mô hình bắt đầu phản hồi càng sớm.",
+      "cacheCreateShort": "Ghi",
+      "cacheHitShort": "Cache",
+      "inputShort": "Vào",
+      "outputShort": "Ra"
     },
     "runtimeStatus": {
       "awaitingApproval": "Đang chờ phê duyệt: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "Đang chạy {{tool}}",
       "thinking": "Đang suy nghĩ",
       "waiting": "Đang chờ"
-    }
+    },
+    "contextCompressionFallback": "Không có tóm tắt; đã xóa ngữ cảnh cũ",
+    "fileReference": {
+      "remove": "Gỡ tham chiếu",
+      "removePlugin": "Gỡ tham chiếu plugin"
+    },
+    "initBannerAction": "Chạy /init",
+    "initBannerDismiss": "Đóng",
+    "initBannerText": "Thư mục hiện tại chưa có AGENTS.md. Khởi tạo ngữ cảnh workspace để agent hoạt động tốt hơn."
   },
   "planReview": {
     "awaitingReview": "Chờ đợi ôn lại",
@@ -177,7 +189,13 @@
     "approvedHint": "Kế hoạch này đã được phê chuẩn.",
     "copy": "Sao chép kế hoạch",
     "download": "Tải kế hoạch xuống",
-    "expand": "Mở rộng trong bảng bên"
+    "expand": "Mở rộng trong bảng bên",
+    "rejectedHint": "Đã yêu cầu chỉnh sửa. Agent đang viết lại kế hoạch này.",
+    "requestRevision": "Yêu cầu chỉnh sửa",
+    "revisionDesc": "Mô tả những gì cần đổi. Agent sẽ quay lại chế độ kế hoạch và viết lại kế hoạch.",
+    "revisionPlaceholder": "Ví dụ: tách bước 3 thành migration và rollout.",
+    "revisionSubmit": "Gửi yêu cầu chỉnh sửa",
+    "revisionTitle": "Yêu cầu chỉnh sửa kế hoạch"
   },
   "guide": {
     "title": "Hướng dẫn trò chuyện",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "Phiên chạy nền",
     "backgroundInboxTitle": "Cần nhập",
     "backgroundInboxDescription": "{{title}} đang chờ sự lựa chọn của bạn",
-    "backgroundToast": "Phiên chạy nền đang chờ bạn chọn"
+    "backgroundToast": "Phiên chạy nền đang chờ bạn chọn",
+    "previewEmpty": "Di chuột hoặc chọn một tùy chọn để xem trước."
   },
   "goal": {
     "title": "Vào",
@@ -824,10 +843,47 @@
       "summaryLabel": "Nhảy đến bản tóm tắt lịch sử đã nén {{index}}: {{preview}}",
       "summaryPreview": "Bản tóm tắt lịch sử đã nén",
       "toolOnlyPreview": "{{count}} lệnh gọi công cụ",
-      "userLabel": "Nhảy đến tin nhắn người dùng {{index}}: {{preview}}"
+      "userLabel": "Nhảy đến tin nhắn người dùng {{index}}: {{preview}}",
+      "navigation": "Điều hướng hội thoại"
     },
     "pendingRetryTitle": "Đang kết nối lại với mô hình",
-    "pendingTeamTitle": "Đang điều phối đồng đội"
+    "pendingTeamTitle": "Đang điều phối đồng đội",
+    "homeCopy": {
+      "chat": [
+        [
+          "Nói câu bạn thực sự đang nghĩ",
+          "Câu hỏi chưa trọn vẫn là câu hỏi",
+          "Tôi có thể giúp bạn hỏi nốt"
+        ],
+        [
+          "Không cần nghe giống một ticket",
+          "Bản nháp lộn xộn cũng đủ để bắt đầu",
+          "Cứ thả vào đây"
+        ],
+        [
+          "Không cần mở đầu thông minh",
+          "Một điều bạn thực sự muốn hiểu là đủ",
+          "Phần còn lại mình bổ sung dần"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} vẫn còn đây",
+          "Vấn đề cũng vậy",
+          "Một câu cụ thể hơn một ô trống"
+        ],
+        [
+          "Đừng cố kết thúc tất cả trong một lần",
+          "Mảnh nhỏ nhất thường mới là mảnh thật",
+          "Bạn bắt đầu, tôi sẽ theo"
+        ],
+        [
+          "Repo im ắng chưa chắc đã khỏe",
+          "Hôm nay chỉ cần sửa thứ đang làm bạn bứt rứt",
+          "Bắt đầu ở bên dưới"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "Chưa chọn dự án",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} công cụ",
     "extensionToolCount_one": "{{count}} công cụ",
     "extensionToolCount_other": "{{count}} công cụ",
-    "noCustomExtensions": "Chưa bật tiện ích mở rộng tuỳ chỉnh nào"
+    "noCustomExtensions": "Chưa bật tiện ích mở rộng tuỳ chỉnh nào",
+    "activeBadge": "Đang dùng",
+    "addActionsWithCount": "Thêm thao tác ({{count}})",
+    "addLabel": "Thêm",
+    "attachMediaDescription": "Thêm ảnh, tệp hoặc thư mục",
+    "attachMediaMenu": "Tệp và thư mục",
+    "channelsDescription": "Gửi tin này tới các kênh đã kết nối",
+    "commandDescription": "Dùng lệnh này trong tin nhắn tiếp theo",
+    "commandsDescription": "Chạy mẫu lệnh đã lưu",
+    "extensionsDescription": "Bật công cụ tùy chỉnh cho dự án này",
+    "goalModeDescription": "Giữ một mục tiêu trong suốt hội thoại",
+    "mcpDescription": "Kết nối công cụ ngoài với hội thoại này",
+    "mcpServerDescription": "Máy chủ MCP đã kết nối",
+    "planModeDescription": "Bật chế độ kế hoạch",
+    "skillDescription": "Thêm kỹ năng này vào tin nhắn",
+    "toolsAndIntegrations": "Công cụ và tích hợp"
   },
   "userMessage": {
     "you": "Ngươi",
@@ -1028,7 +1099,9 @@
       "copied": "Sao chép",
       "descRuntimeUnavailable": "OpenCowork không thể kết nối tới Native Worker cục bộ. Hệ thống đã thử khởi động lại; hãy gửi lại tin nhắn, hoặc build lại native worker nếu tình trạng này lặp lại.",
       "sidecarUnavailableMessage": "Runtime đặc vụ cục bộ tạm thời không khả dụng. OpenCowork đã thử khởi động lại; hãy gửi lại tin nhắn này. Nếu tình trạng này lặp lại trong quá trình phát triển, hãy chạy `npm run native:publish` rồi khởi động lại OpenCowork.",
-      "titleRuntimeUnavailable": "Runtime cục bộ không khả dụng"
+      "titleRuntimeUnavailable": "Runtime cục bộ không khả dụng",
+      "descRuntimeFatal": "Native Worker cục bộ không tự phục hồi được (nhị phân cũ hoặc không tương thích). Xây lại bằng `npm run native:publish` (phát triển) hoặc cài lại OpenCowork rồi khởi động lại ứng dụng.",
+      "titleRuntimeFatal": "Runtime cục bộ cần sửa"
     },
     "processTools": "Lệnh gọi công cụ",
     "activeTools": "{{count}} công cụ đang hoạt động",
@@ -1049,7 +1122,8 @@
     "totalUsage": "Tổng mức dùng",
     "tpsHint": "Số token đầu ra được tạo mỗi giây",
     "ttftHint": "Thời gian tới token đầu tiên",
-    "uncachedInput": "Đầu vào không cache"
+    "uncachedInput": "Đầu vào không cache",
+    "processSummary": "Đã xử lý"
   },
   "messageActions": {
     "fork": "Fork",

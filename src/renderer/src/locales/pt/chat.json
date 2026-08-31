@@ -144,7 +144,11 @@
       "tpsHint": "Tokens de saída gerados por segundo após a chegada do primeiro token. Calculado quando cada pedido de API é concluído.",
       "ttft": "TTFT",
       "ttftFull": "Tempo até ao primeiro token",
-      "ttftHint": "Tempo desde o envio do pedido até receber o primeiro token em streaming. Um TTFT mais baixo significa que o modelo começou a responder mais cedo."
+      "ttftHint": "Tempo desde o envio do pedido até receber o primeiro token em streaming. Um TTFT mais baixo significa que o modelo começou a responder mais cedo.",
+      "cacheCreateShort": "Escrita",
+      "cacheHitShort": "Cache",
+      "inputShort": "Ent",
+      "outputShort": "Saí"
     },
     "runtimeStatus": {
       "awaitingApproval": "A aguardar aprovação: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "A executar {{tool}}",
       "thinking": "A pensar",
       "waiting": "Em espera"
-    }
+    },
+    "contextCompressionFallback": "Resumo indisponível; contexto antigo removido",
+    "fileReference": {
+      "remove": "Remover referência",
+      "removePlugin": "Remover referência do plugin"
+    },
+    "initBannerAction": "Executar /init",
+    "initBannerDismiss": "Fechar",
+    "initBannerText": "Não há AGENTS.md na pasta atual. Inicialize o contexto do espaço de trabalho para melhorar o desempenho do agente."
   },
   "planReview": {
     "awaitingReview": "Aguardando revisão",
@@ -177,7 +189,13 @@
     "approvedHint": "Este plano já foi aprovado.",
     "copy": "Copiar plano",
     "download": "Transferir plano",
-    "expand": "Expandir no painel lateral"
+    "expand": "Expandir no painel lateral",
+    "rejectedHint": "Revisão pedida. O agente está a refazer este plano.",
+    "requestRevision": "Pedir revisão",
+    "revisionDesc": "Descreva o que deve mudar. O agente volta ao modo plano e reescreve o plano.",
+    "revisionPlaceholder": "Por exemplo: dividir o passo 3 em migração e lançamento.",
+    "revisionSubmit": "Enviar pedido de revisão",
+    "revisionTitle": "Pedir revisão do plano"
   },
   "guide": {
     "title": "Guia de conversa",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "Sessão de fundo",
     "backgroundInboxTitle": "Entrada necessária",
     "backgroundInboxDescription": "{{title}} está esperando por sua escolha",
-    "backgroundToast": "A sessão de fundo está à espera da sua escolha"
+    "backgroundToast": "A sessão de fundo está à espera da sua escolha",
+    "previewEmpty": "Passe o rato ou selecione uma opção para ver a pré-visualização."
   },
   "goal": {
     "title": "Objetivo",
@@ -824,10 +843,47 @@
       "summaryLabel": "Ir para o resumo do histórico comprimido {{index}}: {{preview}}",
       "summaryPreview": "Resumo do histórico comprimido",
       "toolOnlyPreview": "{{count}} chamadas de ferramentas",
-      "userLabel": "Ir para a mensagem do utilizador {{index}}: {{preview}}"
+      "userLabel": "Ir para a mensagem do utilizador {{index}}: {{preview}}",
+      "navigation": "Navegação da conversa"
     },
     "pendingRetryTitle": "A reconectar ao modelo",
-    "pendingTeamTitle": "A coordenar os colegas de equipa"
+    "pendingTeamTitle": "A coordenar os colegas de equipa",
+    "homeCopy": {
+      "chat": [
+        [
+          "Diga a frase que você realmente tem",
+          "Perguntas incompletas ainda são perguntas",
+          "Posso ajudar a terminá-las"
+        ],
+        [
+          "Não precisa soar como um ticket",
+          "Um rascunho bagunçado já basta para começar",
+          "Jogue aqui"
+        ],
+        [
+          "Você não precisa de uma abertura esperta",
+          "Uma coisa que você realmente quer entender já basta",
+          "O resto a gente preenche no caminho"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} ainda está aqui",
+          "O problema também",
+          "Uma frase específica vale mais que um campo vazio"
+        ],
+        [
+          "Não tente terminar tudo de uma vez",
+          "O menor recorte costuma ser o verdadeiro",
+          "Você começa, eu acompanho"
+        ],
+        [
+          "Um repositório silencioso não é um repositório saudável",
+          "Hoje você pode corrigir só o que está te incomodando",
+          "Comece abaixo"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "Nenhum projeto selecionado",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} ferramentas",
     "extensionToolCount_one": "{{count}} ferramenta",
     "extensionToolCount_other": "{{count}} ferramentas",
-    "noCustomExtensions": "Nenhuma extensão personalizada ativada"
+    "noCustomExtensions": "Nenhuma extensão personalizada ativada",
+    "activeBadge": "Ativo",
+    "addActionsWithCount": "Adicionar ações ({{count}})",
+    "addLabel": "Adicionar",
+    "attachMediaDescription": "Adicionar imagens, ficheiros ou pastas",
+    "attachMediaMenu": "Ficheiros e pastas",
+    "channelsDescription": "Enviar esta mensagem para canais ligados",
+    "commandDescription": "Usar este comando na próxima mensagem",
+    "commandsDescription": "Executar um modelo de comando guardado",
+    "extensionsDescription": "Ativar ferramentas personalizadas neste projeto",
+    "goalModeDescription": "Manter um objetivo ativo ao longo da conversa",
+    "mcpDescription": "Ligar ferramentas externas a esta conversa",
+    "mcpServerDescription": "Servidor MCP ligado",
+    "planModeDescription": "Ativar o modo plano",
+    "skillDescription": "Adicionar esta skill à mensagem",
+    "toolsAndIntegrations": "Ferramentas e integrações"
   },
   "userMessage": {
     "you": "Você",
@@ -1028,7 +1099,9 @@
       "copied": "Copiado",
       "descRuntimeUnavailable": "O OpenCowork não conseguiu contactar o Native Worker local. Já tentou reiniciá-lo; tente novamente a mensagem ou reconstrua o native worker se isto se repetir.",
       "sidecarUnavailableMessage": "O runtime local do agente está temporariamente indisponível. O OpenCowork tentou reiniciá-lo; tente novamente esta mensagem. Se isto continuar a acontecer em desenvolvimento, execute `npm run native:publish` e reinicie o OpenCowork.",
-      "titleRuntimeUnavailable": "Runtime local indisponível"
+      "titleRuntimeUnavailable": "Runtime local indisponível",
+      "descRuntimeFatal": "O Native Worker local não consegue recuperar sozinho (binário desatualizado ou incompatível). Reconstrua-o com `npm run native:publish` (desenvolvimento) ou reinstale o OpenCowork e reinicie a aplicação.",
+      "titleRuntimeFatal": "O runtime local precisa de reparação"
     },
     "processTools": "Chamadas de ferramentas",
     "activeTools": "{{count}} ferramentas ativas",
@@ -1049,7 +1122,8 @@
     "totalUsage": "Utilização total",
     "tpsHint": "Tokens de saída gerados por segundo",
     "ttftHint": "Tempo até ao primeiro token",
-    "uncachedInput": "Entrada sem cache"
+    "uncachedInput": "Entrada sem cache",
+    "processSummary": "Processado"
   },
   "messageActions": {
     "fork": "Garfo",

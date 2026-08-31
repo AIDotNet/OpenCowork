@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Riepilogo",
+    "kanban": "Bacheca",
+    "list": "Elenco",
+    "gantt": "Cronologia"
+  },
+  "columns": {
+    "pending": "Da fare",
+    "in_progress": "In corso",
+    "blocked": "Bloccato",
+    "in_review": "Da rivedere",
+    "completed": "Completato"
+  },
+  "filters": {
+    "searchPlaceholder": "Cerca attività…",
+    "allSessions": "Tutte le sessioni",
+    "allPriorities": "Tutte le priorità",
+    "refresh": "Aggiorna"
+  },
+  "priority": {
+    "urgent": "Urgente",
+    "high": "Alta",
+    "medium": "Media",
+    "low": "Bassa",
+    "none": "Nessuna priorità"
+  },
+  "card": {
+    "blockedByCount": "{{count}} in blocco",
+    "due": "Scadenza {{date}}",
+    "running": "Agente in esecuzione"
+  },
+  "column": {
+    "empty": "Nessuna attività",
+    "confirmDone": "Conferma come completata"
+  },
+  "empty": {
+    "title": "Ancora nessuna attività",
+    "description": "Le attività create dagli agenti nelle sessioni compaiono qui. Chiedi a un agente di pianificare un lavoro complesso oppure crea attività in una sessione collaborativa."
+  },
+  "detail": {
+    "title": "Dettagli attività",
+    "subject": "Titolo",
+    "description": "Descrizione",
+    "descriptionPlaceholder": "Nessuna descrizione",
+    "status": "Stato",
+    "priority": "Priorità",
+    "tags": "Tag",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Data di scadenza",
+    "noDue": "Nessuna scadenza",
+    "clearDue": "Cancella",
+    "session": "Sessione",
+    "sessionLoadFailed": "Impossibile trovare quella sessione",
+    "openSession": "Lavoraci in sessione",
+    "dependencies": "Dipendenze",
+    "blocks": "Blocca",
+    "blockedBy": "Bloccata da",
+    "createdAt": "Creata",
+    "updatedAt": "Aggiornata",
+    "delete": "Elimina attività",
+    "close": "Chiudi",
+    "dispatchMessage": "Continua a lavorare sull’attività: {{subject}}"
+  },
+  "list": {
+    "task": "Attività",
+    "session": "Sessione",
+    "priority": "Priorità",
+    "tags": "Tag",
+    "updated": "Aggiornata",
+    "showCompleted": "Mostra completate"
+  },
+  "gantt": {
+    "noDated": "Nessuna attività in questo intervallo",
+    "today": "Oggi"
+  },
+  "dashboard": {
+    "total": "Attività totali",
+    "activeSessions": "Sessioni con attività",
+    "blockedTasks": "Attività bloccate",
+    "completionRate": "Tasso di completamento",
+    "byStatus": "Distribuzione per stato",
+    "trend": "Ultimi 14 giorni",
+    "trendCreated": "Create",
+    "trendCompleted": "Completate",
+    "blockedList": "Attualmente bloccate",
+    "noBlocked": "Niente è bloccato",
+    "recentSessions": "Sessioni"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "لوحة المعلومات",
+    "kanban": "اللوحة",
+    "list": "القائمة",
+    "gantt": "الجدول الزمني"
+  },
+  "columns": {
+    "pending": "للتنفيذ",
+    "in_progress": "قيد التنفيذ",
+    "blocked": "محظور",
+    "in_review": "بانتظار المراجعة",
+    "completed": "مكتمل"
+  },
+  "filters": {
+    "searchPlaceholder": "البحث في المهام…",
+    "allSessions": "كل الجلسات",
+    "allPriorities": "كل الأولويات",
+    "refresh": "تحديث"
+  },
+  "priority": {
+    "urgent": "عاجل",
+    "high": "مرتفع",
+    "medium": "متوسط",
+    "low": "منخفض",
+    "none": "بدون أولوية"
+  },
+  "card": {
+    "blockedByCount": "{{count}} حاجز",
+    "due": "الاستحقاق {{date}}",
+    "running": "الوكيل يعمل"
+  },
+  "column": {
+    "empty": "لا توجد مهام",
+    "confirmDone": "تأكيد الاكتمال"
+  },
+  "empty": {
+    "title": "لا توجد مهام بعد",
+    "description": "ستظهر هنا المهام التي ينشئها الوكلاء عبر الجلسات. اطلب من وكيل تخطيط عمل معقّد، أو أنشئ مهامًا في جلسة تعاون."
+  },
+  "detail": {
+    "title": "تفاصيل المهمة",
+    "subject": "العنوان",
+    "description": "الوصف",
+    "descriptionPlaceholder": "لا يوجد وصف",
+    "status": "الحالة",
+    "priority": "الأولوية",
+    "tags": "الوسوم",
+    "tagsPlaceholder": "وسم1، وسم2",
+    "dueAt": "تاريخ الاستحقاق",
+    "noDue": "بدون تاريخ استحقاق",
+    "clearDue": "مسح",
+    "session": "الجلسة",
+    "sessionLoadFailed": "تعذّر العثور على تلك الجلسة",
+    "openSession": "متابعة العمل في الجلسة",
+    "dependencies": "الاعتماديات",
+    "blocks": "يحظر",
+    "blockedBy": "محظورة بسبب",
+    "createdAt": "تاريخ الإنشاء",
+    "updatedAt": "تاريخ التحديث",
+    "delete": "حذف المهمة",
+    "close": "إغلاق",
+    "dispatchMessage": "يرجى متابعة العمل على المهمة: {{subject}}"
+  },
+  "list": {
+    "task": "المهمة",
+    "session": "الجلسة",
+    "priority": "الأولوية",
+    "tags": "الوسوم",
+    "updated": "محدَّثة",
+    "showCompleted": "إظهار المكتملة"
+  },
+  "gantt": {
+    "noDated": "لا توجد مهام في هذا النطاق",
+    "today": "اليوم"
+  },
+  "dashboard": {
+    "total": "إجمالي المهام",
+    "activeSessions": "جلسات فيها مهام",
+    "blockedTasks": "مهام محظورة",
+    "completionRate": "معدل الإنجاز",
+    "byStatus": "التوزيع حسب الحالة",
+    "trend": "آخر 14 يومًا",
+    "trendCreated": "أُنشئت",
+    "trendCompleted": "اكتملت",
+    "blockedList": "محظورة حاليًا",
+    "noBlocked": "لا يوجد شيء محظور",
+    "recentSessions": "الجلسات"
+  }
+}

@@ -621,13 +621,13 @@ export interface AIModelConfig {
   contextLength?: number
   /** Allow context compression to use the model's full configured context length when it exceeds 200K */
   enableExtendedContextCompression?: boolean
-  /** GPT models: physical 1M window used when `enableLongContext` is on. */
+  /** 1M-capable models: physical 1M+ window used when `enableLongContext` is on. */
   longContextLength?: number
-  /** GPT models: whether this model supports the 272K / 1M context split. */
+  /** 1M-capable models: whether this model supports the 360K / 1M context split. */
   supportsLongContext?: boolean
   /**
-   * GPT models: use the 1M long-context window. Off by default so sessions stay
-   * in the 272K short-context pricing tier.
+   * 1M-capable models: use the native 1M+ long-context window. Off by default so
+   * sessions stay on the 360K standard window.
    */
   enableLongContext?: boolean
   maxOutputTokens?: number

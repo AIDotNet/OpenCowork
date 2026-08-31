@@ -111,7 +111,17 @@
     "projectSortName": "Alfabetik",
     "projectSortRecentlyUpdated": "Son güncellenen",
     "projectSortTitle": "Projeleri sırala: {{sort}}",
-    "revealInFolder": "Klasör konumunu aç"
+    "revealInFolder": "Klasör konumunu aç",
+    "changeProjectIcon": "Simgeyi değiştir",
+    "newAgentIn": "{{projectName}} içinde yeni Agent",
+    "projectIconDefault": "Varsayılan klasör",
+    "projectIconDialogDescription": "“{{projectName}}” için bir simge seçin veya kendi görüntünüzü yükleyin.",
+    "projectIconDialogTitle": "Proje simgesini değiştir",
+    "projectIconReplace": "Görüntüyü değiştir",
+    "projectIconReset": "Varsayılana sıfırla",
+    "projectIconSearch": "Simge ara",
+    "projectIconUpload": "Görüntü yükle",
+    "taskBoardLabel": "Görev panosu"
   },
   "sidebar_toast": {
     "sessionDeleted": "Oturum silindi",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Oturum akıllı bir şekilde değiştirildi",
     "dropNotFolder": "Lütfen dosya değil, klasör bırakın",
     "projectsCreatedCount": "{{count}} proje oluşturuldu",
-    "revealFailed": "Konum açılamadı"
+    "revealFailed": "Konum açılamadı",
+    "projectIconInvalidType": "Lütfen bir görüntü dosyası seçin",
+    "projectIconTooLarge": "Simge 1 MB’tan küçük olmalıdır",
+    "projectIconUploadFailed": "Seçilen simge okunamadı"
   },
   "topbar": {
     "togglePanel": "Toggle Panel",
@@ -198,11 +211,15 @@
     "builtinSearch": "Yerleşik web araması",
     "builtinSearchOff": "Kapalı",
     "longContext": "1M bağlam",
-    "longContextOn": "1M pencere · 272K üstü uzun bağlam ücreti",
-    "longContextOff": "Varsayılan 272K · kısa bağlam ücreti",
+    "longContextOn": "1M pencere · yerel uzun bağlam penceresi",
+    "longContextOff": "Varsayılan 360K · standart pencere",
     "builtinSearchOn": "Sağlayıcıya özgü arama açık",
     "faster": "Daha hızlı",
-    "smarter": "Daha akıllı"
+    "smarter": "Daha akıllı",
+    "computerUse": "Bilgisayar kullanımı",
+    "contextLength": "Bağlam uzunluğu",
+    "imageGeneration": "Görüntü üretimi",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Çevre",
@@ -692,7 +709,8 @@
     "translate": "çeviri çevirisi",
     "ssh": "SSH",
     "settings": "Ayarlar",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Görev panosu"
   },
   "resourcesPage": {
     "title": "Kaynaklar Kaynakları Kaynaklar",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "İngilizceye çevir",
     "assistantQuickTranslatePrompt": "Bağlam metnini doğal bir İngilizce görsel oluşturma istemine çevirin. Yalnızca sonucu çıktı olarak verin.",
     "assistantStop": "Durdur",
-    "retry": "Yeniden dene"
+    "retry": "Yeniden dene",
+    "addImageGeneration": "Görüntü üretimi ekle",
+    "addTextGeneration": "Metin üretimi ekle",
+    "addVideoGeneration": "Video üretimi ekle",
+    "assistantActCancel": "Üretim iptal edildi",
+    "assistantActCanvas": "Tuval güncellendi",
+    "assistantActCreateNode": "Düğüm oluşturuldu",
+    "assistantActCreateTrigger": "Tetikleyici oluşturuldu",
+    "assistantActDeleteNodes": "Düğümler silindi",
+    "assistantActDeleteTrigger": "Tetikleyici silindi",
+    "assistantActDisconnect": "Düğümlerin bağlantısı kesildi",
+    "assistantActDuplicateNodes": "Düğümler çoğaltıldı",
+    "assistantActEdit": "Görüntü düzenlendi",
+    "assistantActGenerateVideo": "Video üretimi başlatıldı",
+    "assistantActMedia": "Medya işlendi",
+    "assistantActMove": "Düğümler taşındı",
+    "assistantActResize": "Düğüm boyutu değiştirildi",
+    "assistantActRetry": "Düğüm yeniden denendi",
+    "assistantActRun": "Düğüm çalıştırıldı",
+    "assistantActSelect": "Seçim güncellendi",
+    "assistantActStatus": "Düğüm durumu kontrol edildi",
+    "assistantActSubscribe": "Düğüme abone olundu",
+    "assistantActUpdateNode": "Düğüm güncellendi",
+    "assistantActWait": "Düğüm beklendi",
+    "assistantApprove": "Onayla",
+    "assistantAttachImage": "Görüntü ekle",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "{{nodeId}} düğümünün aktif çalışmasını iptal et. Sağlayıcı, zaten gönderilen iş için yine de ücret alabilir.",
+        "title": "Üretim iptal edilsin mi?"
+      },
+      "clear_canvas": {
+        "description": "Bu tuvaldeki tüm düğümleri, bağlantıları ve tetikleyicileri kaldır.",
+        "title": "Tuval temizlensin mi?"
+      },
+      "delete_nodes": {
+        "description": "{{count}} düğümü ve bağlantılarını sil.",
+        "title": "Düğümler silinsin mi?"
+      },
+      "delete_project": {
+        "description": "Seçili tuvali ve kayıtlı grafını sil. Agent çalışma alanı sistem çöp kutusuna taşınır.",
+        "title": "Tuval projesi silinsin mi?"
+      },
+      "replace_canvas": {
+        "description": "Bu JSON’u içe aktarmak mevcut tuval içeriğinin yerini alır.",
+        "title": "Tuval değiştirilsin mi?"
+      },
+      "tool": {
+        "description": "Bu araç işlemini izin vermeden önce gözden geçirin.\n{{input}}",
+        "title": "{{toolName}} izin verilsin mi?"
+      }
+    },
+    "assistantDeleteMessage": "İletiyi sil",
+    "assistantElapsed": "{{seconds}} sn bekleniyor",
+    "assistantExecuting": "Tuval eylemi yürütülüyor",
+    "assistantExecutingTool": "{{tool}} yürütülüyor",
+    "assistantImageInvalid": "Bazı görüntüler desteklenmiyor veya 20 MB’tan büyük",
+    "assistantImagesAttached": "{{count}} görüntü",
+    "assistantListening": "Düğüm olayları dinleniyor",
+    "assistantListeningHint": "Düğüm bittiğinde asistan otomatik olarak devam eder.",
+    "assistantPinSelection": "Seçimi sabitle ({{count}})",
+    "assistantRegenerate": "Yeniden üret",
+    "assistantReject": "Reddet",
+    "assistantReplayMissingContext": "Orijinal tuval bağlamının bir kısmı artık yok; atlandı.",
+    "assistantRewrite": "Düzenle ve yeniden üret",
+    "assistantSideEffectsTitle": "Araç yan etkileri kalır",
+    "assistantSideEffectsWarning": "Bu konuşmada araç eylemleri var. İletileri düzenlemek veya silmek tuval, dosya, Shell veya MCP yan etkilerini geri almaz. Devam edilsin mi?",
+    "assistantThought": "Düşünce",
+    "assistantVisionRequired": "Görüntü göndermek için görüş destekli bir model seçin",
+    "cameraFixed": "Kamera sabit",
+    "copyError": "Hatayı kopyala",
+    "deleteProject": "Tuvali sil",
+    "deleteProjectConfirm": "“{{name}}” silinsin mi? Agent çalışma alanı sistem çöp kutusuna taşınır.",
+    "errorCopied": "Hata kopyalandı",
+    "errorDetails": "Hata ayrıntıları",
+    "errorDetailsHint": "Sağlayıcının tam yanıtını inceleyin veya sorun giderme için kopyalayın.",
+    "frameRole": "Kareler",
+    "frameRoleAuto": "Referans",
+    "frameRoleFirstLast": "İlk → Son",
+    "frameRoleHint": "Kare sırası bağlantı sırasını izler.",
+    "generateAudio": "Ses",
+    "imageSize": "Görüntü boyutu",
+    "nodeImageGeneration": "Görüntü üretimi",
+    "nodeTextGeneration": "Metin üretimi",
+    "nodeTriggers": "Düğüm olay tetikleyicileri",
+    "nodeTriggersDesc": "Bu düğümün çalışma durumu değişince başka bir düğümü çalıştır.",
+    "nodeVideoGeneration": "Video üretimi",
+    "seed": "Tohum",
+    "soraReferenceExactSize": "Referans görüntü: {{size}}. Sora tam boyut eşleşmesi ister.",
+    "soraReferenceUnsupportedSize": "Referans görüntü {{size}} desteklenen bir Sora boyutuyla eşleşmiyor. Önce yeniden boyutlandırın veya kırpın.",
+    "soraSingleReference": "Sora yalnızca bir girdi referansı kabul eder. Yalnızca ilk bağlı görüntü yüklenir.",
+    "triggerAdd": "Ekle",
+    "triggerCycle": "Bu tetikleyici bir döngü oluşturur",
+    "triggerDuplicate": "Bu tetikleyici zaten var",
+    "triggerEmpty": "Bu düğümde tetikleyici yok",
+    "triggerEvents": {
+      "cancelled": "Çalıştırma iptal edildi",
+      "failed": "Çalıştırma başarısız",
+      "interrupted": "Çalıştırma kesildi",
+      "progress": "İlerleme güncellendi",
+      "queued": "Çalıştırma kuyruğa alındı",
+      "started": "Çalıştırma başladı",
+      "succeeded": "Çalıştırma başarılı",
+      "updated": "Düğüm güncellendi"
+    },
+    "triggerLastRun": "Son çalıştırma",
+    "triggerStatuses": {
+      "cancelled": "İptal edildi",
+      "failed": "Başarısız",
+      "idle": "Boşta",
+      "interrupted": "Kesildi",
+      "queued": "Kuyrukta",
+      "running": "Çalışıyor",
+      "succeeded": "Başarılı"
+    },
+    "triggerSubscriptions": "{{count}} etkin abonelik",
+    "triggerTarget": "Hedef düğümü seç",
+    "watermark": "Filigran"
   },
   "translatePage": {
     "title": "AI Translate",
@@ -1265,7 +1400,10 @@
       "description": "Varsayılan olarak ajanlara yalnızca codegraph_explore sunulur. search, node, callers, callees, impact, files ve status araçlarını da kaydetmek için etkinleştirin (kapsam yine de proje boyutuna göre şekillenir).",
       "title": "Tam ajan araç kapsamı"
     },
-    "unknownRoot": "Bilinmeyen proje ({{hash}})"
+    "unknownRoot": "Bilinmeyen proje ({{hash}})",
+    "coreLibraryMissing": "tree-sitter çalışma zamanı kitaplığı eksik veya geçersiz. OpenCowork’u yeniden yükleyin veya güncelleyin.",
+    "languageGrammarsMissing": "Geçerli CodeGraph dil grameri bulunamadı. OpenCowork’u yeniden yükleyin veya güncelleyin.",
+    "workerMissing": "CodeGraph worker’ı eksik. OpenCowork’u yeniden yükleyin veya güncelleyin."
   },
   "committed": "Commit edildi",
   "files": "Gezgin",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Kaynak Kontrolü",
   "scmUndo": "Geri al",
   "scmUnstage": "Hazırlıktan çıkar",
-  "scmUnstageAll": "Tümünü hazırlıktan çıkar"
+  "scmUnstageAll": "Tümünü hazırlıktan çıkar",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "BEL",
+    "memoryDetail": "Bellek {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, bellek {{memory}}"
+  }
 }

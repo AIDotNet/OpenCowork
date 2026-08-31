@@ -163,7 +163,7 @@
     "systemProxyDesc": "Set the proxy URL used by the whole app process, for example http://127.0.0.1:7890 or http://host:port.",
     "toolbarCollapsedByDefault": "مخزن أدوات الإنهيار",
     "toolbarCollapsedByDefaultDesc": "خارجاً عن مساره، يبدأ ولاية \"أدابار\" الأيسر عندما يفتح التطبيق",
-    "chinese": "√",
+    "chinese": "中文",
     "english": "الإنكليزية",
     "systemPromptPlaceholder": "أضف تعليمات العرف",
     "teamTools": "فريق الأدوات",
@@ -204,7 +204,8 @@
       "installing": "جار تحضير التحديث…",
       "greenBuild": "نسخة بدون تثبيت",
       "manualDownloadHint": "يتوفر إصدار أحدث (v{{version}}). بالنسبة للنسخة غير القابلة للتثبيت، نزّله يدويًا، وأغلق التطبيق، واستبدل المجلد الحالي.",
-      "openDownloadPage": "فتح صفحة التنزيل"
+      "openDownloadPage": "فتح صفحة التنزيل",
+      "compatBuild": "بناء التوافق"
     },
     "projectDefaultDirectory": {
       "title": "دليل المشروع الافتراضي",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "الواجهة",
       "editor": "المحرر"
-    }
+    },
+    "autoUpdateCompatDesc": "بناء التوافق (معالجات قديمة بلا SSE4.2) لا يستخدم قناة التحديث التلقائي الرسمية. نزّل مثبّت *-win-x64-compat المطابق من GitHub Release."
   },
   "sync": {
     "title": "الرمز",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "النظام",
-    "subtitle": "أوقات الجرعة، والوكيل، وأفضليات التنفيذ على مستوى سطح الأرض",
+    "subtitle": "تحديثات التطبيق، ووقت تشغيل Shell، والوكيل، وتفضيلات التنفيذ على مستوى النظام",
     "platform": "المنبر: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(مشروع غير معروف) {{hash}}",
       "workerMissing": "لم يُعثر على الملف التنفيذي لعامل CodeGraph. ابنِه باستخدام `npm run codegraph:publish` (أو `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "العامل قيد التشغيل",
-      "workerStopped": "لم يبدأ العامل بعد (يبدأ عند أول استخدام)"
+      "workerStopped": "لم يبدأ العامل بعد (يبدأ عند أول استخدام)",
+      "availableLanguages": "اللغات المتاحة: {{languages}}",
+      "coreLibraryMissing": "مكتبة تشغيل tree-sitter مفقودة أو غير صالحة. أعد تثبيت OpenCowork أو حدّثه.",
+      "invalidFiles": "ملفات قواعد غير صالحة: {{files}}",
+      "invalidGrammarPackage": "بعض ملفات قواعد CodeGraph غير صالحة. أعد تثبيت OpenCowork أو حدّثه.",
+      "languageGrammarsMissing": "لم يتم العثور على مكتبات قواعد لغوية صالحة. أعد تثبيت OpenCowork أو حدّثه.",
+      "missingLanguages": "لغات غير متاحة: {{languages}}",
+      "unrecognizedGrammars": "مكتبات قواعد غير معروفة: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "لا تُعرض أداة codegraph_explore إلا عند تفعيل الإضافة وجاهزية قواعدها اللغوية (منزَّلة، أو متوفرة محليًا في نسخة تطوير)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "تفعيل البحث المدمج على الويب",
     "enableBuiltinSearchDesc": "استخدام البحث الأصلي للمزوّد على الويب (Claude / OpenAI Responses) بدلًا من أداة العميل.",
     "enableLongContext": "تفعيل سياق 1M",
-    "enableLongContextDesc": "استخدام نافذة 1M. عند الإيقاف يبقى تسعير السياق القصير 272K.",
+    "enableLongContextDesc": "استخدام نافذة 1M. عند الإيقاف تبقى النافذة الافتراضية 360K.",
     "kimiQuota5h": "الحد خلال 5 ساعات",
     "kimiQuotaParallel": "أقصى تزامن {{count}}",
     "kimiQuotaWeekly": "الحد الأسبوعي",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "يدعم توليد الصور",
     "supportsImageGenerationDesc": "تنفّذ نقطة النهاية أداة خادم image_generation من OpenAI Responses.",
     "supportsWebsocket": "يدعم بروتوكول WebSocket",
-    "supportsWebsocketDesc": "توفّر نقطة النهاية نقل WebSocket الخاص بـ OpenAI Responses."
+    "supportsWebsocketDesc": "توفّر نقطة النهاية نقل WebSocket الخاص بـ OpenAI Responses.",
+    "apiKeyHint": "تُحفظ محلياً مع إعدادات هذا المزود.",
+    "browserLogin": "تسجيل الدخول عبر المتصفح",
+    "customIcon": "أيقونة المزود",
+    "customIconHint": "PNG أو JPG أو WebP أو GIF أو SVG. حتى 1 ميغابايت.",
+    "enableAfterAdding": "تفعيل المزود بعد الإضافة",
+    "enableAfterAddingHint": "يمكن إعداد المزود فوراً.",
+    "iconInvalidType": "يرجى اختيار ملف صورة",
+    "iconTooLarge": "يجب أن تكون الأيقونة أصغر من 1 ميغابايت",
+    "iconUploadFailed": "تعذر قراءة الأيقونة المحددة",
+    "modelMetaPricingTiers": "{{count}} شرائح سعر",
+    "pricingTierAdd": "إضافة شريحة",
+    "pricingTierHint": "تُختار الشريحة حسب حجم المطالبة (رموز الإدخال + التخزين المؤقت) لكل طلب.",
+    "pricingTierRemove": "إزالة الشريحة",
+    "pricingTierThreshold": "من رموز المطالبة",
+    "pricingTiers": "تسعير شرائحي",
+    "pricingTiersDesc": "للنماذج التي تُفوتر حسب حجم المطالبة. تستبدل كل شريحة الأسعار أعلاه عندما يصل الطلب إلى حد رموز المطالبة الخاص بها؛ اترك السعر فارغاً للإبقاء على السعر الأساسي.",
+    "removeIcon": "إزالة",
+    "replaceIcon": "استبدال",
+    "uploadIcon": "رفع أيقونة"
   },
   "channel": {
     "title": "القنوات",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "التحديثات والبيانات",
-    "subtitle": "تحديثات التطبيق والنسخ الاحتياطي والترحيل وإعادة التعيين",
+    "title": "إدارة البيانات",
+    "subtitle": "النسخ الاحتياطي والترحيل وإعادة التعيين",
     "dangerZone": "منطقة الخطر",
     "dangerZoneDesc": "لا يمكن التراجع عن هذه الإجراءات"
   }

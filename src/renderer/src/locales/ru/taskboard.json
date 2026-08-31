@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "Сводка",
+    "kanban": "Доска",
+    "list": "Список",
+    "gantt": "Хронология"
+  },
+  "columns": {
+    "pending": "К выполнению",
+    "in_progress": "В работе",
+    "blocked": "Заблокировано",
+    "in_review": "На проверке",
+    "completed": "Готово"
+  },
+  "filters": {
+    "searchPlaceholder": "Поиск задач…",
+    "allSessions": "Все сессии",
+    "allPriorities": "Все приоритеты",
+    "refresh": "Обновить"
+  },
+  "priority": {
+    "urgent": "Срочный",
+    "high": "Высокий",
+    "medium": "Средний",
+    "low": "Низкий",
+    "none": "Без приоритета"
+  },
+  "card": {
+    "blockedByCount": "блокирует: {{count}}",
+    "due": "Срок {{date}}",
+    "running": "Агент работает"
+  },
+  "column": {
+    "empty": "Нет задач",
+    "confirmDone": "Подтвердить выполнение"
+  },
+  "empty": {
+    "title": "Задач пока нет",
+    "description": "Здесь собираются задачи, которые агенты создают в сессиях. Попросите агента спланировать сложную работу или создайте задачи в совместной сессии."
+  },
+  "detail": {
+    "title": "Сведения о задаче",
+    "subject": "Название",
+    "description": "Описание",
+    "descriptionPlaceholder": "Нет описания",
+    "status": "Статус",
+    "priority": "Приоритет",
+    "tags": "Теги",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "Срок",
+    "noDue": "Без срока",
+    "clearDue": "Очистить",
+    "session": "Сессия",
+    "sessionLoadFailed": "Не удалось найти эту сессию",
+    "openSession": "Продолжить в сессии",
+    "dependencies": "Зависимости",
+    "blocks": "Блокирует",
+    "blockedBy": "Заблокирована",
+    "createdAt": "Создана",
+    "updatedAt": "Обновлена",
+    "delete": "Удалить задачу",
+    "close": "Закрыть",
+    "dispatchMessage": "Продолжите работу над задачей: {{subject}}"
+  },
+  "list": {
+    "task": "Задача",
+    "session": "Сессия",
+    "priority": "Приоритет",
+    "tags": "Теги",
+    "updated": "Обновлена",
+    "showCompleted": "Показать выполненные"
+  },
+  "gantt": {
+    "noDated": "В этом диапазоне нет задач",
+    "today": "Сегодня"
+  },
+  "dashboard": {
+    "total": "Всего задач",
+    "activeSessions": "Сессии с задачами",
+    "blockedTasks": "Заблокированные задачи",
+    "completionRate": "Доля выполненных",
+    "byStatus": "Распределение по статусу",
+    "trend": "Последние 14 дней",
+    "trendCreated": "Создано",
+    "trendCompleted": "Выполнено",
+    "blockedList": "Сейчас заблокировано",
+    "noBlocked": "Ничего не заблокировано",
+    "recentSessions": "Сессии"
+  }
+}

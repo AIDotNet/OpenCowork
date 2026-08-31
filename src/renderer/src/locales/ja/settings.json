@@ -163,7 +163,7 @@
     "systemProxyDesc": "アプリ全体で使うプロキシ URL を設定します。例: http://127.0.0.1:7890 または http://host:port",
     "toolbarCollapsedByDefault": "ツールバーを既定で折りたたむ",
     "toolbarCollapsedByDefaultDesc": "既定ではオフです。アプリ起動時の左ツールバー状態を初期化します。",
-    "chinese": "ニュース",
+    "chinese": "中文",
     "english": "日本語 English",
     "systemPromptPlaceholder": "カスタム指示を追加...",
     "teamTools": "チームツール",
@@ -204,7 +204,8 @@
       "installing": "更新を準備中…",
       "greenBuild": "インストール不要版",
       "manualDownloadHint": "新しいバージョン（v{{version}}）が利用可能です。インストール不要版の場合は、手動でダウンロードし、アプリを終了してから現在のフォルダを置き換えてください。",
-      "openDownloadPage": "ダウンロードページを開く"
+      "openDownloadPage": "ダウンロードページを開く",
+      "compatBuild": "互換ビルド"
     },
     "projectDefaultDirectory": {
       "title": "デフォルトプロジェクトディレクトリ",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "インターフェース",
       "editor": "エディタ"
-    }
+    },
+    "autoUpdateCompatDesc": "互換ビルド（SSE4.2 非対応の古い CPU）は公式の自動更新チャネルを使いません。GitHub Release から対応する *-win-x64-compat インストーラーをダウンロードしてください。"
   },
   "sync": {
     "title": "同期",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "システム設定",
-    "subtitle": "シェルランタイム、プロキシ、OSレベルの実行設定",
+    "subtitle": "アプリの更新、シェルランタイム、プロキシ、OS レベルの実行設定",
     "platform": "プラットフォーム: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "（不明なプロジェクト）{{hash}}",
       "workerMissing": "CodeGraph ワーカーのバイナリが見つかりませんでした。`npm run codegraph:publish`（または `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`）でビルドしてください。",
       "workerRunning": "ワーカー実行中",
-      "workerStopped": "ワーカー未起動（初回使用時に起動）"
+      "workerStopped": "ワーカー未起動（初回使用時に起動）",
+      "availableLanguages": "利用可能な言語: {{languages}}",
+      "coreLibraryMissing": "tree-sitter ランタイムライブラリが見つからないか無効です。OpenCowork を再インストールまたは更新してください。",
+      "invalidFiles": "無効な文法ファイル: {{files}}",
+      "invalidGrammarPackage": "一部の CodeGraph 文法ファイルが無効です。OpenCowork を再インストールまたは更新してください。",
+      "languageGrammarsMissing": "有効な言語文法ライブラリが見つかりません。OpenCowork を再インストールまたは更新してください。",
+      "missingLanguages": "利用できない言語: {{languages}}",
+      "unrecognizedGrammars": "認識できない文法ライブラリ: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "codegraph_explore ツールは、プラグインが有効で、言語文法の準備ができている場合（ダウンロード済み、または開発ビルドでローカル提供されている場合）にのみ公開されます。"
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "組み込みWeb検索を有効化",
     "enableBuiltinSearchDesc": "クライアント側のツールではなく、プロバイダーのネイティブWeb検索（Claude / OpenAI Responses）を使用します。",
     "enableLongContext": "1Mコンテキストを有効化",
-    "enableLongContextDesc": "1Mウィンドウを使用します。オフの場合は272Kのショートコンテキスト料金です。",
+    "enableLongContextDesc": "1Mウィンドウを使用します。オフの場合は360Kの標準ウィンドウです。",
     "kimiQuota5h": "5時間の上限",
     "kimiQuotaParallel": "最大同時実行数 {{count}}",
     "kimiQuotaWeekly": "週間の上限",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "画像生成に対応",
     "supportsImageGenerationDesc": "エンドポイントが OpenAI Responses の image_generation サーバーツールを実装しています。",
     "supportsWebsocket": "WebSocketプロトコルに対応",
-    "supportsWebsocketDesc": "エンドポイントが OpenAI Responses の WebSocket トランスポートを提供します。"
+    "supportsWebsocketDesc": "エンドポイントが OpenAI Responses の WebSocket トランスポートを提供します。",
+    "apiKeyHint": "このプロバイダーの設定と一緒にローカルへ保存されます。",
+    "browserLogin": "ブラウザでログイン",
+    "customIcon": "プロバイダーアイコン",
+    "customIconHint": "PNG、JPG、WebP、GIF、または SVG。最大 1 MB。",
+    "enableAfterAdding": "追加後にプロバイダーを有効化",
+    "enableAfterAddingHint": "追加直後から設定できます。",
+    "iconInvalidType": "画像ファイルを選択してください",
+    "iconTooLarge": "アイコンは 1 MB 未満である必要があります",
+    "iconUploadFailed": "選択したアイコンを読み取れませんでした",
+    "modelMetaPricingTiers": "{{count}} 段階の料金",
+    "pricingTierAdd": "段階を追加",
+    "pricingTierHint": "リクエストごとのプロンプトサイズ（入力 + キャッシュトークン）で段階を選びます。",
+    "pricingTierRemove": "段階を削除",
+    "pricingTierThreshold": "プロンプトトークン以上",
+    "pricingTiers": "段階料金",
+    "pricingTiersDesc": "プロンプトサイズで課金されるモデル向けです。各段階は、リクエストがそのプロンプトトークン下限に達すると上の料金を上書きします。空欄の料金は基本料金を維持します。",
+    "removeIcon": "削除",
+    "replaceIcon": "差し替え",
+    "uploadIcon": "アイコンをアップロード"
   },
   "channel": {
     "title": "チャンネル",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "更新とデータ",
-    "subtitle": "アプリの更新、バックアップ、移行、リセット",
+    "title": "データ管理",
+    "subtitle": "バックアップ、移行、リセット",
     "dangerZone": "危険な操作",
     "dangerZoneDesc": "これらの操作は取り消せません"
   }

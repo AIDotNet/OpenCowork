@@ -455,7 +455,7 @@
   },
   "system": {
     "title": "System Settings",
-    "subtitle": "Shell runtime, proxy, and OS-level execution preferences",
+    "subtitle": "App updates, shell runtime, proxy, and OS-level execution preferences",
     "platform": "Platform: {{platform}}",
     "shell": {
       "endpoint": {
@@ -1214,7 +1214,7 @@
     "enableBuiltinSearch": "Enable built-in web search",
     "enableBuiltinSearchDesc": "Use the provider's native web search (Claude / OpenAI Responses) instead of a client tool.",
     "enableLongContext": "Enable 1M context",
-    "enableLongContextDesc": "Use the 1M window. Off keeps the 272K short-context pricing tier.",
+    "enableLongContextDesc": "Use the 1M window. Off keeps the 360K default window.",
     "builtinSearchEnabled": "Built-in search enabled",
     "supportsFastMode": "Supports Fast mode",
     "supportsFastModeDesc": "The endpoint accepts the OpenAI priority service tier for faster responses.",
@@ -1744,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Updates & Data",
-    "subtitle": "App updates, backups, migration and reset",
+    "title": "Data Management",
+    "subtitle": "Backups, migration and reset",
     "dangerZone": "Danger Zone",
     "dangerZoneDesc": "These actions cannot be undone"
   }

@@ -163,7 +163,7 @@
     "systemProxyDesc": "앱 전체에서 사용할 프록시 URL을 설정합니다. 예: http://127.0.0.1:7890 또는 http://host:port",
     "toolbarCollapsedByDefault": "도구 모음을 기본으로 접기",
     "toolbarCollapsedByDefaultDesc": "기본값은 꺼짐입니다. 앱이 열릴 때 왼쪽 도구 모음 상태를 초기화합니다.",
-    "chinese": "한국어",
+    "chinese": "中文",
     "english": "한국어",
     "systemPromptPlaceholder": "사용자 정의 지침 ...",
     "teamTools": "팀 툴",
@@ -191,20 +191,21 @@
       "status": "업데이트 상태",
       "currentVersion": "현재 v{{version}}",
       "latestVersion": "최신 v{{version}}",
-      "checking": "기타...",
-      "checkForUpdates": "자주 묻는 질문",
-      "updating": "업데이트",
-      "updateNow": "업데이트",
-      "failedToCheck": "업데이트 확인 실패: {{error}}",
-      "upToDate": "날짜까지입니다.",
-      "newVersionAvailable": "새로운 버전 (v{{version}})을 사용할 수 있습니다.",
-      "downloading": "다운로드 업데이트 ...",
-      "downloadingWithProgress": "다운로드 업데이트 ... {{progress}} %",
-      "downloadedReady": "v{{version}} 업데이트가 다운로드되었습니다. 지금 업데이트를 클릭하면 다시 시작하고 설치합니다.",
-      "installing": "업데이트 준비 중…",
+      "checking": "확인 중…",
+      "checkForUpdates": "업데이트 확인",
+      "updating": "업데이트 중…",
+      "updateNow": "지금 업데이트",
+      "failedToCheck": "업데이트를 확인하지 못했습니다: {{error}}",
+      "upToDate": "이미 최신 버전입니다.",
+      "newVersionAvailable": "새 버전(v{{version}})을 사용할 수 있습니다.",
+      "downloading": "업데이트를 다운로드하는 중…",
+      "downloadingWithProgress": "업데이트를 다운로드하는 중… {{progress}}%",
+      "downloadedReady": "업데이트 v{{version}}이(가) 다운로드되었습니다. 지금 업데이트를 누르면 다시 시작하여 설치합니다.",
+      "installing": "업데이트를 준비하는 중…",
       "greenBuild": "무설치 빌드",
       "manualDownloadHint": "새 버전(v{{version}})을 사용할 수 있습니다. 무설치 빌드에서는 수동으로 다운로드한 뒤 앱을 종료하고 현재 폴더를 교체하세요.",
-      "openDownloadPage": "다운로드 페이지 열기"
+      "openDownloadPage": "다운로드 페이지 열기",
+      "compatBuild": "호환 빌드"
     },
     "projectDefaultDirectory": {
       "title": "Default 프로젝트 디렉토리",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "인터페이스",
       "editor": "편집기"
-    }
+    },
+    "autoUpdateCompatDesc": "호환 빌드(SSE4.2가 없는 구형 CPU)는 공식 자동 업데이트 채널을 사용하지 않습니다. GitHub Release에서 해당 *-win-x64-compat 설치 파일을 다운로드하세요."
   },
   "sync": {
     "title": "Sync의",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "시스템 설정",
-    "subtitle": "Shell 런타임, 프록시 및 OS 수준의 실행 환경",
+    "subtitle": "앱 업데이트, 셸 런타임, 프록시, OS 수준 실행 환경",
     "platform": "플랫폼: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(알 수 없는 프로젝트) {{hash}}",
       "workerMissing": "CodeGraph 워커 바이너리를 찾을 수 없습니다. `npm run codegraph:publish` (또는 `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`)로 빌드하세요.",
       "workerRunning": "워커 실행 중",
-      "workerStopped": "워커가 시작되지 않음 (처음 사용 시 실행됨)"
+      "workerStopped": "워커가 시작되지 않음 (처음 사용 시 실행됨)",
+      "availableLanguages": "사용 가능한 언어: {{languages}}",
+      "coreLibraryMissing": "tree-sitter 런타임 라이브러리가 없거나 유효하지 않습니다. OpenCowork를 재설치하거나 업데이트하세요.",
+      "invalidFiles": "유효하지 않은 문법 파일: {{files}}",
+      "invalidGrammarPackage": "일부 CodeGraph 문법 파일이 유효하지 않습니다. OpenCowork를 재설치하거나 업데이트하세요.",
+      "languageGrammarsMissing": "유효한 언어 문법 라이브러리를 찾을 수 없습니다. OpenCowork를 재설치하거나 업데이트하세요.",
+      "missingLanguages": "사용할 수 없는 언어: {{languages}}",
+      "unrecognizedGrammars": "인식할 수 없는 문법 라이브러리: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "codegraph_explore 도구는 플러그인이 활성화되고 언어 문법이 준비되었을 때만(다운로드되었거나 개발 빌드에서 로컬로 제공된 경우) 노출됩니다."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "내장 웹 검색 활성화",
     "enableBuiltinSearchDesc": "클라이언트 도구 대신 공급자의 네이티브 웹 검색(Claude / OpenAI Responses)을 사용합니다.",
     "enableLongContext": "1M 컨텍스트 사용",
-    "enableLongContextDesc": "1M 창을 사용합니다. 끄면 272K 숏 컨텍스트 요금이 유지됩니다.",
+    "enableLongContextDesc": "1M 창을 사용합니다. 끄면 360K 기본 창이 유지됩니다.",
     "kimiQuota5h": "5시간 한도",
     "kimiQuotaParallel": "최대 동시 실행 {{count}}",
     "kimiQuotaWeekly": "주간 한도",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "이미지 생성 지원",
     "supportsImageGenerationDesc": "이 엔드포인트가 OpenAI Responses의 image_generation 서버 도구를 구현하는지 여부입니다.",
     "supportsWebsocket": "WebSocket 프로토콜 지원",
-    "supportsWebsocketDesc": "이 엔드포인트가 OpenAI Responses WebSocket 전송을 제공하는지 여부입니다."
+    "supportsWebsocketDesc": "이 엔드포인트가 OpenAI Responses WebSocket 전송을 제공하는지 여부입니다.",
+    "apiKeyHint": "이 공급자의 설정과 함께 로컬에 저장됩니다.",
+    "browserLogin": "브라우저 로그인",
+    "customIcon": "공급자 아이콘",
+    "customIconHint": "PNG, JPG, WebP, GIF 또는 SVG. 최대 1MB.",
+    "enableAfterAdding": "추가 후 공급자 사용",
+    "enableAfterAddingHint": "추가한 직후부터 구성할 수 있습니다.",
+    "iconInvalidType": "이미지 파일을 선택하세요",
+    "iconTooLarge": "아이콘은 1MB보다 작아야 합니다",
+    "iconUploadFailed": "선택한 아이콘을 읽을 수 없습니다",
+    "modelMetaPricingTiers": "가격 구간 {{count}}개",
+    "pricingTierAdd": "구간 추가",
+    "pricingTierHint": "요청당 프롬프트 크기(입력 + 캐시 토큰)로 구간을 고릅니다.",
+    "pricingTierRemove": "구간 제거",
+    "pricingTierThreshold": "프롬프트 토큰부터",
+    "pricingTiers": "구간별 가격",
+    "pricingTiersDesc": "프롬프트 크기로 과금되는 모델용입니다. 각 구간은 요청이 해당 프롬프트 토큰 하한에 도달하면 위의 요율을 덮어씁니다. 가격을 비워 두면 기본 요율을 유지합니다.",
+    "removeIcon": "제거",
+    "replaceIcon": "교체",
+    "uploadIcon": "아이콘 업로드"
   },
   "channel": {
     "title": "채널 :",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "업데이트 및 데이터",
-    "subtitle": "앱 업데이트, 백업, 마이그레이션, 초기화",
+    "title": "데이터 관리",
+    "subtitle": "백업, 마이그레이션, 초기화",
     "dangerZone": "위험 구역",
     "dangerZoneDesc": "이 작업은 되돌릴 수 없습니다"
   }

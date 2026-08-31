@@ -63,7 +63,7 @@ import {
   normalizeProviderBaseUrl,
   type ManagedModelConfig
 } from '@renderer/stores/provider-store'
-import { GPT_LONG_CONTEXT_LENGTH } from '../../../../shared/gpt-context'
+import { resolveGptLongContextLength } from '../../../../shared/gpt-context'
 import {
   applyOauthClientIdentityHeaders,
   resolveOauthForwardUserAgent,
@@ -1224,7 +1224,10 @@ function ModelFormDialog({
       model.supportsLongContext = true
       model.enableLongContext = enableLongContext
       if (!(typeof model.longContextLength === 'number' && model.longContextLength > 0)) {
-        model.longContextLength = initial?.longContextLength ?? GPT_LONG_CONTEXT_LENGTH
+        model.longContextLength = resolveGptLongContextLength({
+          ...model,
+          longContextLength: initial?.longContextLength
+        })
       }
     } else {
       delete model.supportsLongContext
@@ -2232,6 +2235,8 @@ function ModelFormDialog({
               {modelSupportsGptLongContext({
                 id,
                 category,
+                contextLength: Number.parseInt(contextLength, 10) || initial?.contextLength,
+                longContextLength: initial?.longContextLength,
                 supportsLongContext: initial?.supportsLongContext
               }) && (
                 <div className="flex items-start justify-between gap-3">

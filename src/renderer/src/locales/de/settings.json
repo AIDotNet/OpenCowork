@@ -163,7 +163,7 @@
     "systemProxyDesc": "Legen Sie die Proxy-URL fest, die vom gesamten App-Prozess verwendet wird, z. B. http://127.0.0.1:7890 oder http://host:port.",
     "toolbarCollapsedByDefault": "Collapse Symbolleiste standardmäßig",
     "toolbarCollapsedByDefaultDesc": "Standardmäßig ausschalten. Initialisiert den Status der linken Symbolleiste, wenn die App geöffnet wird.",
-    "chinese": "中 Zealand",
+    "chinese": "中文",
     "english": "Englisch",
     "systemPromptPlaceholder": "Fügen Sie benutzerdefinierte Anweisungen hinzu...",
     "teamTools": "Teamtools",
@@ -204,7 +204,8 @@
       "installing": "Update wird vorbereitet…",
       "greenBuild": "Build ohne Installation",
       "manualDownloadHint": "Eine neuere Version (v{{version}}) ist verfügbar. Laden Sie sie für den Build ohne Installation manuell herunter, beenden Sie die App und ersetzen Sie den aktuellen Ordner.",
-      "openDownloadPage": "Download-Seite öffnen"
+      "openDownloadPage": "Download-Seite öffnen",
+      "compatBuild": "Kompatibilitätsbuild"
     },
     "projectDefaultDirectory": {
       "title": "Standard-Projektverzeichnis",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Oberfläche",
       "editor": "Editor"
-    }
+    },
+    "autoUpdateCompatDesc": "Der Kompatibilitätsbuild (ältere CPUs ohne SSE4.2) nutzt den offiziellen Auto-Update-Kanal nicht. Lade den passenden *-win-x64-compat-Installer aus dem GitHub Release herunter."
   },
   "sync": {
     "title": "Sync",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Systemeinstellungen",
-    "subtitle": "Shell Runtime, Proxy und OS-Level Execution Preferences",
+    "subtitle": "App-Updates, Shell-Runtime, Proxy und Ausführungseinstellungen auf Betriebssystemebene",
     "platform": "Bahnsteig: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(unbekanntes Projekt) {{hash}}",
       "workerMissing": "Die CodeGraph-Worker-Binärdatei wurde nicht gefunden. Erstellen Sie sie mit `npm run codegraph:publish` (oder `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker läuft",
-      "workerStopped": "Worker nicht gestartet (startet bei erster Verwendung)"
+      "workerStopped": "Worker nicht gestartet (startet bei erster Verwendung)",
+      "availableLanguages": "Verfügbare Sprachen: {{languages}}",
+      "coreLibraryMissing": "Die tree-sitter-Runtime-Bibliothek fehlt oder ist ungültig. Installiere oder aktualisiere OpenCowork erneut.",
+      "invalidFiles": "Ungültige Grammatikdateien: {{files}}",
+      "invalidGrammarPackage": "Einige CodeGraph-Grammatikdateien sind ungültig. Installiere oder aktualisiere OpenCowork erneut.",
+      "languageGrammarsMissing": "Es wurden keine gültigen Sprachgrammatik-Bibliotheken gefunden. Installiere oder aktualisiere OpenCowork erneut.",
+      "missingLanguages": "Nicht verfügbare Sprachen: {{languages}}",
+      "unrecognizedGrammars": "Unbekannte Grammatikbibliotheken: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Das Tool codegraph_explore wird nur bereitgestellt, wenn das Plugin aktiviert ist und seine Sprachgrammatiken bereit sind (heruntergeladen oder in einem Dev-Build lokal vorhanden)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Integrierte Websuche aktivieren",
     "enableBuiltinSearchDesc": "Verwenden Sie die anbietereigene Websuche (Claude / OpenAI Responses) anstelle eines Client-Tools.",
     "enableLongContext": "1M-Kontext aktivieren",
-    "enableLongContextDesc": "1M-Fenster nutzen. Aus belässt die 272K-Short-Context-Preisstufe.",
+    "enableLongContextDesc": "1M-Fenster nutzen. Aus belässt das 360K-Standardfenster.",
     "kimiQuota5h": "5-Stunden-Limit",
     "kimiQuotaParallel": "Max. Gleichzeitigkeit {{count}}",
     "kimiQuotaWeekly": "Wochenlimit",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Unterstützt Bilderzeugung",
     "supportsImageGenerationDesc": "Der Endpunkt implementiert das OpenAI-Responses-Server-Tool image_generation.",
     "supportsWebsocket": "Unterstützt WebSocket-Protokoll",
-    "supportsWebsocketDesc": "Der Endpunkt bietet den OpenAI-Responses-WebSocket-Transport."
+    "supportsWebsocketDesc": "Der Endpunkt bietet den OpenAI-Responses-WebSocket-Transport.",
+    "apiKeyHint": "Wird lokal zusammen mit den Einstellungen dieses Anbieters gespeichert.",
+    "browserLogin": "Browser-Anmeldung",
+    "customIcon": "Anbieter-Symbol",
+    "customIconHint": "PNG, JPG, WebP, GIF oder SVG. Bis zu 1 MB.",
+    "enableAfterAdding": "Anbieter nach dem Hinzufügen aktivieren",
+    "enableAfterAddingHint": "Der Anbieter kann sofort konfiguriert werden.",
+    "iconInvalidType": "Bitte eine Bilddatei auswählen",
+    "iconTooLarge": "Das Symbol muss kleiner als 1 MB sein",
+    "iconUploadFailed": "Das ausgewählte Symbol konnte nicht gelesen werden",
+    "modelMetaPricingTiers": "{{count}} Preisstufen",
+    "pricingTierAdd": "Stufe hinzufügen",
+    "pricingTierHint": "Die Stufe wird pro Anfrage anhand der Prompt-Größe (Eingabe- + Cache-Token) gewählt.",
+    "pricingTierRemove": "Stufe entfernen",
+    "pricingTierThreshold": "Ab Prompt-Token",
+    "pricingTiers": "Stufenpreise",
+    "pricingTiersDesc": "Für Modelle, die nach Prompt-Größe abgerechnet werden. Jede Stufe überschreibt die oben genannten Sätze, sobald eine Anfrage ihre Prompt-Token-Untergrenze erreicht. Leere Preise behalten den Basissatz.",
+    "removeIcon": "Entfernen",
+    "replaceIcon": "Ersetzen",
+    "uploadIcon": "Symbol hochladen"
   },
   "channel": {
     "title": "Kanäle",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Updates & Daten",
-    "subtitle": "App-Updates, Backups, Migration und Zurücksetzen",
+    "title": "Datenmanagement",
+    "subtitle": "Backups, Migration und Zurücksetzen",
     "dangerZone": "Gefahrenzone",
     "dangerZoneDesc": "Diese Aktionen können nicht rückgängig gemacht werden"
   }

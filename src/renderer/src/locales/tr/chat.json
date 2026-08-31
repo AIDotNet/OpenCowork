@@ -144,7 +144,11 @@
       "tpsHint": "İlk token geldikten sonra saniyede üretilen çıktı token sayısı. Her API isteği tamamlandıktan sonra hesaplanır.",
       "ttft": "TTFT",
       "ttftFull": "İlk token'a kadar geçen süre",
-      "ttftHint": "İsteğin gönderilmesinden ilk akan token'ın alınmasına kadar geçen süre. Daha düşük TTFT, modelin daha erken yanıt vermeye başladığı anlamına gelir."
+      "ttftHint": "İsteğin gönderilmesinden ilk akan token'ın alınmasına kadar geçen süre. Daha düşük TTFT, modelin daha erken yanıt vermeye başladığı anlamına gelir.",
+      "cacheCreateShort": "Yazma",
+      "cacheHitShort": "Önbellek",
+      "inputShort": "Girdi",
+      "outputShort": "Çıktı"
     },
     "runtimeStatus": {
       "awaitingApproval": "Onay bekleniyor: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "{{tool}} çalıştırılıyor",
       "thinking": "Düşünüyor",
       "waiting": "Bekliyor"
-    }
+    },
+    "contextCompressionFallback": "Özet yok; eski bağlam kaldırıldı",
+    "fileReference": {
+      "remove": "Referansı kaldır",
+      "removePlugin": "Eklenti referansını kaldır"
+    },
+    "initBannerAction": "/init çalıştır",
+    "initBannerDismiss": "Kapat",
+    "initBannerText": "Geçerli klasörde AGENTS.md yok. Daha iyi ajan performansı için çalışma alanı bağlamını başlatın."
   },
   "planReview": {
     "awaitingReview": "Bekleyen Bir İnceleme",
@@ -177,7 +189,13 @@
     "approvedHint": "Bu plan zaten onaylandı.",
     "copy": "Planı kopyala",
     "download": "Planı indir",
-    "expand": "Yan panelde genişlet"
+    "expand": "Yan panelde genişlet",
+    "rejectedHint": "Revizyon istendi. Ajan bu planı yeniden çalışıyor.",
+    "requestRevision": "Revizyon iste",
+    "revisionDesc": "Nelerin değişmesi gerektiğini yazın. Ajan plan moduna döner ve planı yeniden yazar.",
+    "revisionPlaceholder": "Örneğin: 3. adımı geçiş ve yayın olarak ayır.",
+    "revisionSubmit": "Revizyon isteğini gönder",
+    "revisionTitle": "Plan revizyonu iste"
   },
   "guide": {
     "title": "Sohbet kılavuzu",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "Arka plan oturumu",
     "backgroundInboxTitle": "Giriş gerekiyordu",
     "backgroundInboxDescription": "{{title}} Senin seçiminiz için bekliyor",
-    "backgroundToast": "Arka plan oturumu seçiminizi bekliyor"
+    "backgroundToast": "Arka plan oturumu seçiminizi bekliyor",
+    "previewEmpty": "Önizlemeyi görmek için bir seçeneğin üzerine gelin veya onu seçin."
   },
   "goal": {
     "title": "Goal",
@@ -824,10 +843,47 @@
       "summaryLabel": "Sıkıştırılmış geçmiş özetine git {{index}}: {{preview}}",
       "summaryPreview": "Sıkıştırılmış geçmiş özeti",
       "toolOnlyPreview": "{{count}} araç çağrısı",
-      "userLabel": "Kullanıcı mesajına git {{index}}: {{preview}}"
+      "userLabel": "Kullanıcı mesajına git {{index}}: {{preview}}",
+      "navigation": "Sohbet gezintisi"
     },
     "pendingRetryTitle": "Modele yeniden bağlanılıyor",
-    "pendingTeamTitle": "Takım arkadaşları koordine ediliyor"
+    "pendingTeamTitle": "Takım arkadaşları koordine ediliyor",
+    "homeCopy": {
+      "chat": [
+        [
+          "Aklındaki cümleyi olduğu gibi söyle",
+          "Eksik sorular da yine sorudur",
+          "Sormayı birlikte tamamlayabiliriz"
+        ],
+        [
+          "Bunun bir ticket gibi durması gerekmez",
+          "Dağınık bir taslak başlamaya yeter",
+          "Bırak buraya"
+        ],
+        [
+          "Zekice bir açılışa gerek yok",
+          "Gerçekten anlamak istediğin bir şey yeterli",
+          "Gerisini konuşurken doldururuz"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} hâlâ burada",
+          "Sorun da öyle",
+          "Somut bir cümle, boş bir alandan iyidir"
+        ],
+        [
+          "Hepsini bir anda bitirmeye çalışma",
+          "En küçük parçalama genelde asıl olanıdır",
+          "Sen başla, ben takip ederim"
+        ],
+        [
+          "Sessiz bir repo sağlıklı bir repo değildir",
+          "Bugün sadece canını sıkan şeyi düzeltebilirsin",
+          "Aşağıdan başla"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "Hiçbir proje seçilmiş",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} araç",
     "extensionToolCount_one": "{{count}} araç",
     "extensionToolCount_other": "{{count}} araç",
-    "noCustomExtensions": "Etkin özel uzantı yok"
+    "noCustomExtensions": "Etkin özel uzantı yok",
+    "activeBadge": "Etkin",
+    "addActionsWithCount": "Eylem ekle ({{count}})",
+    "addLabel": "Ekle",
+    "attachMediaDescription": "Görüntü, dosya veya klasör ekle",
+    "attachMediaMenu": "Dosyalar ve klasörler",
+    "channelsDescription": "Bu iletiyi bağlı kanallara gönder",
+    "commandDescription": "Sonraki iletide bu komutu kullan",
+    "commandsDescription": "Kayıtlı bir komut şablonunu çalıştır",
+    "extensionsDescription": "Bu proje için özel araçları etkinleştir",
+    "goalModeDescription": "Sohbet boyunca bir hedefi etkin tut",
+    "mcpDescription": "Bu sohbete dış araçları bağla",
+    "mcpServerDescription": "Bağlı MCP sunucusu",
+    "planModeDescription": "Plan modunu etkinleştir",
+    "skillDescription": "Bu beceriyi iletiye ekle",
+    "toolsAndIntegrations": "Araçlar ve entegrasyonlar"
   },
   "userMessage": {
     "you": "You You You You You",
@@ -1028,7 +1099,9 @@
       "copied": "Copied",
       "descRuntimeUnavailable": "OpenCowork yerel Native Worker'a ulaşamadı. Yeniden başlatma zaten denendi; mesajı tekrar deneyin veya bu tekrar ederse native worker'ı yeniden derleyin.",
       "sidecarUnavailableMessage": "Yerel ajan çalışma zamanı geçici olarak kullanılamıyor. OpenCowork onu yeniden başlatmayı denedi; bu mesajı tekrar deneyin. Geliştirme ortamında bu sorun devam ederse `npm run native:publish` komutunu çalıştırıp OpenCowork'u yeniden başlatın.",
-      "titleRuntimeUnavailable": "Yerel çalışma zamanı kullanılamıyor"
+      "titleRuntimeUnavailable": "Yerel çalışma zamanı kullanılamıyor",
+      "descRuntimeFatal": "Yerel Native Worker kendi başına kurtarılamıyor (eski veya uyumsuz ikili). Geliştirmede `npm run native:publish` ile yeniden derleyin veya OpenCowork’u yeniden kurup uygulamayı yeniden başlatın.",
+      "titleRuntimeFatal": "Yerel çalışma zamanının onarılması gerekiyor"
     },
     "processTools": "Araç çağrıları",
     "activeTools": "{{count}} etkin araç",
@@ -1049,7 +1122,8 @@
     "totalUsage": "Toplam kullanım",
     "tpsHint": "Saniyede üretilen çıktı token sayısı",
     "ttftHint": "İlk token'a kadar geçen süre",
-    "uncachedInput": "Önbelleksiz girdi"
+    "uncachedInput": "Önbelleksiz girdi",
+    "processSummary": "İşlendi"
   },
   "messageActions": {
     "fork": "Fork",

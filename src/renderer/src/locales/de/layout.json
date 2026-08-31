@@ -111,7 +111,17 @@
     "projectSortName": "Alphabetisch",
     "projectSortRecentlyUpdated": "Zuletzt aktualisiert",
     "projectSortTitle": "Projekte sortieren: {{sort}}",
-    "revealInFolder": "Ordnerspeicherort öffnen"
+    "revealInFolder": "Ordnerspeicherort öffnen",
+    "changeProjectIcon": "Symbol ändern",
+    "newAgentIn": "Neuer Agent in {{projectName}}",
+    "projectIconDefault": "Standardordner",
+    "projectIconDialogDescription": "Wähle ein Symbol für „{{projectName}}“ oder lade ein eigenes Bild hoch.",
+    "projectIconDialogTitle": "Projektsymbol ändern",
+    "projectIconReplace": "Bild ersetzen",
+    "projectIconReset": "Auf Standard zurücksetzen",
+    "projectIconSearch": "Symbole suchen",
+    "projectIconUpload": "Bild hochladen",
+    "taskBoardLabel": "Task Board"
   },
   "sidebar_toast": {
     "sessionDeleted": "Sitzung gelöscht",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Session intelligent umbenannt",
     "dropNotFolder": "Bitte legen Sie einen Ordner ab, keine Datei",
     "projectsCreatedCount": "{{count}} Projekte erstellt",
-    "revealFailed": "Speicherort konnte nicht geöffnet werden"
+    "revealFailed": "Speicherort konnte nicht geöffnet werden",
+    "projectIconInvalidType": "Bitte eine Bilddatei auswählen",
+    "projectIconTooLarge": "Das Symbol muss kleiner als 1 MB sein",
+    "projectIconUploadFailed": "Das ausgewählte Symbol konnte nicht gelesen werden"
   },
   "topbar": {
     "togglePanel": "Kippfeld",
@@ -198,11 +211,15 @@
     "builtinSearch": "Integrierte Websuche",
     "builtinSearchOff": "Aus",
     "longContext": "1M-Kontext",
-    "longContextOn": "1M-Fenster · Long-Context-Tarif über 272K",
-    "longContextOff": "272K Standard · Short-Context-Tarif",
+    "longContextOn": "1M-Fenster · natives Long-Context-Fenster",
+    "longContextOff": "360K Standard · Standardfenster",
     "builtinSearchOn": "Anbietereigene Suche aktiviert",
     "faster": "Schneller",
-    "smarter": "Intelligenter"
+    "smarter": "Intelligenter",
+    "computerUse": "Computersteuerung",
+    "contextLength": "Kontextlänge",
+    "imageGeneration": "Bilderzeugung",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "Umwelt",
@@ -692,7 +709,8 @@
     "translate": "Übersetzen",
     "ssh": "SSH",
     "settings": "Einstellungen",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Task Board"
   },
   "resourcesPage": {
     "title": "Ressourcen",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Ins Englische übersetzen",
     "assistantQuickTranslatePrompt": "Übersetzen Sie den Kontexttext in einen natürlichen englischen Bildgenerierungs-Prompt. Geben Sie nur das Ergebnis aus.",
     "assistantStop": "Stopp",
-    "retry": "Wiederholen"
+    "retry": "Wiederholen",
+    "addImageGeneration": "Bilderzeugung hinzufügen",
+    "addTextGeneration": "Texterzeugung hinzufügen",
+    "addVideoGeneration": "Videoerzeugung hinzufügen",
+    "assistantActCancel": "Erzeugung abgebrochen",
+    "assistantActCanvas": "Canvas aktualisiert",
+    "assistantActCreateNode": "Knoten erstellt",
+    "assistantActCreateTrigger": "Trigger erstellt",
+    "assistantActDeleteNodes": "Knoten gelöscht",
+    "assistantActDeleteTrigger": "Trigger gelöscht",
+    "assistantActDisconnect": "Knoten getrennt",
+    "assistantActDuplicateNodes": "Knoten dupliziert",
+    "assistantActEdit": "Bild bearbeitet",
+    "assistantActGenerateVideo": "Videoerzeugung gestartet",
+    "assistantActMedia": "Medien verarbeitet",
+    "assistantActMove": "Knoten verschoben",
+    "assistantActResize": "Knoten skaliert",
+    "assistantActRetry": "Knoten erneut versucht",
+    "assistantActRun": "Knoten ausgeführt",
+    "assistantActSelect": "Auswahl aktualisiert",
+    "assistantActStatus": "Knotenstatus geprüft",
+    "assistantActSubscribe": "Knoten abonniert",
+    "assistantActUpdateNode": "Knoten aktualisiert",
+    "assistantActWait": "Auf Knoten gewartet",
+    "assistantApprove": "Genehmigen",
+    "assistantAttachImage": "Bild anhängen",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Bricht den laufenden Auftrag für Knoten {{nodeId}} ab. Bereits gesendete Arbeit kann trotzdem berechnet werden.",
+        "title": "Erzeugung abbrechen?"
+      },
+      "clear_canvas": {
+        "description": "Entfernt alle Knoten, Verbindungen und Trigger von diesem Canvas.",
+        "title": "Canvas leeren?"
+      },
+      "delete_nodes": {
+        "description": "Löscht {{count}} Knoten und ihre Verbindungen.",
+        "title": "Knoten löschen?"
+      },
+      "delete_project": {
+        "description": "Löscht das ausgewählte Canvas und seinen gespeicherten Graphen. Der Agent-Workspace wird in den Systempapierkorb verschoben.",
+        "title": "Canvas-Projekt löschen?"
+      },
+      "replace_canvas": {
+        "description": "Das Importieren dieses JSON ersetzt den aktuellen Canvas-Inhalt.",
+        "title": "Canvas ersetzen?"
+      },
+      "tool": {
+        "description": "Prüfe diese Tool-Aktion, bevor du sie zulässt.\n{{input}}",
+        "title": "{{toolName}} zulassen?"
+      }
+    },
+    "assistantDeleteMessage": "Nachricht löschen",
+    "assistantElapsed": "{{seconds}} s warten",
+    "assistantExecuting": "Canvas-Aktion wird ausgeführt",
+    "assistantExecutingTool": "{{tool}} wird ausgeführt",
+    "assistantImageInvalid": "Einige Bilder werden nicht unterstützt oder sind größer als 20 MB",
+    "assistantImagesAttached": "{{count}} Bild(er)",
+    "assistantListening": "Wartet auf Knotenereignisse",
+    "assistantListeningHint": "Der Assistent macht automatisch weiter, wenn der Knoten fertig ist.",
+    "assistantPinSelection": "Auswahl anheften ({{count}})",
+    "assistantRegenerate": "Neu erzeugen",
+    "assistantReject": "Ablehnen",
+    "assistantReplayMissingContext": "Ein Teil des ursprünglichen Canvas-Kontexts ist nicht mehr verfügbar und wurde übersprungen.",
+    "assistantRewrite": "Bearbeiten und neu erzeugen",
+    "assistantSideEffectsTitle": "Tool-Nebenwirkungen bleiben bestehen",
+    "assistantSideEffectsWarning": "Dieses Gespräch enthält Tool-Aktionen. Das Bearbeiten oder Löschen von Nachrichten macht Canvas-, Datei-, Shell- oder MCP-Nebenwirkungen nicht rückgängig. Fortfahren?",
+    "assistantThought": "Gedanke",
+    "assistantVisionRequired": "Wähle ein visionfähiges Modell, um Bilder zu senden",
+    "cameraFixed": "Kamera fixiert",
+    "copyError": "Fehler kopieren",
+    "deleteProject": "Canvas löschen",
+    "deleteProjectConfirm": "„{{name}}“ löschen? Der Agent-Workspace wird in den Systempapierkorb verschoben.",
+    "errorCopied": "Fehler kopiert",
+    "errorDetails": "Fehlerdetails",
+    "errorDetailsHint": "Prüfe die vollständige Anbieterantwort oder kopiere sie zur Fehleranalyse.",
+    "frameRole": "Frames",
+    "frameRoleAuto": "Referenz",
+    "frameRoleFirstLast": "Erstes → Letztes",
+    "frameRoleHint": "Die Frame-Reihenfolge folgt der Verbindungsreihenfolge.",
+    "generateAudio": "Audio",
+    "imageSize": "Bildgröße",
+    "nodeImageGeneration": "Bilderzeugung",
+    "nodeTextGeneration": "Texterzeugung",
+    "nodeTriggers": "Knotenereignis-Trigger",
+    "nodeTriggersDesc": "Führt einen anderen Knoten aus, wenn sich der Ausführungsstatus dieses Knotens ändert.",
+    "nodeVideoGeneration": "Videoerzeugung",
+    "seed": "Seed",
+    "soraReferenceExactSize": "Referenzbild: {{size}}. Sora erfordert eine exakte Größenübereinstimmung.",
+    "soraReferenceUnsupportedSize": "Referenzbild {{size}} entspricht keiner unterstützten Sora-Größe. Skaliere oder schneide es zuerst.",
+    "soraSingleReference": "Sora akzeptiert eine Eingabereferenz. Nur das erste verbundene Bild wird hochgeladen.",
+    "triggerAdd": "Hinzufügen",
+    "triggerCycle": "Dieser Trigger würde einen Zyklus erzeugen",
+    "triggerDuplicate": "Dieser Trigger existiert bereits",
+    "triggerEmpty": "Keine Trigger für diesen Knoten",
+    "triggerEvents": {
+      "cancelled": "Lauf abgebrochen",
+      "failed": "Lauf fehlgeschlagen",
+      "interrupted": "Lauf unterbrochen",
+      "progress": "Fortschritt aktualisiert",
+      "queued": "Lauf in der Warteschlange",
+      "started": "Lauf gestartet",
+      "succeeded": "Lauf erfolgreich",
+      "updated": "Knoten aktualisiert"
+    },
+    "triggerLastRun": "Letzter Lauf",
+    "triggerStatuses": {
+      "cancelled": "Abgebrochen",
+      "failed": "Fehlgeschlagen",
+      "idle": "Bereit",
+      "interrupted": "Unterbrochen",
+      "queued": "In Warteschlange",
+      "running": "Läuft",
+      "succeeded": "Erfolgreich"
+    },
+    "triggerSubscriptions": "{{count}} aktive(s) Abonnement(s)",
+    "triggerTarget": "Zielknoten wählen",
+    "watermark": "Wasserzeichen"
   },
   "translatePage": {
     "title": "AI Übersetzer",
@@ -1265,7 +1400,10 @@
       "description": "Standardmäßig wird Agenten nur codegraph_explore zur Verfügung gestellt. Aktivieren Sie diese Option, um zusätzlich search, node, callers, callees, impact, files und status zu registrieren (die Oberfläche wird weiterhin an die Projektgröße angepasst).",
       "title": "Vollständige Tool-Oberfläche für Agenten"
     },
-    "unknownRoot": "Unbekanntes Projekt ({{hash}})"
+    "unknownRoot": "Unbekanntes Projekt ({{hash}})",
+    "coreLibraryMissing": "Die tree-sitter-Runtime-Bibliothek fehlt oder ist ungültig. Installiere oder aktualisiere OpenCowork erneut.",
+    "languageGrammarsMissing": "Es wurden keine gültigen CodeGraph-Sprachgrammatiken gefunden. Installiere oder aktualisiere OpenCowork erneut.",
+    "workerMissing": "Der CodeGraph-Worker fehlt. Installiere oder aktualisiere OpenCowork erneut."
   },
   "committed": "Committed",
   "files": "Explorer",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Versionskontrolle",
   "scmUndo": "Rückgängig",
   "scmUnstage": "Vormerkung aufheben",
-  "scmUnstageAll": "Alle Vormerkungen aufheben"
+  "scmUnstageAll": "Alle Vormerkungen aufheben",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "RAM",
+    "memoryDetail": "Speicher {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, Speicher {{memory}}"
+  }
 }

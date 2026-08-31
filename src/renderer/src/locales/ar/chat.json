@@ -144,7 +144,11 @@
       "tpsHint": "رموز الناتج المولَّدة في الثانية بعد وصول أول رمز. تُحسب بعد اكتمال كل طلب API.",
       "ttft": "TTFT",
       "ttftFull": "الوقت حتى أول رمز",
-      "ttftHint": "الوقت من إرسال الطلب حتى استلام أول رمز متدفق. انخفاض TTFT يعني أن النموذج بدأ الاستجابة أسرع."
+      "ttftHint": "الوقت من إرسال الطلب حتى استلام أول رمز متدفق. انخفاض TTFT يعني أن النموذج بدأ الاستجابة أسرع.",
+      "cacheCreateShort": "كتابة",
+      "cacheHitShort": "ذاكرة مؤقتة",
+      "inputShort": "دخل",
+      "outputShort": "خرج"
     },
     "runtimeStatus": {
       "awaitingApproval": "بانتظار الموافقة: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "جارٍ تشغيل {{tool}}",
       "thinking": "جارٍ التفكير",
       "waiting": "بانتظار"
-    }
+    },
+    "contextCompressionFallback": "الملخص غير متاح؛ تمت إزالة السياق الأقدم",
+    "fileReference": {
+      "remove": "إزالة المرجع",
+      "removePlugin": "إزالة مرجع الإضافة"
+    },
+    "initBannerAction": "تشغيل /init",
+    "initBannerDismiss": "إغلاق",
+    "initBannerText": "لا يوجد AGENTS.md في المجلد الحالي. ابدأ سياق مساحة العمل لتحسين أداء الوكيل."
   },
   "planReview": {
     "awaitingReview": "في انتظار الاستعراض",
@@ -177,7 +189,13 @@
     "approvedHint": "وقد تمت الموافقة على هذه الخطة بالفعل.",
     "copy": "نسخ الخطة",
     "download": "تنزيل الخطة",
-    "expand": "توسيع في اللوحة الجانبية"
+    "expand": "توسيع في اللوحة الجانبية",
+    "rejectedHint": "طُلبت مراجعة. يعيد الوكيل صياغة هذه الخطة.",
+    "requestRevision": "طلب مراجعة",
+    "revisionDesc": "صف ما يجب تغييره. يعود الوكيل إلى وضع التخطيط ويعيد كتابة الخطة.",
+    "revisionPlaceholder": "مثلاً: قسّم الخطوة 3 إلى ترحيل ونشر.",
+    "revisionSubmit": "إرسال طلب المراجعة",
+    "revisionTitle": "طلب مراجعة الخطة"
   },
   "guide": {
     "title": "دليل المحادثة",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "جلسة معلومات أساسية",
     "backgroundInboxTitle": "المدخلات اللازمة",
     "backgroundInboxDescription": "{{title}} ينتظر خيارك",
-    "backgroundToast": "جلسة معلومات أساسية تنتظر خيارك"
+    "backgroundToast": "جلسة معلومات أساسية تنتظر خيارك",
+    "previewEmpty": "مرّر أو اختر خياراً لعرض معاينته."
   },
   "goal": {
     "title": "الهدف",
@@ -824,10 +843,47 @@
       "summaryLabel": "الانتقال إلى موجز السجل المضغوط {{index}}: {{preview}}",
       "summaryPreview": "موجز السجل المضغوط",
       "toolOnlyPreview": "{{count}} استدعاء أداة",
-      "userLabel": "الانتقال إلى رسالة المستخدم {{index}}: {{preview}}"
+      "userLabel": "الانتقال إلى رسالة المستخدم {{index}}: {{preview}}",
+      "navigation": "التنقل في المحادثة"
     },
     "pendingRetryTitle": "جارٍ إعادة الاتصال بالنموذج",
-    "pendingTeamTitle": "جارٍ تنسيق أعضاء الفريق"
+    "pendingTeamTitle": "جارٍ تنسيق أعضاء الفريق",
+    "homeCopy": {
+      "chat": [
+        [
+          "قل الجملة التي في ذهنك فعلاً",
+          "السؤال الناقص ما زال سؤالاً",
+          "يمكنني مساعدتك على إكماله"
+        ],
+        [
+          "لا يجب أن يبدو مثل تذكرة دعم",
+          "مسودة غير مرتبة تكفي للبدء",
+          "ضعها هنا"
+        ],
+        [
+          "لا تحتاج افتتاحية ذكية",
+          "يكفي أمر واحد تريد فهمه حقاً",
+          "سنكمل الباقي أثناء الحديث"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}} ما زال هنا",
+          "والمشكلة أيضاً",
+          "جملة محددة أفضل من حقل فارغ"
+        ],
+        [
+          "لا تحاول إنهاء كل شيء دفعة واحدة",
+          "أصغر شق هو غالباً الشق الحقيقي",
+          "ابدأ أنت وأتبعك"
+        ],
+        [
+          "المستودع الهادئ ليس بالضرورة سليماً",
+          "اليوم يمكنك إصلاح الشيء الذي يزعجك فقط",
+          "ابدأ من الأسفل"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "No project selected",
@@ -930,7 +986,22 @@
     "extensionToolCount": "{{count}} أدوات",
     "extensionToolCount_one": "{{count}} أداة",
     "extensionToolCount_other": "{{count}} أدوات",
-    "noCustomExtensions": "لا توجد إضافات مخصّصة مفعّلة"
+    "noCustomExtensions": "لا توجد إضافات مخصّصة مفعّلة",
+    "activeBadge": "نشط",
+    "addActionsWithCount": "إضافة إجراءات ({{count}})",
+    "addLabel": "إضافة",
+    "attachMediaDescription": "إضافة صور أو ملفات أو مجلدات",
+    "attachMediaMenu": "ملفات ومجلدات",
+    "channelsDescription": "إرسال هذه الرسالة إلى القنوات المتصلة",
+    "commandDescription": "استخدام هذا الأمر في الرسالة التالية",
+    "commandsDescription": "تشغيل قالب أمر محفوظ",
+    "extensionsDescription": "تفعيل أدوات مخصصة لهذا المشروع",
+    "goalModeDescription": "إبقاء هدف نشطاً طوال المحادثة",
+    "mcpDescription": "ربط أدوات خارجية بهذه المحادثة",
+    "mcpServerDescription": "خادم MCP متصل",
+    "planModeDescription": "تفعيل وضع التخطيط",
+    "skillDescription": "إضافة هذه المهارة إلى الرسالة",
+    "toolsAndIntegrations": "الأدوات والتكاملات"
   },
   "userMessage": {
     "you": "أنت",
@@ -1028,7 +1099,9 @@
       "copied": "Copied",
       "descRuntimeUnavailable": "تعذّر على OpenCowork الوصول إلى عامل التشغيل الأصلي (Native Worker) المحلي. حاول التطبيق بالفعل إعادة تشغيله؛ أعد إرسال الرسالة، أو أعد بناء عامل التشغيل الأصلي إذا تكرر ذلك.",
       "sidecarUnavailableMessage": "بيئة تشغيل العميل المحلية غير متاحة مؤقتًا. حاول OpenCowork إعادة تشغيلها؛ أعد إرسال هذه الرسالة. إذا استمر حدوث ذلك في بيئة التطوير، شغّل `npm run native:publish` وأعد تشغيل OpenCowork.",
-      "titleRuntimeUnavailable": "بيئة التشغيل المحلية غير متاحة"
+      "titleRuntimeUnavailable": "بيئة التشغيل المحلية غير متاحة",
+      "descRuntimeFatal": "لا يستطيع Native Worker المحلي إصلاح نفسه (ملف ثنائي قديم أو غير متوافق). أعد بناءه بـ `npm run native:publish` (للتطوير) أو أعد تثبيت OpenCowork ثم أعد تشغيل التطبيق.",
+      "titleRuntimeFatal": "بيئة التشغيل المحلية تحتاج إلى إصلاح"
     },
     "processTools": "استدعاءات الأدوات",
     "activeTools": "{{count}} أداة نشطة",
@@ -1049,7 +1122,8 @@
     "totalUsage": "إجمالي الاستخدام",
     "tpsHint": "رموز الناتج المولَّدة في الثانية",
     "ttftHint": "الوقت حتى أول رمز",
-    "uncachedInput": "مدخلات غير مخزَّنة مؤقتًا"
+    "uncachedInput": "مدخلات غير مخزَّنة مؤقتًا",
+    "processSummary": "تمت المعالجة"
   },
   "messageActions": {
     "fork": "Fork",

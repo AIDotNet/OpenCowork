@@ -144,7 +144,11 @@
       "tpsHint": "첫 토큰 도착 이후 초당 생성된 출력 토큰 수입니다. 각 API 요청이 완료된 후 계산됩니다.",
       "ttft": "TTFT",
       "ttftFull": "첫 토큰까지 걸린 시간",
-      "ttftHint": "요청을 보낸 시점부터 첫 스트리밍 토큰을 받을 때까지의 대기 시간입니다. TTFT가 낮을수록 모델이 더 빨리 응답을 시작한 것입니다."
+      "ttftHint": "요청을 보낸 시점부터 첫 스트리밍 토큰을 받을 때까지의 대기 시간입니다. TTFT가 낮을수록 모델이 더 빨리 응답을 시작한 것입니다.",
+      "cacheCreateShort": "쓰기",
+      "cacheHitShort": "캐시",
+      "inputShort": "입력",
+      "outputShort": "출력"
     },
     "runtimeStatus": {
       "awaitingApproval": "승인 대기 중: {{tool}}",
@@ -157,7 +161,15 @@
       "runningTool": "{{tool}} 실행 중",
       "thinking": "생각하는 중",
       "waiting": "대기 중"
-    }
+    },
+    "contextCompressionFallback": "요약을 사용할 수 없어 이전 컨텍스트를 제거했습니다",
+    "fileReference": {
+      "remove": "참조 제거",
+      "removePlugin": "플러그인 참조 제거"
+    },
+    "initBannerAction": "/init 실행",
+    "initBannerDismiss": "닫기",
+    "initBannerText": "현재 폴더에 AGENTS.md가 없습니다. 에이전트 성능을 높이려면 워크스페이스 컨텍스트를 초기화하세요."
   },
   "planReview": {
     "awaitingReview": "검토 대기 중",
@@ -177,7 +189,13 @@
     "approvedHint": "이 계획은 이미 승인되었습니다.",
     "copy": "계획 복사",
     "download": "계획 다운로드",
-    "expand": "사이드 패널에서 확장"
+    "expand": "사이드 패널에서 확장",
+    "rejectedHint": "수정을 요청했습니다. 에이전트가 이 계획을 다시 작성하고 있습니다.",
+    "requestRevision": "수정 요청",
+    "revisionDesc": "무엇을 바꿔야 하는지 설명하세요. 에이전트가 계획 모드로 돌아가 계획을 다시 씁니다.",
+    "revisionPlaceholder": "예: 3단계를 마이그레이션과 롤아웃으로 나누기.",
+    "revisionSubmit": "수정 요청 보내기",
+    "revisionTitle": "계획 수정 요청"
   },
   "guide": {
     "title": "대화 온보딩",
@@ -325,7 +343,8 @@
     "backgroundSessionFallback": "백그라운드 세션",
     "backgroundInboxTitle": "자주 묻는 질문",
     "backgroundInboxDescription": "{{title}}는 당신의 선택을 기다리고 있습니다",
-    "backgroundToast": "배경 세션은 당신의 선택을 기다리고 있습니다"
+    "backgroundToast": "배경 세션은 당신의 선택을 기다리고 있습니다",
+    "previewEmpty": "옵션에 마우스를 올리거나 선택하면 미리보기가 표시됩니다."
   },
   "goal": {
     "title": "목표",
@@ -824,10 +843,47 @@
       "summaryLabel": "압축된 기록 요약 {{index}}로 이동: {{preview}}",
       "summaryPreview": "압축된 기록 요약",
       "toolOnlyPreview": "도구 호출 {{count}}회",
-      "userLabel": "사용자 메시지 {{index}}로 이동: {{preview}}"
+      "userLabel": "사용자 메시지 {{index}}로 이동: {{preview}}",
+      "navigation": "대화 탐색"
     },
     "pendingRetryTitle": "모델에 다시 연결하는 중",
-    "pendingTeamTitle": "팀원 조율 중"
+    "pendingTeamTitle": "팀원 조율 중",
+    "homeCopy": {
+      "chat": [
+        [
+          "지금 떠오른 문장을 그대로 말해 주세요",
+          "질문이 불완전해도 괜찮습니다",
+          "질문을 함께 다듬을 수 있습니다"
+        ],
+        [
+          "티켓처럼 쓸 필요는 없습니다",
+          "거친 초안이면 충분합니다",
+          "그냥 넣어 주세요"
+        ],
+        [
+          "멋진 도입부는 필요 없습니다",
+          "정말 알고 싶은 한 가지면 충분합니다",
+          "나머지는 대화하면서 채웁니다"
+        ]
+      ],
+      "project": [
+        [
+          "{{name}}는 아직 여기 있습니다",
+          "문제도 그대로입니다",
+          "구체적인 한 문장이 빈 입력창보다 낫습니다"
+        ],
+        [
+          "한 번에 다 끝내지 않아도 됩니다",
+          "가장 작은 절개면이 진짜인 경우가 많습니다",
+          "당신이 시작하면 제가 따라갑니다"
+        ],
+        [
+          "조용한 저장소가 건강한 건 아닙니다",
+          "오늘 거슬렸던 것만 고쳐도 됩니다",
+          "아래에서 시작하세요"
+        ]
+      ]
+    }
   },
   "projectHome": {
     "noProjectSelected": "선택 없음",
@@ -930,7 +986,22 @@
     "extensionToolCount": "도구 {{count}}개",
     "extensionToolCount_one": "도구 {{count}}개",
     "extensionToolCount_other": "도구 {{count}}개",
-    "noCustomExtensions": "활성화된 사용자 지정 확장이 없습니다"
+    "noCustomExtensions": "활성화된 사용자 지정 확장이 없습니다",
+    "activeBadge": "활성",
+    "addActionsWithCount": "작업 추가({{count}})",
+    "addLabel": "추가",
+    "attachMediaDescription": "이미지, 파일 또는 폴더 추가",
+    "attachMediaMenu": "파일 및 폴더",
+    "channelsDescription": "연결된 채널로 이 메시지 보내기",
+    "commandDescription": "다음 메시지에서 이 명령 사용",
+    "commandsDescription": "저장된 명령 템플릿 실행",
+    "extensionsDescription": "이 프로젝트의 사용자 지정 도구 사용",
+    "goalModeDescription": "대화 동안 목표를 유지",
+    "mcpDescription": "외부 도구를 이 대화에 연결",
+    "mcpServerDescription": "연결된 MCP 서버",
+    "planModeDescription": "계획 모드 사용",
+    "skillDescription": "이 스킬을 메시지에 추가",
+    "toolsAndIntegrations": "도구 및 통합"
   },
   "userMessage": {
     "you": "이름 *",
@@ -1028,7 +1099,9 @@
       "copied": "뚱 베어",
       "descRuntimeUnavailable": "OpenCowork가 로컬 Native Worker에 연결할 수 없습니다. 이미 재시작을 시도했습니다. 메시지를 다시 시도하거나, 계속 반복되면 native worker를 다시 빌드하세요.",
       "sidecarUnavailableMessage": "로컬 에이전트 런타임을 일시적으로 사용할 수 없습니다. OpenCowork가 재시작을 시도했습니다. 이 메시지를 다시 시도하세요. 개발 환경에서 계속 발생한다면 `npm run native:publish`를 실행한 뒤 OpenCowork를 재시작하세요.",
-      "titleRuntimeUnavailable": "로컬 런타임을 사용할 수 없음"
+      "titleRuntimeUnavailable": "로컬 런타임을 사용할 수 없음",
+      "descRuntimeFatal": "로컬 Native Worker가 스스로 복구할 수 없습니다(오래되었거나 호환되지 않는 바이너리). 개발 환경에서는 `npm run native:publish`로 다시 빌드하거나 OpenCowork를 재설치한 뒤 앱을 다시 시작하세요.",
+      "titleRuntimeFatal": "로컬 런타임을 복구해야 합니다"
     },
     "processTools": "도구 호출",
     "activeTools": "{{count}}개 활성 도구",
@@ -1049,7 +1122,8 @@
     "totalUsage": "총 사용량",
     "tpsHint": "초당 생성된 출력 토큰 수",
     "ttftHint": "첫 토큰까지 걸린 시간",
-    "uncachedInput": "캐시되지 않은 입력"
+    "uncachedInput": "캐시되지 않은 입력",
+    "processSummary": "처리됨"
   },
   "messageActions": {
     "fork": "사이트맵",

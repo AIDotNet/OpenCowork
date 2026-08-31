@@ -204,7 +204,8 @@
       "installing": "Preparazione aggiornamento…",
       "greenBuild": "Build senza installazione",
       "manualDownloadHint": "È disponibile una nuova versione (v{{version}}). Per la build senza installazione, scaricala manualmente, chiudi l'app e sostituisci la cartella corrente.",
-      "openDownloadPage": "Apri pagina di download"
+      "openDownloadPage": "Apri pagina di download",
+      "compatBuild": "Build di compatibilità"
     },
     "projectDefaultDirectory": {
       "title": "Directory di progetto predefinito",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "Interfaccia",
       "editor": "Editor"
-    }
+    },
+    "autoUpdateCompatDesc": "La build di compatibilità (CPU più vecchie senza SSE4.2) non usa il canale ufficiale di aggiornamento automatico. Scarica l’installer *-win-x64-compat corrispondente dalla GitHub Release."
   },
   "sync": {
     "title": "Traduzione:",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "Impostazioni di sistema",
-    "subtitle": "Shell runtime, proxy e preferenze di esecuzione a livello operativo",
+    "subtitle": "Aggiornamenti dell’app, runtime Shell, proxy e preferenze di esecuzione a livello di sistema",
     "platform": "Piattaforma: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(progetto sconosciuto) {{hash}}",
       "workerMissing": "Il binario worker di CodeGraph non è stato trovato. Compilalo con `npm run codegraph:publish` (o `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`).",
       "workerRunning": "Worker in esecuzione",
-      "workerStopped": "Worker non avviato (si avvia al primo utilizzo)"
+      "workerStopped": "Worker non avviato (si avvia al primo utilizzo)",
+      "availableLanguages": "Linguaggi disponibili: {{languages}}",
+      "coreLibraryMissing": "La libreria runtime di tree-sitter manca o non è valida. Reinstalla o aggiorna OpenCowork.",
+      "invalidFiles": "File di grammatica non validi: {{files}}",
+      "invalidGrammarPackage": "Alcuni file di grammatica CodeGraph non sono validi. Reinstalla o aggiorna OpenCowork.",
+      "languageGrammarsMissing": "Non sono state trovate librerie di grammatica linguistiche valide. Reinstalla o aggiorna OpenCowork.",
+      "missingLanguages": "Linguaggi non disponibili: {{languages}}",
+      "unrecognizedGrammars": "Librerie di grammatica non riconosciute: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "Lo strumento codegraph_explore viene esposto solo quando il plugin è abilitato e le sue grammatiche linguistiche sono pronte (scaricate, o fornite localmente in una build di sviluppo)."
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "Abilita ricerca web integrata",
     "enableBuiltinSearchDesc": "Usa la ricerca web nativa del provider (Claude / OpenAI Responses) invece di uno strumento client.",
     "enableLongContext": "Abilita contesto 1M",
-    "enableLongContextDesc": "Usa la finestra da 1M. Disattivo mantiene la tariffa short-context da 272K.",
+    "enableLongContextDesc": "Usa la finestra da 1M. Disattivo mantiene la finestra predefinita da 360K.",
     "kimiQuota5h": "Limite 5 ore",
     "kimiQuotaParallel": "Concorrenza massima {{count}}",
     "kimiQuotaWeekly": "Limite settimanale",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "Supporta la generazione di immagini",
     "supportsImageGenerationDesc": "L'endpoint implementa lo strumento server image_generation di OpenAI Responses.",
     "supportsWebsocket": "Supporta il protocollo WebSocket",
-    "supportsWebsocketDesc": "L'endpoint offre il trasporto WebSocket di OpenAI Responses."
+    "supportsWebsocketDesc": "L'endpoint offre il trasporto WebSocket di OpenAI Responses.",
+    "apiKeyHint": "Salvata in locale con le impostazioni di questo provider.",
+    "browserLogin": "Accesso dal browser",
+    "customIcon": "Icona del provider",
+    "customIconHint": "PNG, JPG, WebP, GIF o SVG. Fino a 1 MB.",
+    "enableAfterAdding": "Abilita il provider dopo l’aggiunta",
+    "enableAfterAddingHint": "Il provider può essere configurato subito.",
+    "iconInvalidType": "Seleziona un file immagine",
+    "iconTooLarge": "L’icona deve essere più piccola di 1 MB",
+    "iconUploadFailed": "Impossibile leggere l’icona selezionata",
+    "modelMetaPricingTiers": "{{count}} scaglioni di prezzo",
+    "pricingTierAdd": "Aggiungi scaglione",
+    "pricingTierHint": "Lo scaglione è scelto in base alla dimensione del prompt (token di input + cache) per richiesta.",
+    "pricingTierRemove": "Rimuovi scaglione",
+    "pricingTierThreshold": "Da token di prompt",
+    "pricingTiers": "Prezzi a scaglioni",
+    "pricingTiersDesc": "Per i modelli fatturati in base alla dimensione del prompt. Ogni scaglione sostituisce le tariffe sopra quando una richiesta raggiunge la sua soglia di token di prompt; lascia un prezzo vuoto per mantenere la tariffa base.",
+    "removeIcon": "Rimuovi",
+    "replaceIcon": "Sostituisci",
+    "uploadIcon": "Carica icona"
   },
   "channel": {
     "title": "Canali",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "Aggiornamenti e dati",
-    "subtitle": "Aggiornamenti dell'app, backup, migrazione e ripristino",
+    "title": "Gestione dei dati",
+    "subtitle": "Backup, migrazione e ripristino",
     "dangerZone": "Zona pericolosa",
     "dangerZoneDesc": "Queste azioni non possono essere annullate"
   }

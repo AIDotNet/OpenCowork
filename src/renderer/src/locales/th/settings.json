@@ -163,7 +163,7 @@
     "systemProxyDesc": "ตั้งค่าที่อยู่ URL ของพร็อกซีที่ถูกใช้โดยโพรเซสทั้งหมดของโปรแกรม ตัวอย่างเช่น http: // 127.0.1:7890 หรือ http: port",
     "toolbarCollapsedByDefault": "ยุบแถบเครื่องมือโดยปริยาย",
     "toolbarCollapsedByDefaultDesc": "ออกจากโปรแกรมโดยปริยาย แล้วทําการเริ่มสถานะของแถบเครื่องมือด้านซ้ายเมื่อโปรแกรมเปิด",
-    "chinese": "○",
+    "chinese": "中文",
     "english": "อังกฤษ",
     "systemPromptPlaceholder": "เพิ่มคําแนะนํากําหนดเอง...",
     "teamTools": "เครื่องมือของทีม",
@@ -188,23 +188,24 @@
     "autoUpdate": "ตรวจสอบและอัปเดตโปรแกรมอัตโนมัติ",
     "autoUpdateDesc": "เปิดใช้โดยปริยาย ตรวจสอบอัปเดตเมื่อเริ่มงาน ดาวน์โหลดเวอร์ชันใหม่อัตโนมัติ แล้วถามก่อนเริ่มใหม่เพื่อติดตั้ง หากปิดไว้ การอัปเดตจะเป็นแบบแมนนวล",
     "update": {
-      "status": "ปรับปรุงสถานะ",
-      "currentVersion": "ตัว v ปัจจุบัน {{version}}",
-      "latestVersion": "รุ่นล่าสุด v {{version}}",
-      "checking": "กําลังตรวจ...",
-      "checkForUpdates": "Check สําหรับการปรับปรุง",
-      "updating": "กําลังปรับปรุง...",
-      "updateNow": "ปรับปรุงเดี๋ยวนี้",
-      "failedToCheck": "ล้มเหลวในการตรวจสอบความคืบหน้า: {{error}}",
-      "upToDate": "คุณพร้อมจะออกเดทแล้ว",
-      "newVersionAvailable": "รุ่นใหม่ (v) {{version}} ยังว่างอยู่",
+      "status": "สถานะการอัปเดต",
+      "currentVersion": "ปัจจุบัน v{{version}}",
+      "latestVersion": "ล่าสุด v{{version}}",
+      "checking": "กำลังตรวจสอบ…",
+      "checkForUpdates": "ตรวจสอบการอัปเดต",
+      "updating": "กำลังอัปเดต…",
+      "updateNow": "อัปเดตทันที",
+      "failedToCheck": "ตรวจสอบการอัปเดตไม่สำเร็จ: {{error}}",
+      "upToDate": "คุณใช้เวอร์ชันล่าสุดแล้ว",
+      "newVersionAvailable": "มีเวอร์ชันใหม่กว่า (v{{version}})",
       "downloading": "กําลังดาวน์โหลดข้อมูลล่าสุด...",
       "downloadingWithProgress": "กําลังดาวน์โหลดข้อมูลล่าสุด... {{progress}} %",
       "downloadedReady": "ดาวน์โหลดอัปเดต v{{version}} แล้ว คลิกอัปเดตตอนนี้เพื่อเริ่มใหม่และติดตั้ง",
       "installing": "กําลังเตรียมอัปเดต…",
       "greenBuild": "รุ่นไม่ต้องติดตั้ง",
       "manualDownloadHint": "มีเวอร์ชันใหม่กว่า (v{{version}}) พร้อมใช้งาน สําหรับรุ่นไม่ต้องติดตั้ง โปรดดาวน์โหลดด้วยตนเอง ปิดโปรแกรม แล้วแทนที่โฟลเดอร์ปัจจุบัน",
-      "openDownloadPage": "เปิดหน้าดาวน์โหลด"
+      "openDownloadPage": "เปิดหน้าดาวน์โหลด",
+      "compatBuild": "รุ่นความเข้ากันได้"
     },
     "projectDefaultDirectory": {
       "title": "ไดเรกทอรีโครงการปริยาย",
@@ -260,7 +261,8 @@
     "sections": {
       "interface": "อินเทอร์เฟซ",
       "editor": "ตัวแก้ไข"
-    }
+    },
+    "autoUpdateCompatDesc": "รุ่นความเข้ากันได้ (CPU เก่าที่ไม่มี SSE4.2) ไม่ใช้ช่องอัปเดตอัตโนมัติอย่างเป็นทางการ ดาวน์โหลดตัวติดตั้ง *-win-x64-compat ที่ตรงกันจาก GitHub Release"
   },
   "sync": {
     "title": "ปรับเทียบข้อมูล",
@@ -324,7 +326,7 @@
   },
   "system": {
     "title": "ตั้งค่าระบบ",
-    "subtitle": "ตั้งค่าเวลาประมวลผลของเชลล์, พร็อกซี, และปรับแต่งการประมวลผลระดับ OS",
+    "subtitle": "อัปเดตแอป รันไทม์เชลล์ พร็อกซี และการตั้งค่าการประมวลผลระดับระบบ",
     "platform": "แพลตฟอร์ม: {{platform}}",
     "shell": {
       "endpoint": {
@@ -679,7 +681,14 @@
       "unknownRoot": "(โครงการที่ไม่ทราบชื่อ) {{hash}}",
       "workerMissing": "ไม่พบไฟล์ไบนารีของ CodeGraph worker โปรดคอมไพล์ด้วย `npm run codegraph:publish` (หรือ `dotnet build sidecars/codegraph/OpenCowork.CodeGraph.Worker`)",
       "workerRunning": "Worker กําลังทํางาน",
-      "workerStopped": "Worker ยังไม่เริ่มทํางาน (จะเริ่มเมื่อใช้งานครั้งแรก)"
+      "workerStopped": "Worker ยังไม่เริ่มทํางาน (จะเริ่มเมื่อใช้งานครั้งแรก)",
+      "availableLanguages": "ภาษาที่ใช้ได้: {{languages}}",
+      "coreLibraryMissing": "ไลบรารีรันไทม์ tree-sitter หายไปหรือไม่ถูกต้อง ติดตั้ง OpenCowork ใหม่หรืออัปเดต",
+      "invalidFiles": "ไฟล์ไวยากรณ์ไม่ถูกต้อง: {{files}}",
+      "invalidGrammarPackage": "ไฟล์ไวยากรณ์ CodeGraph บางไฟล์ไม่ถูกต้อง ติดตั้ง OpenCowork ใหม่หรืออัปเดต",
+      "languageGrammarsMissing": "ไม่พบไลบรารีไวยากรณ์ภาษาที่ถูกต้อง ติดตั้ง OpenCowork ใหม่หรืออัปเดต",
+      "missingLanguages": "ภาษาที่ใช้ไม่ได้: {{languages}}",
+      "unrecognizedGrammars": "ไลบรารีไวยากรณ์ที่ไม่รู้จัก: {{grammars}}"
     },
     "toolStatusDescCodeGraph": "เครื่องมือ codegraph_explore จะเปิดให้ใช้งานได้ก็ต่อเมื่อเปิดใช้งานปลั๊กอินและไวยากรณ์ภาษาพร้อมใช้งานแล้ว (ดาวน์โหลดแล้ว หรือมีให้ในเครื่องสําหรับรุ่นพัฒนา)"
   },
@@ -1156,7 +1165,7 @@
     "enableBuiltinSearch": "เปิดใช้งานการค้นหาเว็บในตัว",
     "enableBuiltinSearchDesc": "ใช้การค้นหาเว็บแบบเนทีฟของผู้ให้บริการ (Claude / OpenAI Responses) แทนเครื่องมือฝั่งไคลเอนต์",
     "enableLongContext": "เปิดใช้บริบท 1M",
-    "enableLongContextDesc": "ใช้หน้าต่าง 1M ปิดแล้วจะใช้ราคาบริบทสั้น 272K",
+    "enableLongContextDesc": "ใช้หน้าต่าง 1M ปิดแล้วจะใช้หน้าต่างเริ่มต้น 360K",
     "kimiQuota5h": "โควตา 5 ชั่วโมง",
     "kimiQuotaParallel": "การทํางานพร้อมกันสูงสุด {{count}}",
     "kimiQuotaWeekly": "โควตารายสัปดาห์",
@@ -1173,7 +1182,26 @@
     "supportsImageGeneration": "รองรับการสร้างภาพ",
     "supportsImageGenerationDesc": "เอนด์พอยต์นี้รองรับเครื่องมือฝั่งเซิร์ฟเวอร์ image_generation ของ OpenAI Responses",
     "supportsWebsocket": "รองรับโพรโทคอล WebSocket",
-    "supportsWebsocketDesc": "เอนด์พอยต์นี้รองรับการส่งข้อมูลผ่าน WebSocket ของ OpenAI Responses"
+    "supportsWebsocketDesc": "เอนด์พอยต์นี้รองรับการส่งข้อมูลผ่าน WebSocket ของ OpenAI Responses",
+    "apiKeyHint": "เก็บในเครื่องพร้อมการตั้งค่าของผู้ให้บริการนี้",
+    "browserLogin": "เข้าสู่ระบบผ่านเบราว์เซอร์",
+    "customIcon": "ไอคอนผู้ให้บริการ",
+    "customIconHint": "PNG, JPG, WebP, GIF หรือ SVG สูงสุด 1 MB",
+    "enableAfterAdding": "เปิดใช้ผู้ให้บริการหลังเพิ่ม",
+    "enableAfterAddingHint": "ตั้งค่าผู้ให้บริการได้ทันที",
+    "iconInvalidType": "เลือกไฟล์รูปภาพ",
+    "iconTooLarge": "ไอคอนต้องเล็กกว่า 1 MB",
+    "iconUploadFailed": "อ่านไอคอนที่เลือกไม่ได้",
+    "modelMetaPricingTiers": "ระดับราคา {{count}} ระดับ",
+    "pricingTierAdd": "เพิ่มระดับ",
+    "pricingTierHint": "เลือกระดับตามขนาดพรอมต์ (โทเคนอินพุต + แคช) ต่อคำขอ",
+    "pricingTierRemove": "ลบระดับ",
+    "pricingTierThreshold": "ตั้งแต่โทเคนพรอมต์",
+    "pricingTiers": "ราคาแบบระดับ",
+    "pricingTiersDesc": "สำหรับโมเดลที่คิดเงินตามขนาดพรอมต์ แต่ละระดับจะแทนที่อัตราด้านบนเมื่อคำขอถึงพื้นโทเคนพรอมต์ เว้นราคาว่างเพื่อคงอัตราฐาน",
+    "removeIcon": "ลบ",
+    "replaceIcon": "แทนที่",
+    "uploadIcon": "อัปโหลดไอคอน"
   },
   "channel": {
     "title": "ช่อง",
@@ -1716,8 +1744,8 @@
     }
   },
   "data": {
-    "title": "การอัปเดตและข้อมูล",
-    "subtitle": "อัปเดตแอป สำรองข้อมูล ย้ายข้อมูล และรีเซ็ต",
+    "title": "การจัดการข้อมูล",
+    "subtitle": "สำรองข้อมูล ย้ายข้อมูล และรีเซ็ต",
     "dangerZone": "โซนอันตราย",
     "dangerZoneDesc": "การกระทำเหล่านี้ไม่สามารถย้อนกลับได้"
   }

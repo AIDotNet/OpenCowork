@@ -1,0 +1,90 @@
+{
+  "views": {
+    "dashboard": "ダッシュボード",
+    "kanban": "ボード",
+    "list": "リスト",
+    "gantt": "タイムライン"
+  },
+  "columns": {
+    "pending": "未着手",
+    "in_progress": "進行中",
+    "blocked": "ブロック中",
+    "in_review": "確認待ち",
+    "completed": "完了"
+  },
+  "filters": {
+    "searchPlaceholder": "タスクを検索…",
+    "allSessions": "すべてのセッション",
+    "allPriorities": "すべての優先度",
+    "refresh": "更新"
+  },
+  "priority": {
+    "urgent": "緊急",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "none": "優先度なし"
+  },
+  "card": {
+    "blockedByCount": "{{count}} 件がブロック",
+    "due": "期限 {{date}}",
+    "running": "Agent 実行中"
+  },
+  "column": {
+    "empty": "タスクはありません",
+    "confirmDone": "完了を確認"
+  },
+  "empty": {
+    "title": "まだタスクがありません",
+    "description": "各セッションでエージェントが作ったタスクがここに集まります。複雑な作業の計画を依頼するか、共同作業セッションでタスクを作成してください。"
+  },
+  "detail": {
+    "title": "タスクの詳細",
+    "subject": "タイトル",
+    "description": "説明",
+    "descriptionPlaceholder": "説明はありません",
+    "status": "状態",
+    "priority": "優先度",
+    "tags": "タグ",
+    "tagsPlaceholder": "tag1, tag2",
+    "dueAt": "期限",
+    "noDue": "期限なし",
+    "clearDue": "クリア",
+    "session": "セッション",
+    "sessionLoadFailed": "そのセッションが見つかりません",
+    "openSession": "セッションで作業する",
+    "dependencies": "依存関係",
+    "blocks": "ブロック対象",
+    "blockedBy": "ブロック要因",
+    "createdAt": "作成日時",
+    "updatedAt": "更新日時",
+    "delete": "タスクを削除",
+    "close": "閉じる",
+    "dispatchMessage": "このタスクの作業を続けてください: {{subject}}"
+  },
+  "list": {
+    "task": "タスク",
+    "session": "セッション",
+    "priority": "優先度",
+    "tags": "タグ",
+    "updated": "更新日時",
+    "showCompleted": "完了を表示"
+  },
+  "gantt": {
+    "noDated": "この範囲にタスクはありません",
+    "today": "今日"
+  },
+  "dashboard": {
+    "total": "タスク総数",
+    "activeSessions": "タスクがあるセッション",
+    "blockedTasks": "ブロック中のタスク",
+    "completionRate": "完了率",
+    "byStatus": "状態の分布",
+    "trend": "過去 14 日",
+    "trendCreated": "作成",
+    "trendCompleted": "完了",
+    "blockedList": "現在ブロック中",
+    "noBlocked": "ブロック中のタスクはありません",
+    "recentSessions": "セッション"
+  }
+}

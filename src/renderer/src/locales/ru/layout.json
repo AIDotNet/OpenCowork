@@ -111,7 +111,17 @@
     "projectSortName": "По алфавиту",
     "projectSortRecentlyUpdated": "По недавнему обновлению",
     "projectSortTitle": "Сортировка проектов: {{sort}}",
-    "revealInFolder": "Открыть расположение папки"
+    "revealInFolder": "Открыть расположение папки",
+    "changeProjectIcon": "Сменить значок",
+    "newAgentIn": "Новый Agent в {{projectName}}",
+    "projectIconDefault": "Папка по умолчанию",
+    "projectIconDialogDescription": "Выберите значок для «{{projectName}}» или загрузите своё изображение.",
+    "projectIconDialogTitle": "Сменить значок проекта",
+    "projectIconReplace": "Заменить изображение",
+    "projectIconReset": "Вернуть по умолчанию",
+    "projectIconSearch": "Искать значки",
+    "projectIconUpload": "Загрузить изображение",
+    "taskBoardLabel": "Доска задач"
   },
   "sidebar_toast": {
     "sessionDeleted": "Сессия удалена",
@@ -139,7 +149,10 @@
     "smartRenameSuccess": "Сеанс переименовали разумно",
     "dropNotFolder": "Перетащите папку, а не файл",
     "projectsCreatedCount": "Создано проектов: {{count}}",
-    "revealFailed": "Не удалось открыть расположение"
+    "revealFailed": "Не удалось открыть расположение",
+    "projectIconInvalidType": "Выберите файл изображения",
+    "projectIconTooLarge": "Значок должен быть меньше 1 МБ",
+    "projectIconUploadFailed": "Не удалось прочитать выбранный значок"
   },
   "topbar": {
     "togglePanel": "Панель переключателей",
@@ -198,11 +211,15 @@
     "builtinSearch": "Встроенный веб-поиск",
     "builtinSearchOff": "Выкл",
     "longContext": "Контекст 1M",
-    "longContextOn": "Окно 1M · длинный контекст дороже после 272K",
-    "longContextOff": "272K по умолчанию · короткий тариф",
+    "longContextOn": "Окно 1M · нативное окно длинного контекста",
+    "longContextOff": "360K по умолчанию · стандартное окно",
     "builtinSearchOn": "Включён нативный поиск провайдера",
     "faster": "Быстрее",
-    "smarter": "Умнее"
+    "smarter": "Умнее",
+    "computerUse": "Управление компьютером",
+    "contextLength": "Длина контекста",
+    "imageGeneration": "Генерация изображений",
+    "websocketProtocol": "WebSocket"
   },
   "runtimeStatus": {
     "contextTitle": "окружающая среда",
@@ -692,7 +709,8 @@
     "translate": "Переводить",
     "ssh": "Шшш",
     "settings": "Настройки",
-    "codegraph": "CodeGraph"
+    "codegraph": "CodeGraph",
+    "taskBoard": "Доска задач"
   },
   "resourcesPage": {
     "title": "ресурсы",
@@ -959,7 +977,124 @@
     "assistantQuickTranslate": "Перевести на английский",
     "assistantQuickTranslatePrompt": "Переведите текст из контекста в естественный промпт для генерации изображений на английском языке. Выведите только результат.",
     "assistantStop": "Стоп!",
-    "retry": "Повторить"
+    "retry": "Повторить",
+    "addImageGeneration": "Добавить генерацию изображения",
+    "addTextGeneration": "Добавить генерацию текста",
+    "addVideoGeneration": "Добавить генерацию видео",
+    "assistantActCancel": "Генерация отменена",
+    "assistantActCanvas": "Холст обновлён",
+    "assistantActCreateNode": "Узел создан",
+    "assistantActCreateTrigger": "Триггер создан",
+    "assistantActDeleteNodes": "Узлы удалены",
+    "assistantActDeleteTrigger": "Триггер удалён",
+    "assistantActDisconnect": "Узлы отсоединены",
+    "assistantActDuplicateNodes": "Узлы продублированы",
+    "assistantActEdit": "Изображение изменено",
+    "assistantActGenerateVideo": "Генерация видео запущена",
+    "assistantActMedia": "Медиа обработано",
+    "assistantActMove": "Узлы перемещены",
+    "assistantActResize": "Размер узла изменён",
+    "assistantActRetry": "Узел повторён",
+    "assistantActRun": "Узел выполнен",
+    "assistantActSelect": "Выделение обновлено",
+    "assistantActStatus": "Состояние узла проверено",
+    "assistantActSubscribe": "Подписка на узел оформлена",
+    "assistantActUpdateNode": "Узел обновлён",
+    "assistantActWait": "Ожидание узла",
+    "assistantApprove": "Разрешить",
+    "assistantAttachImage": "Прикрепить изображение",
+    "assistantConfirm": {
+      "cancel_node": {
+        "description": "Отменить текущий запуск узла {{nodeId}}. Провайдер может всё равно списать уже отправленную работу.",
+        "title": "Отменить генерацию?"
+      },
+      "clear_canvas": {
+        "description": "Удалить все узлы, связи и триггеры с этого холста.",
+        "title": "Очистить холст?"
+      },
+      "delete_nodes": {
+        "description": "Удалить {{count}} узел(ов) и их связи.",
+        "title": "Удалить узлы?"
+      },
+      "delete_project": {
+        "description": "Удалить выбранный холст и сохранённый граф. Рабочая область Agent будет перемещена в системную корзину.",
+        "title": "Удалить проект холста?"
+      },
+      "replace_canvas": {
+        "description": "Импорт этого JSON заменит текущее содержимое холста.",
+        "title": "Заменить холст?"
+      },
+      "tool": {
+        "description": "Проверьте эту операцию инструмента, прежде чем разрешить её.\n{{input}}",
+        "title": "Разрешить {{toolName}}?"
+      }
+    },
+    "assistantDeleteMessage": "Удалить сообщение",
+    "assistantElapsed": "Ожидание {{seconds}} с",
+    "assistantExecuting": "Выполняется действие на холсте",
+    "assistantExecutingTool": "Выполняется {{tool}}",
+    "assistantImageInvalid": "Некоторые изображения не поддерживаются или больше 20 МБ",
+    "assistantImagesAttached": "{{count}} изобр.",
+    "assistantListening": "Ожидание событий узла",
+    "assistantListeningHint": "Ассистент продолжит автоматически, когда узел завершится.",
+    "assistantPinSelection": "Закрепить выбранное ({{count}})",
+    "assistantRegenerate": "Сгенерировать заново",
+    "assistantReject": "Отклонить",
+    "assistantReplayMissingContext": "Часть исходного контекста холста больше недоступна и была пропущена.",
+    "assistantRewrite": "Изменить и сгенерировать заново",
+    "assistantSideEffectsTitle": "Побочные эффекты инструментов останутся",
+    "assistantSideEffectsWarning": "В этом разговоре есть действия инструментов. Правка или удаление сообщений не отменит изменения холста, файлов, Shell или MCP. Продолжить?",
+    "assistantThought": "Размышление",
+    "assistantVisionRequired": "Выберите модель с поддержкой зрения, чтобы отправлять изображения",
+    "cameraFixed": "Камера зафиксирована",
+    "copyError": "Копировать ошибку",
+    "deleteProject": "Удалить холст",
+    "deleteProjectConfirm": "Удалить «{{name}}»? Рабочая область Agent будет перемещена в системную корзину.",
+    "errorCopied": "Ошибка скопирована",
+    "errorDetails": "Сведения об ошибке",
+    "errorDetailsHint": "Просмотрите полный ответ провайдера или скопируйте его для диагностики.",
+    "frameRole": "Кадры",
+    "frameRoleAuto": "Опора",
+    "frameRoleFirstLast": "Первый → Последний",
+    "frameRoleHint": "Порядок кадров следует порядку соединений.",
+    "generateAudio": "Звук",
+    "imageSize": "Размер изображения",
+    "nodeImageGeneration": "Генерация изображения",
+    "nodeTextGeneration": "Генерация текста",
+    "nodeTriggers": "Триггеры событий узла",
+    "nodeTriggersDesc": "Запускать другой узел, когда меняется состояние выполнения этого.",
+    "nodeVideoGeneration": "Генерация видео",
+    "seed": "Сид",
+    "soraReferenceExactSize": "Опорное изображение: {{size}}. Sora требует точного совпадения размера.",
+    "soraReferenceUnsupportedSize": "Опорное изображение {{size}} не совпадает с поддерживаемым размером Sora. Сначала измените размер или обрежьте его.",
+    "soraSingleReference": "Sora принимает только одно опорное изображение. Будет загружено только первое подключённое изображение.",
+    "triggerAdd": "Добавить",
+    "triggerCycle": "Этот триггер создаст цикл",
+    "triggerDuplicate": "Такой триггер уже есть",
+    "triggerEmpty": "У этого узла нет триггеров",
+    "triggerEvents": {
+      "cancelled": "Запуск отменён",
+      "failed": "Запуск не удался",
+      "interrupted": "Запуск прерван",
+      "progress": "Прогресс обновлён",
+      "queued": "Запуск в очереди",
+      "started": "Запуск начат",
+      "succeeded": "Запуск успешен",
+      "updated": "Узел обновлён"
+    },
+    "triggerLastRun": "Последний запуск",
+    "triggerStatuses": {
+      "cancelled": "Отменено",
+      "failed": "Ошибка",
+      "idle": "Ожидание",
+      "interrupted": "Прервано",
+      "queued": "В очереди",
+      "running": "Выполняется",
+      "succeeded": "Успешно"
+    },
+    "triggerSubscriptions": "Активных подписок: {{count}}",
+    "triggerTarget": "Выберите целевой узел",
+    "watermark": "Водяной знак"
   },
   "translatePage": {
     "title": "Переводчик AI",
@@ -1265,7 +1400,10 @@
       "description": "По умолчанию агентам доступен только codegraph_explore. Включите, чтобы также зарегистрировать search, node, callers, callees, impact, files и status (набор всё равно определяется размером проекта).",
       "title": "Полный набор инструментов для агента"
     },
-    "unknownRoot": "Неизвестный проект ({{hash}})"
+    "unknownRoot": "Неизвестный проект ({{hash}})",
+    "coreLibraryMissing": "Библиотека runtime tree-sitter отсутствует или повреждена. Переустановите или обновите OpenCowork.",
+    "languageGrammarsMissing": "Не найдены корректные языковые грамматики CodeGraph. Переустановите или обновите OpenCowork.",
+    "workerMissing": "Отсутствует worker CodeGraph. Переустановите или обновите OpenCowork."
   },
   "committed": "Закоммичено",
   "files": "Проводник",
@@ -1286,5 +1424,12 @@
   "scmTitle": "Контроль источника",
   "scmUndo": "Отменить",
   "scmUnstage": "Убрать из индекса",
-  "scmUnstageAll": "Убрать всё из индекса"
+  "scmUnstageAll": "Убрать всё из индекса",
+  "perfOverlay": {
+    "cpu": "CPU",
+    "fps": "FPS",
+    "memory": "ПАМ",
+    "memoryDetail": "Память {{detail}}",
+    "summary": "{{fps}} FPS, CPU {{cpu}}, память {{memory}}"
+  }
 }

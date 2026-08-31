@@ -57,6 +57,10 @@ import {
   isSessionForeground
 } from '../lib/agent/session-runtime-router'
 import { mergeUsageSnapshot } from '../lib/agent/usage-merge'
+import {
+  isLiveQuotedTranscriptMessage,
+  shouldKeepUnfetchedQuotedResident
+} from '../lib/chat/quoted-transcript-message'
 import { agentStream } from '../lib/ipc/agent-stream-receiver'
 import { parseChatRoute } from '../lib/chat-route'
 import {
@@ -1391,6 +1395,12 @@ interface ChatStore {
   messageLocatorVersions: Record<string, number>
   bumpMessageLocatorVersion: (sessionId: string) => void
   clearMessageLocatorVersion: (sessionId: string) => void
+  /**
+   * Bumped when a quoted prompt is inserted mid-run so the transcript can
+   * pin that bubble into view without waiting for a session reload.
+   */
+  transcriptReveal: { sessionId: string; messageId: string; nonce: number } | null
+  requestTranscriptReveal: (sessionId: string, messageId: string) => void
 
   // Initialization
   loadFromDb: () => Promise<void>
@@ -2070,6 +2080,8 @@ function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 
 
   if (preserve === 'head') {
     while (shouldTrim() && session.messages.length > MESSAGE_WINDOW_MIN_RESIDENT_ROWS) {
+      const last = session.messages[session.messages.length - 1]
+      if (isLiveQuotedTranscriptMessage(last)) break
       const remaining = session.messages.slice(0, -1)
       if (
         hasResidentListVisibleMessage(session.messages) &&
@@ -2723,23 +2735,19 @@ function mergeLoadedMessagesWithResident(
       typeof resident.sortOrder === 'number' && Number.isFinite(resident.sortOrder)
         ? Math.max(0, Math.floor(resident.sortOrder))
         : Math.max(0, residentStart + index)
-    const isResidentPrefixOutsideFetchedWindow =
-      logicalIndex < windowStart && logicalIndex >= residentStart && logicalIndex < knownCount
-    const isLocalTailNotInDbYet =
-      logicalIndex >= windowStart &&
-      logicalIndex >= fetchedWindowEnd &&
-      logicalIndex < knownCount &&
-      residentEnd > fetchedWindowEnd
-    const isMissingFromShortDbSnapshot =
-      logicalIndex >= windowStart &&
-      logicalIndex < knownCount &&
-      session.messageCount > fetchedMessages.length &&
-      residentEnd > fetchedWindowEnd
     if (
-      !hasPendingLocalMessageWrite(resident.id) &&
-      !isResidentPrefixOutsideFetchedWindow &&
-      !isLocalTailNotInDbYet &&
-      !isMissingFromShortDbSnapshot
+      !shouldKeepUnfetchedQuotedResident({
+        isPendingLocalWrite: hasPendingLocalMessageWrite(resident.id),
+        isLiveQuoted: isLiveQuotedTranscriptMessage(resident),
+        logicalIndex,
+        residentStart,
+        windowStart,
+        fetchedWindowEnd,
+        knownCount,
+        residentEnd,
+        sessionMessageCount: session.messageCount,
+        fetchedCount: fetchedMessages.length
+      })
     ) {
       return
     }
@@ -2935,6 +2943,7 @@ export const useChatStore = create<ChatStore>()(
     projectSessionLoadState: {},
     sessionListPageState: {},
     messageLocatorVersions: {},
+    transcriptReveal: null,
 
     bumpMessageLocatorVersion: (sessionId) => {
       set((state) => {
@@ -2945,6 +2954,17 @@ export const useChatStore = create<ChatStore>()(
     clearMessageLocatorVersion: (sessionId) => {
       set((state) => {
         delete state.messageLocatorVersions[sessionId]
+      })
+    },
+
+    requestTranscriptReveal: (sessionId, messageId) => {
+      if (!sessionId || !messageId) return
+      set((state) => {
+        state.transcriptReveal = {
+          sessionId,
+          messageId,
+          nonce: (state.transcriptReveal?.nonce ?? 0) + 1
+        }
       })
     },
 
@@ -5868,6 +5888,7 @@ export const useChatStore = create<ChatStore>()(
         shouldPersist = true
         const previousMessageCount = session.messageCount
         const wasResidentAtTail = session.loadedRangeEnd >= previousMessageCount
+        const keepQuotedAtTail = isLiveQuotedTranscriptMessage(msg)
         sortOrder = session.messageCount
         if (!session.messagesLoaded) {
           session.messagesLoaded = true
@@ -5887,12 +5908,22 @@ export const useChatStore = create<ChatStore>()(
         session.lastKnownMessageCount = session.messageCount
         trimSessionMessageWindow(
           session,
-          getMessageWindowPreserveMode(session, wasResidentAtTail ? 'tail' : 'head')
+          getMessageWindowPreserveMode(
+            session,
+            wasResidentAtTail || keepQuotedAtTail ? 'tail' : 'head'
+          )
         )
+        if (keepQuotedAtTail) {
+          state.messageLocatorVersions[sessionId] =
+            (state.messageLocatorVersions[sessionId] ?? 0) + 1
+        }
         session.updatedAt = Date.now()
         resetSessionListCursorForScope(state, messageScope)
         releaseDormantSessionMemory(state)
       })
+      if (shouldPersist && isLiveQuotedTranscriptMessage(msg)) {
+        get().requestTranscriptReveal(sessionId, msg.id)
+      }
       if (!shouldPersist) return
       if (get().streamingMessages[sessionId] && msg.source !== 'quoted') {
         // Streaming turns can create many tool-result messages in quick bursts.
@@ -6640,12 +6671,10 @@ export const useChatStore = create<ChatStore>()(
 // --- RAF delta flush (wired after store creation to avoid TDZ) ---
 
 function collapsePendingStreamDeltas(deltas: StreamDelta[]): StreamDelta[] {
-  return collapseFanoutRepeatedChunks(
-    deltas,
-    (delta) =>
-      delta.kind === 'text'
-        ? `text:${delta.sessionId}:${delta.msgId}:${delta.text}`
-        : `thinking:${delta.sessionId}:${delta.msgId}:${delta.thinking}`
+  return collapseFanoutRepeatedChunks(deltas, (delta) =>
+    delta.kind === 'text'
+      ? `text:${delta.sessionId}:${delta.msgId}:${delta.text}`
+      : `thinking:${delta.sessionId}:${delta.msgId}:${delta.thinking}`
   )
 }
 

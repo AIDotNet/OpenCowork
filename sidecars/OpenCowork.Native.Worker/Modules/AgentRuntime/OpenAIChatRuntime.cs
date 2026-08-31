@@ -874,6 +874,7 @@ internal static class OpenAIChatRuntime
         AgentRuntimeTokenUsage? finalUsage = null;
         var finalStopReason = "stop";
         var assistantText = new StringBuilder();
+        var reasoningText = new StringBuilder();
         var toolBuffers = new Dictionary<int, ToolCallBuffer>();
         var toolCalls = new List<AgentRuntimeNativeToolCall>();
 
@@ -919,6 +920,7 @@ internal static class OpenAIChatRuntime
                         toolBuffers,
                         toolCalls,
                         assistantText,
+                        reasoningText,
                         state,
                         context,
                         startedAt,
@@ -965,6 +967,7 @@ internal static class OpenAIChatRuntime
                 toolBuffers,
                 toolCalls,
                 assistantText,
+                reasoningText,
                 state,
                 context,
                 startedAt,
@@ -1028,6 +1031,7 @@ internal static class OpenAIChatRuntime
         Dictionary<int, ToolCallBuffer> toolBuffers,
         List<AgentRuntimeNativeToolCall> completedToolCalls,
         StringBuilder assistantText,
+        StringBuilder reasoningText,
         AgentRuntimeTools.AgentRuntimeRunState state,
         WorkerRequestContext context,
         long startedAt,
@@ -1059,7 +1063,9 @@ internal static class OpenAIChatRuntime
         var choiceValue = choice.Value;
         if (choiceValue.TryGetProperty("delta", out var delta))
         {
-            var reasoning = ReadReasoningText(delta);
+            var reasoning = AgentRuntimeStreamDeltaCoalescer.TakeIncrement(
+                reasoningText,
+                ReadReasoningText(delta));
             if (!string.IsNullOrEmpty(reasoning))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
@@ -1071,12 +1077,13 @@ internal static class OpenAIChatRuntime
                     new AgentRuntimeStreamEvent("thinking_delta", Thinking: reasoning));
             }
 
-            var text = ReadString(delta, "content");
+            var text = AgentRuntimeStreamDeltaCoalescer.TakeIncrement(
+                assistantText,
+                ReadString(delta, "content"));
             if (!string.IsNullOrEmpty(text))
             {
                 markFirstTokenMs(ElapsedMs(startedAt));
                 addEstimatedOutputTokens(EstimateTokenCount(text));
-                assistantText.Append(text);
                 await AgentRuntimeTools.EmitProjectedAsync(
                     state,
                     context,
@@ -3435,6 +3442,16 @@ internal static class OpenAIChatRuntime
         var maxMessages = Math.Clamp(JsonHelpers.GetInt(contextSource, "maxMessages", 160), 1, 1000);
         using var connection = DbConnectionFactory.OpenReadWrite(parameters);
         var compaction = DbMessageTools.ReadCompaction(connection, null, sessionId);
+        // A cut whose summary row is not on disk yet (or was deleted) must not
+        // hide the compacted range: the model would then see only the tail.
+        if (compaction is not null &&
+            !DbMessageTools.MessageExists(connection, null, compaction.SummaryMessageId))
+        {
+            WorkerLog.Warn(
+                $"context source compaction ignored; summary row missing sessionId={sessionId} " +
+                $"summaryId={compaction.SummaryMessageId}");
+            compaction = null;
+        }
         var visibility = BuildContextVisibilityFilter(compaction);
 
         var count = CountVisibleContextMessages(connection, sessionId, visibility);

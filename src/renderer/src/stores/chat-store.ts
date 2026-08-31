@@ -65,8 +65,13 @@ import {
 } from '../lib/tools/tool-input-sanitizer'
 import {
   applyCompactWatermark,
-  deriveCompactWatermarkFromTranscript
+  deriveCompactWatermarkFromTranscript,
+  type CompactWatermark
 } from '../../../shared/compact-watermark'
+import {
+  coalesceStreamAppend,
+  collapseFanoutRepeatedChunks
+} from '../../../shared/stream-delta-coalesce'
 import { readSessionCompaction } from '../lib/agent/session-compaction-client'
 
 export type SessionMode = 'chat' | 'clarify' | 'cowork' | 'code' | 'acp'
@@ -1401,7 +1406,11 @@ interface ChatStore {
   ensureSessionLoaded: (sessionId: string, options?: { refresh?: boolean }) => Promise<boolean>
   ensureSessionWindow: (sessionId: string, force?: boolean) => Promise<boolean>
   loadRecentSessionMessages: (sessionId: string, force?: boolean, limit?: number) => Promise<void>
-  loadOlderSessionMessages: (sessionId: string, limit?: number) => Promise<number>
+  loadOlderSessionMessages: (
+    sessionId: string,
+    limit?: number,
+    options?: { preserve?: 'head' | 'tail' }
+  ) => Promise<number>
   loadNewerSessionMessages: (sessionId: string, limit?: number) => Promise<number>
   loadMessageWindowAround: (
     sessionId: string,
@@ -1692,6 +1701,7 @@ const MESSAGE_WINDOW_OVERSIZED_BYTES = 512 * 1024
 const MESSAGE_WINDOW_MAX_SIZE = 240
 const MESSAGE_WINDOW_MAX_RESIDENT_BYTES = 4 * 1024 * 1024
 const MESSAGE_WINDOW_MIN_RESIDENT_ROWS = 3
+const MESSAGE_WINDOW_VISIBLE_BACKFILL_PAGES = 8
 const MESSAGE_WINDOW_TAIL_PRESERVE = 60
 const REQUEST_CONTEXT_MAX_MESSAGES = 160
 const REQUEST_CONTEXT_HEAD_MESSAGES = 12
@@ -2060,6 +2070,13 @@ function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 
 
   if (preserve === 'head') {
     while (shouldTrim() && session.messages.length > MESSAGE_WINDOW_MIN_RESIDENT_ROWS) {
+      const remaining = session.messages.slice(0, -1)
+      if (
+        hasResidentListVisibleMessage(session.messages) &&
+        !hasResidentListVisibleMessage(remaining)
+      ) {
+        break
+      }
       const removed = session.messages.pop()
       if (!removed) break
       session.loadedRangeEnd = Math.max(session.loadedRangeStart, session.loadedRangeEnd - 1)
@@ -2069,6 +2086,13 @@ function trimSessionMessageWindow(session: Session, preserve: 'head' | 'tail' = 
   }
 
   while (shouldTrim() && session.messages.length > MESSAGE_WINDOW_MIN_RESIDENT_ROWS) {
+    const remaining = session.messages.slice(1)
+    if (
+      hasResidentListVisibleMessage(session.messages) &&
+      !hasResidentListVisibleMessage(remaining)
+    ) {
+      break
+    }
     session.messages.shift()
     session.loadedRangeStart = Math.min(session.messageCount, session.loadedRangeStart + 1)
   }
@@ -2231,6 +2255,28 @@ function hasToolResultOnlyUserMessage(message: UnifiedMessage): boolean {
     message.content.length > 0 &&
     message.content.every((block) => block.type === 'tool_result')
   )
+}
+
+/** Keep in sync with `HIDDEN_MESSAGE_LIST_TOOL_NAMES` in transcript-utils. */
+const HIDDEN_RESIDENT_LIST_TOOL_NAMES = new Set(['TaskCreate', 'TaskGet', 'TaskUpdate', 'TaskList'])
+
+/** Rows the transcript list will actually paint — not tool-result bookkeeping. */
+function isResidentListVisibleMessage(message: UnifiedMessage): boolean {
+  if (message.role === 'system') return false
+  if (hasToolResultOnlyUserMessage(message)) return false
+  if (message.role !== 'assistant') return true
+  if (typeof message.content === 'string') return message.content.trim().length > 0
+  if (!Array.isArray(message.content)) return true
+  return message.content.some((block) => {
+    if (block.type === 'tool_use') return !HIDDEN_RESIDENT_LIST_TOOL_NAMES.has(block.name)
+    if (block.type === 'text') return block.text.trim().length > 0
+    if (block.type === 'thinking') return block.thinking.trim().length > 0
+    return true
+  })
+}
+
+function hasResidentListVisibleMessage(messages: UnifiedMessage[]): boolean {
+  return messages.some(isResidentListVisibleMessage)
 }
 
 function hasToolUseMessage(message: UnifiedMessage): boolean {
@@ -2544,6 +2590,35 @@ function movePendingQuotedMessagesToRequestTail(messages: UnifiedMessage[]): Uni
   const pendingIds = new Set(pending.map((message) => message.id))
   const rest = messages.filter((message) => !pendingIds.has(message.id))
   return [...rest, ...pending]
+}
+
+async function ensureCompactionSummaryPresent(
+  sessionId: string,
+  messages: UnifiedMessage[],
+  compaction: CompactWatermark | null
+): Promise<UnifiedMessage[]> {
+  if (!compaction) return messages
+  if (messages.some((message) => message.id === compaction.summaryMessageId)) return messages
+  try {
+    const result = await dbGetMessageContent({
+      sessionId,
+      messageId: compaction.summaryMessageId
+    })
+    if (!result.success || !result.row) return messages
+    const summary = rowToMessage(result.row)
+    const next = [...messages, summary]
+    next.sort(
+      (left, right) => (left.sortOrder ?? left.createdAt) - (right.sortOrder ?? right.createdAt)
+    )
+    return next
+  } catch (error) {
+    console.warn('[ChatStore] Failed to load compaction summary', {
+      sessionId,
+      summaryMessageId: compaction.summaryMessageId,
+      error
+    })
+    return messages
+  }
 }
 
 function hasMeaningfulAssistantContent(message: UnifiedMessage): boolean {
@@ -3254,6 +3329,15 @@ export const useChatStore = create<ChatStore>()(
     ensureSessionWindow: async (sessionId, force = false) => {
       await get().ensureSessionLoaded(sessionId, { refresh: true })
       await get().loadRecentSessionMessages(sessionId, force)
+      for (let page = 0; page < MESSAGE_WINDOW_VISIBLE_BACKFILL_PAGES; page += 1) {
+        const current = get().sessions.find((item) => item.id === sessionId)
+        if (!current || current.loadedRangeStart <= 0) break
+        if (hasResidentListVisibleMessage(current.messages)) break
+        const loaded = await get().loadOlderSessionMessages(sessionId, undefined, {
+          preserve: 'head'
+        })
+        if (loaded <= 0) break
+      }
       const session = get().sessions.find((item) => item.id === sessionId)
       if (!session) return false
       if (session.messageCount === 0) return session.messagesLoaded
@@ -3436,7 +3520,11 @@ export const useChatStore = create<ChatStore>()(
       })
     },
 
-    loadOlderSessionMessages: async (sessionId, limit = RECENT_SESSION_MESSAGE_PAGE_SIZE) => {
+    loadOlderSessionMessages: async (
+      sessionId,
+      limit = RECENT_SESSION_MESSAGE_PAGE_SIZE,
+      options
+    ) => {
       const session = get().sessions.find((s) => s.id === sessionId)
       if (!session) return 0
       touchSessionWindowLru(sessionId)
@@ -3452,6 +3540,10 @@ export const useChatStore = create<ChatStore>()(
         try {
           const current = get().sessions.find((item) => item.id === sessionId)
           if (!current || current.loadedRangeStart <= 0) return 0
+          // Explicit history paging keeps the newly loaded head. Auto-fill while
+          // following the tail may pass preserve: 'tail' so a heavy window does
+          // not evict the latest messages to make room.
+          const preserveFallback = options?.preserve ?? 'head'
           const indexStartedAt = messageWindowPerfNow()
           const index = await dbGetMessageWindowIndex({
             sessionId,
@@ -3553,7 +3645,12 @@ export const useChatStore = create<ChatStore>()(
             target.hasNewer = target.loadedRangeEnd < effectiveTotal || range.hasNewer
             target.lastKnownMessageCount = effectiveTotal
             target.residentBytes = getResidentMessageBytes(target.messages)
-            trimSessionMessageWindow(target, getMessageWindowPreserveMode(target, 'head'))
+            trimSessionMessageWindow(
+              target,
+              preserveFallback === 'head'
+                ? 'head'
+                : getMessageWindowPreserveMode(target, preserveFallback)
+            )
           })
           logMessageWindowPerf('older', {
             sessionId,
@@ -4081,13 +4178,18 @@ export const useChatStore = create<ChatStore>()(
       messages = movePendingQuotedMessagesToRequestTail(messages)
       const initialShape = countToolReplayBlocks(messages)
       const preCompactSanitized = sanitizeToolBlocksForResend(messages)
-      const preCompactCount = preCompactSanitized.messages.length
       // Sessions compacted before the cut was recorded still carry the old marker
       // rows; deriving their cut keeps them compacted instead of replaying the
       // whole summarized history once more.
       const compaction =
         recordedCompaction ?? deriveCompactWatermarkFromTranscript(preCompactSanitized.messages)
-      messages = applyCompactWatermark(preCompactSanitized.messages, compaction)
+      messages = await ensureCompactionSummaryPresent(
+        sessionId,
+        preCompactSanitized.messages,
+        compaction
+      )
+      const preCompactCount = messages.length
+      messages = applyCompactWatermark(messages, compaction)
       if (messages.length !== preCompactCount) {
         console.log('[ChatStore] Applied compaction cut', {
           sessionId,
@@ -6537,6 +6639,16 @@ export const useChatStore = create<ChatStore>()(
 
 // --- RAF delta flush (wired after store creation to avoid TDZ) ---
 
+function collapsePendingStreamDeltas(deltas: StreamDelta[]): StreamDelta[] {
+  return collapseFanoutRepeatedChunks(
+    deltas,
+    (delta) =>
+      delta.kind === 'text'
+        ? `text:${delta.sessionId}:${delta.msgId}:${delta.text}`
+        : `thinking:${delta.sessionId}:${delta.msgId}:${delta.thinking}`
+  )
+}
+
 function groupStreamDeltasBySession(deltas: StreamDelta[]): Map<string, StreamDelta[]> {
   const bySession = new Map<string, StreamDelta[]>()
   for (const delta of deltas) {
@@ -6570,12 +6682,12 @@ function applyStreamDeltas(
 
         if (delta.kind === 'text') {
           if (typeof msg.content === 'string') {
-            msg.content += delta.text
+            msg.content = coalesceStreamAppend(msg.content, delta.text)
           } else {
             const blocks = msg.content as ContentBlock[]
             const lastBlock = blocks[blocks.length - 1]
             if (lastBlock?.type === 'text') {
-              ;(lastBlock as TextBlock).text += delta.text
+              ;(lastBlock as TextBlock).text = coalesceStreamAppend(lastBlock.text, delta.text)
             } else {
               blocks.push({ type: 'text', text: delta.text })
             }
@@ -6635,7 +6747,10 @@ function flushPendingStreamDeltasForMessage(sessionId: string, msgId: string): v
 
   matching.reverse()
   const affectedMessages: Array<{ sessionId: string; msgId: string }> = []
-  applyStreamDeltas(groupStreamDeltasBySession(matching), affectedMessages)
+  applyStreamDeltas(
+    groupStreamDeltasBySession(collapsePendingStreamDeltas(matching)),
+    affectedMessages
+  )
   persistAffectedMessages(affectedMessages)
 }
 
@@ -6652,7 +6767,7 @@ function flushStreamDeltas(): void {
   _streamDeltaRafId = null
   if (_pendingStreamDeltas.length === 0) return
 
-  const deltas = _pendingStreamDeltas.splice(0)
+  const deltas = collapsePendingStreamDeltas(_pendingStreamDeltas.splice(0))
   const affectedMessages: Array<{ sessionId: string; msgId: string }> = []
   applyStreamDeltas(groupStreamDeltasBySession(deltas), affectedMessages)
   persistAffectedMessages(affectedMessages)

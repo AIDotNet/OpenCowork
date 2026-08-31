@@ -6,6 +6,12 @@ internal static class AgentRuntimeToolInputNormalizer
     private static readonly string[] LsPathAliases =
         ["path", "target_directory", "targetDirectory", "directory", "dir"];
 
+    private static readonly string[] FilePathAliases =
+        ["path", "filePath", "filepath", "target_file", "targetFile"];
+
+    private static readonly string[] NotebookPathAliases =
+        ["file_path", "path", "filePath", "notebookPath"];
+
     private static readonly HashSet<string> LsListCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "ls",
@@ -18,8 +24,108 @@ internal static class AgentRuntimeToolInputNormalizer
     {
         var coerced = string.Equals(toolName, "LS", StringComparison.Ordinal)
             ? CoerceLsInput(input)
-            : input;
+            : CoerceSchemaAliases(schema, input);
         return AgentRuntimeToolSchemaValidator.PruneAdditionalProperties(schema, coerced);
+    }
+
+    /// <summary>
+    /// Models trained on other tool catalogs often send <c>path</c> or
+    /// <c>target_file</c> instead of the schema's <c>file_path</c>. Copy the
+    /// alias onto the canonical property before required-field validation.
+    /// </summary>
+    private static JsonElement CoerceSchemaAliases(JsonElement schema, JsonElement input)
+    {
+        if (input.ValueKind != JsonValueKind.Object ||
+            schema.ValueKind != JsonValueKind.Object ||
+            !schema.TryGetProperty("properties", out var properties) ||
+            properties.ValueKind != JsonValueKind.Object)
+        {
+            return input;
+        }
+
+        Dictionary<string, string>? replacements = null;
+        if (properties.TryGetProperty("file_path", out _) &&
+            TryResolveAlias(input, FilePathAliases, out var filePath) &&
+            !HasNonEmptyString(input, "file_path"))
+        {
+            replacements = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["file_path"] = filePath
+            };
+        }
+
+        if (properties.TryGetProperty("notebook_path", out _) &&
+            !HasNonEmptyString(input, "notebook_path"))
+        {
+            var notebookPath = HasNonEmptyString(input, "file_path")
+                ? JsonHelpers.GetString(input, "file_path")!.Trim()
+                : replacements is not null && replacements.TryGetValue("file_path", out var copied)
+                    ? copied
+                    : null;
+            if (string.IsNullOrEmpty(notebookPath))
+            {
+                _ = TryResolveAlias(input, NotebookPathAliases, out notebookPath);
+            }
+
+            if (!string.IsNullOrEmpty(notebookPath))
+            {
+                replacements ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                replacements["notebook_path"] = notebookPath;
+            }
+        }
+
+        return replacements is null ? input : WithStringProperties(input, replacements);
+    }
+
+    private static bool TryResolveAlias(JsonElement input, string[] aliases, out string value)
+    {
+        foreach (var name in aliases)
+        {
+            var candidate = JsonHelpers.GetString(input, name)?.Trim();
+            if (!string.IsNullOrEmpty(candidate))
+            {
+                value = candidate;
+                return true;
+            }
+        }
+
+        value = string.Empty;
+        return false;
+    }
+
+    private static bool HasNonEmptyString(JsonElement input, string name)
+    {
+        return !string.IsNullOrWhiteSpace(JsonHelpers.GetString(input, name));
+    }
+
+    private static JsonElement WithStringProperties(
+        JsonElement input,
+        IReadOnlyDictionary<string, string> extras)
+    {
+        return AgentRuntimeProviderSupport.CreateObjectElement(writer =>
+        {
+            var written = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in input.EnumerateObject())
+            {
+                if (extras.TryGetValue(property.Name, out var replacement))
+                {
+                    writer.WriteString(property.Name, replacement);
+                    written.Add(property.Name);
+                    continue;
+                }
+
+                writer.WritePropertyName(property.Name);
+                property.Value.WriteTo(writer);
+            }
+
+            foreach (var pair in extras)
+            {
+                if (written.Add(pair.Key))
+                {
+                    writer.WriteString(pair.Key, pair.Value);
+                }
+            }
+        });
     }
 
     private static JsonElement CoerceLsInput(JsonElement input)

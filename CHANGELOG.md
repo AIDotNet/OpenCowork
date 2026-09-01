@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.27] - 2026-09-01
+
+### Changed
+
+- Message-list tail follow now stops writing `scrollTop` after the stream ends. A short settle window still pins Thought collapse and widget paint; idle transcripts no longer keep chasing the bottom.
+- Hosted sessions reopen when the API key, endpoint, thinking toggle, or reasoning effort changes, instead of reusing a session-open template that still had the old provider pinned.
+
+### Fixed
+
+- Fixed inline widgets going blank or shrinking when a later streamed snapshot was shorter or truncated. The live merge keeps the longest complete `widget_code`.
+- Fixed Gemini chat/completions using the catalog's static `thinking_level` instead of the selected reasoning effort, and still emitting `reasoning_effort` after thinking was turned off.
+
 ## [1.3.26] - 2026-08-31
 
 ### Changed

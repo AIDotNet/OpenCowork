@@ -164,7 +164,6 @@ const MAX_OUTPUT_TOKENS_BODY_KEYS = [
 ]
 
 export function normalizeProviderType(type: ProviderType): ProviderType {
-  if (type === 'vertex-ai') return 'openai-chat'
   return type
 }
 

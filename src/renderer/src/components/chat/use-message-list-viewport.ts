@@ -8,6 +8,7 @@ import {
   type OlderLoadIntent,
   type ViewportMode,
   type ViewportRow,
+  canChaseTail,
   estimateTurnHeight,
   findNestedVerticalScroller,
   getDistanceToBottom,
@@ -104,10 +105,13 @@ export function useMessageListViewport({
   const initialFrameCountRef = React.useRef(0)
   const initialStartedAtRef = React.useRef<number | null>(null)
   const fillPagesRef = React.useRef(0)
+  const chaseUntilRef = React.useRef(0)
+  const chaseTimerRef = React.useRef<number | null>(null)
 
   const transcriptReveal = useChatStore((state) => state.transcriptReveal)
   const [phase, setPhase] = React.useState<MessageWindowPhase>(sessionId ? 'loading' : 'ready')
   const [isFollowing, setIsFollowing] = React.useState(true)
+  const [isChasingTail, setIsChasingTail] = React.useState(false)
   const [turnSpacerHeight, setTurnSpacerHeight] = React.useState(0)
   const [isLoadingOlder, setIsLoadingOlder] = React.useState(false)
   const [isLoadingNewer, setIsLoadingNewer] = React.useState(false)
@@ -127,19 +131,55 @@ export function useMessageListViewport({
     userIntentUntilRef.current = window.performance.now() + VIEWPORT.userIntentMs
   }, [])
 
-  const setMode = React.useCallback((next: ViewportMode) => {
-    modeRef.current = next
-    setIsFollowing(next !== 'browsing')
+  const stopTailChase = React.useCallback(() => {
+    chaseUntilRef.current = 0
+    if (chaseTimerRef.current !== null) {
+      window.clearTimeout(chaseTimerRef.current)
+      chaseTimerRef.current = null
+    }
+    setIsChasingTail((previous) => (previous ? false : previous))
   }, [])
 
-  const canPinBottom = React.useCallback(() => {
-    if (restoringRef.current) return false
-    const mode = modeRef.current
-    if (mode === 'positioning') return true
-    if (mode !== 'following') return false
-    if (isSessionOutputting) return canStreamFollow
-    return true
-  }, [canStreamFollow, isSessionOutputting])
+  const beginTailChase = React.useCallback((durationMs: number) => {
+    if (chaseTimerRef.current !== null) {
+      window.clearTimeout(chaseTimerRef.current)
+      chaseTimerRef.current = null
+    }
+    if (!Number.isFinite(durationMs)) {
+      chaseUntilRef.current = Number.POSITIVE_INFINITY
+      setIsChasingTail(true)
+      return
+    }
+    chaseUntilRef.current = window.performance.now() + durationMs
+    setIsChasingTail(true)
+    chaseTimerRef.current = window.setTimeout(() => {
+      chaseTimerRef.current = null
+      chaseUntilRef.current = 0
+      setIsChasingTail(false)
+    }, durationMs)
+  }, [])
+
+  const setMode = React.useCallback(
+    (next: ViewportMode) => {
+      modeRef.current = next
+      setIsFollowing(next !== 'browsing')
+      if (next === 'browsing') stopTailChase()
+    },
+    [stopTailChase]
+  )
+
+  const canPinBottom = React.useCallback(
+    () =>
+      canChaseTail({
+        mode: modeRef.current,
+        restoring: restoringRef.current,
+        isSessionOutputting,
+        canStreamFollow,
+        now: window.performance.now(),
+        chaseUntil: chaseUntilRef.current
+      }),
+    [canStreamFollow, isSessionOutputting]
+  )
 
   const pinBottom = React.useCallback(
     (behavior: ScrollBehavior = 'auto') => {
@@ -187,7 +227,7 @@ export function useMessageListViewport({
   )
 
   const syncTurnSpacer = React.useCallback(() => {
-    if (modeRef.current === 'browsing' && !restoringRef.current && phase === 'ready') return
+    if (phase === 'ready' && !canPinBottom()) return
     const scroller = listRef.current
     if (!scroller || !lastUserMessageId || rows.length === 0) {
       setTurnSpacerHeight((prev) => (prev === 0 ? prev : 0))
@@ -203,7 +243,7 @@ export function useMessageListViewport({
         previousSpacer: prev
       })
     )
-  }, [lastUserMessageId, measuredHeightsRef, phase, rows])
+  }, [canPinBottom, lastUserMessageId, measuredHeightsRef, phase, rows])
 
   const shouldAdjustScrollOnItemSizeChange = React.useCallback(
     (item: { end: number }, _delta: number, instance: { scrollOffset: number | null }): boolean => {
@@ -390,6 +430,9 @@ export function useMessageListViewport({
   const scrollToBottom = React.useCallback(() => {
     userIntentUntilRef.current = 0
     setMode('following')
+    beginTailChase(
+      isSessionOutputting && canStreamFollow ? Number.POSITIVE_INFINITY : VIEWPORT.followSettleMs
+    )
     const pin = (): void => {
       requestPinBottom({ force: true, maxFrames: VIEWPORT.followPinFrames })
     }
@@ -398,7 +441,15 @@ export function useMessageListViewport({
       return
     }
     pin()
-  }, [hasNewer, requestPinBottom, sessionId, setMode])
+  }, [
+    beginTailChase,
+    canStreamFollow,
+    hasNewer,
+    isSessionOutputting,
+    requestPinBottom,
+    sessionId,
+    setMode
+  ])
 
   const retryInitialLoad = React.useCallback(() => {
     if (!sessionId) return
@@ -610,7 +661,8 @@ export function useMessageListViewport({
     initialStartedAtRef.current = sessionId ? window.performance.now() : null
     fillPagesRef.current = 0
     measuredHeightsRef.current.clear()
-  }, [measuredHeightsRef, sessionId])
+    stopTailChase()
+  }, [measuredHeightsRef, sessionId, stopTailChase])
 
   React.useLayoutEffect(() => {
     if (!sessionId || phase !== 'positioning') return
@@ -622,16 +674,20 @@ export function useMessageListViewport({
 
   React.useEffect(() => {
     const wasOutputting = wasOutputtingRef.current
-    if (
-      !wasOutputting &&
-      isSessionOutputting &&
-      modeRef.current === 'following' &&
-      !pendingAskUserQuestion
-    ) {
-      setMode('following')
+    if (isSessionOutputting && modeRef.current === 'following' && !pendingAskUserQuestion) {
+      if (canStreamFollow) beginTailChase(Number.POSITIVE_INFINITY)
+    } else if (wasOutputting && !isSessionOutputting && modeRef.current === 'following') {
+      beginTailChase(VIEWPORT.followSettleMs)
+      requestPinBottom({ maxFrames: VIEWPORT.followPinFrames })
     }
     wasOutputtingRef.current = isSessionOutputting
-  }, [isSessionOutputting, pendingAskUserQuestion, setMode])
+  }, [
+    beginTailChase,
+    canStreamFollow,
+    isSessionOutputting,
+    pendingAskUserQuestion,
+    requestPinBottom
+  ])
 
   React.useLayoutEffect(() => {
     if (pendingAskUserQuestion) return
@@ -665,10 +721,16 @@ export function useMessageListViewport({
     if (modeRef.current === 'browsing' && !lastUserMessageIsQuoted) return
     if (previousId && !messageLookupHas(previousId)) return
     setMode('following')
+    beginTailChase(
+      isSessionOutputting && canStreamFollow ? Number.POSITIVE_INFINITY : VIEWPORT.followSettleMs
+    )
     syncTurnSpacer()
     pinBottom()
     requestPinBottom({ force: true, maxFrames: VIEWPORT.followSettleFrames })
   }, [
+    beginTailChase,
+    canStreamFollow,
+    isSessionOutputting,
     lastUserMessageId,
     lastUserMessageIsQuoted,
     messageLookupHas,
@@ -693,6 +755,9 @@ export function useMessageListViewport({
     restoringRef.current = false
     userIntentUntilRef.current = 0
     setMode('following')
+    beginTailChase(
+      isSessionOutputting && canStreamFollow ? Number.POSITIVE_INFINITY : VIEWPORT.followSettleMs
+    )
     syncTurnSpacer()
     if (hasNewer) {
       void useChatStore
@@ -706,7 +771,10 @@ export function useMessageListViewport({
     pinBottom()
     requestPinBottom({ force: true, maxFrames: VIEWPORT.followPinFrames })
   }, [
+    beginTailChase,
+    canStreamFollow,
     hasNewer,
+    isSessionOutputting,
     messageLookupHas,
     phase,
     pinBottom,
@@ -766,6 +834,11 @@ export function useMessageListViewport({
         pinBottom()
         pendingInitialSessionRef.current = null
         setMode('following')
+        beginTailChase(
+          isSessionOutputting && canStreamFollow
+            ? Number.POSITIVE_INFINITY
+            : VIEWPORT.followSettleMs
+        )
         setPhase('ready')
         initialStartedAtRef.current = null
         return
@@ -795,8 +868,11 @@ export function useMessageListViewport({
       if (frame !== null) window.cancelAnimationFrame(frame)
     }
   }, [
+    beginTailChase,
     canPinBottom,
+    canStreamFollow,
     hasOlder,
+    isSessionOutputting,
     loadedRangeStart,
     onScrollProjection,
     phase,
@@ -895,6 +971,9 @@ export function useMessageListViewport({
       if (scheduledPinRef.current !== null) {
         window.cancelAnimationFrame(scheduledPinRef.current)
       }
+      if (chaseTimerRef.current !== null) {
+        window.clearTimeout(chaseTimerRef.current)
+      }
     }
   }, [])
 
@@ -904,6 +983,7 @@ export function useMessageListViewport({
     topSentinelRef,
     phase,
     isFollowing,
+    isChasingTail,
     isAtBottom: isFollowing,
     turnSpacerHeight,
     hasLoadOlderRow,

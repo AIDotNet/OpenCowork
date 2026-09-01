@@ -74,6 +74,7 @@ function normalizeToolInput(
   toolName?: string
 ): Record<string, unknown> {
   const summarized = toolName ? summarizeToolInputForHistory(toolName, input) : input
+  if (toolName === 'visualize_show_widget') return summarized
   try {
     const serialized = JSON.stringify(summarized)
     if (serialized.length <= MAX_TOOL_INPUT_PREVIEW_CHARS) return summarized

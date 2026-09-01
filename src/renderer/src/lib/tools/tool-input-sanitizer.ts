@@ -1,5 +1,6 @@
 import {
   liveToolInputSignature,
+  mergeWidgetToolInput,
   summarizeLiveToolInput,
   type LiveToolInputSummaryOptions
 } from '../../../../shared/live-tool-input-summary'
@@ -177,7 +178,7 @@ export function summarizeToolInputForLiveCard(
   return summarizeLiveToolInput(toolName, input, options)
 }
 
-export { liveToolInputSignature }
+export { liveToolInputSignature, mergeWidgetToolInput }
 export type { LiveLineCountCache } from '../../../../shared/live-tool-input-summary'
 
 export function summarizeToolInputForHistory(

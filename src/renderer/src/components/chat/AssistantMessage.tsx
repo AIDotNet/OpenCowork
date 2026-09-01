@@ -88,6 +88,7 @@ import {
 } from '@renderer/lib/live-output-animation'
 import type { RequestRetryState, ToolCallState, ToolCallStatus } from '@renderer/lib/agent/types'
 import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
+import { mergeWidgetToolInput } from '../../../../shared/live-tool-input-summary'
 import {
   DESKTOP_CLICK_TOOL_NAME,
   DESKTOP_SCREENSHOT_TOOL_NAME,
@@ -238,41 +239,6 @@ function resolvePendingToolCallStatus(
   )
 }
 
-function getWidgetRenderCode(input?: Record<string, unknown>): string {
-  if (!input) return ''
-  if (typeof input.widget_code === 'string') return input.widget_code
-  if (typeof input.widget_code_preview === 'string') return input.widget_code_preview
-  return ''
-}
-
-function mergeWidgetToolInput(
-  blockInput: Record<string, unknown>,
-  liveInput?: Record<string, unknown>
-): Record<string, unknown> {
-  if (!liveInput || Object.keys(liveInput).length === 0) return blockInput
-  if (!blockInput || Object.keys(blockInput).length === 0) return liveInput
-
-  const merged: Record<string, unknown> = { ...blockInput, ...liveInput }
-  const blockCode = getWidgetRenderCode(blockInput)
-  const liveCode = getWidgetRenderCode(liveInput)
-
-  if (blockCode && (!liveCode || blockCode.length > liveCode.length)) {
-    if (typeof blockInput.widget_code === 'string') {
-      merged.widget_code = blockInput.widget_code
-    } else if (typeof blockInput.widget_code_preview === 'string') {
-      merged.widget_code_preview = blockInput.widget_code_preview
-    }
-  }
-
-  if (
-    typeof blockInput.widget_code_chars === 'number' &&
-    typeof liveInput.widget_code_chars === 'number'
-  ) {
-    merged.widget_code_chars = Math.max(blockInput.widget_code_chars, liveInput.widget_code_chars)
-  }
-
-  return merged
-}
 
 interface ToolCallRenderState {
   id: string

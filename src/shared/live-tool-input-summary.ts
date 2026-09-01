@@ -148,6 +148,41 @@ function summarizeEditInput(
   return result
 }
 
+export function getWidgetRenderCode(input?: Record<string, unknown>): string {
+  if (!input) return ''
+  if (typeof input.widget_code === 'string') return input.widget_code
+  if (typeof input.widget_code_preview === 'string') return input.widget_code_preview
+  return ''
+}
+
+export function mergeWidgetToolInput(
+  previous: Record<string, unknown> | undefined,
+  next: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!next || Object.keys(next).length === 0) return previous ?? {}
+  if (!previous || Object.keys(previous).length === 0) return next
+
+  const previousCode = getWidgetRenderCode(previous)
+  const nextCode = getWidgetRenderCode(next)
+  if (next._truncated === true && !nextCode && previousCode) {
+    return previous
+  }
+  if (!previousCode || nextCode.length >= previousCode.length) return next
+
+  return {
+    ...previous,
+    ...next,
+    ...(typeof previous.widget_code === 'string' ? { widget_code: previous.widget_code } : {}),
+    ...(typeof previous.widget_code_preview === 'string' && typeof previous.widget_code !== 'string'
+      ? { widget_code_preview: previous.widget_code_preview }
+      : {}),
+    widget_code_chars:
+      typeof next.widget_code_chars === 'number' && typeof previous.widget_code_chars === 'number'
+        ? Math.max(previous.widget_code_chars, next.widget_code_chars)
+        : (next.widget_code_chars ?? previous.widget_code_chars)
+  }
+}
+
 function summarizeWidgetInput(
   input: Record<string, unknown>,
   options?: LiveToolInputSummaryOptions

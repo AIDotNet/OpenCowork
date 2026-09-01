@@ -133,6 +133,7 @@ import { applyLiveCompressionStreamEvent } from '@renderer/stores/live-compressi
 import { applyRecentVisualContext } from '@renderer/lib/agent/visual-context'
 import {
   liveToolInputSignature,
+  mergeWidgetToolInput,
   type LiveLineCountCache,
   summarizeToolInputForHistory,
   summarizeToolInputForLiveCard
@@ -5509,39 +5510,6 @@ export function useChatActions(): {
               return summary
             }
 
-            const getWidgetCode = (input?: Record<string, unknown>): string => {
-              if (!input) return ''
-              if (typeof input.widget_code === 'string') return input.widget_code
-              if (typeof input.widget_code_preview === 'string') return input.widget_code_preview
-              return ''
-            }
-
-            const mergeLiveWidgetInput = (
-              previous: Record<string, unknown> | undefined,
-              next: Record<string, unknown>
-            ): Record<string, unknown> => {
-              if (!previous) return next
-              const previousCode = getWidgetCode(previous)
-              const nextCode = getWidgetCode(next)
-              if (!previousCode || nextCode.length >= previousCode.length) return next
-
-              return {
-                ...previous,
-                ...next,
-                ...(typeof previous.widget_code === 'string'
-                  ? { widget_code: previous.widget_code }
-                  : {}),
-                ...(typeof previous.widget_code_preview === 'string'
-                  ? { widget_code_preview: previous.widget_code_preview }
-                  : {}),
-                widget_code_chars:
-                  typeof next.widget_code_chars === 'number' &&
-                  typeof previous.widget_code_chars === 'number'
-                    ? Math.max(previous.widget_code_chars, next.widget_code_chars)
-                    : (next.widget_code_chars ?? previous.widget_code_chars)
-              }
-            }
-
             const flushChatToolInput = (toolCallId: string, toolName?: string): void => {
               const entry = liveToolInputThrottle.get(toolCallId)
               if (!entry?.pendingRaw) return
@@ -5580,7 +5548,7 @@ export function useChatActions(): {
               const entry = getLiveToolInputEntry(toolCallId)
               entry.pendingRaw =
                 toolName === 'visualize_show_widget'
-                  ? mergeLiveWidgetInput(entry.pendingRaw, partialInput)
+                  ? mergeWidgetToolInput(entry.pendingRaw, partialInput)
                   : partialInput
               entry.pendingSummary = undefined
               entry.pendingSignature = undefined

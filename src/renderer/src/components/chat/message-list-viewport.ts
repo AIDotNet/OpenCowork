@@ -12,6 +12,10 @@
  *   following   — stick to the latest turn (user send or live stream)
  *   browsing    — the user owns the scrollbar; we never chase the tail
  *
+ * Tail chase ends when the live stream ends. After that we pin for a short
+ * settle window so Thought collapse / widget paint can land, then stop writing
+ * `scrollTop`. Staying in following only hides the jump-to-bottom chip.
+ *
  * Older-message loads:
  *   history     — user asked (button, top sentinel, scrolled to top). Always
  *                 preserve the newly loaded head. Restore the visible anchor,
@@ -44,6 +48,7 @@ export const VIEWPORT = {
   turnSpacerMinHeight: 64,
   followSettleFrames: 3,
   followPinFrames: 8,
+  followSettleMs: 1000,
   scrollEpsilon: 2,
   autoScrollMinDelta: 24,
   programmaticGuardMs: 320,
@@ -61,6 +66,21 @@ export const VIEWPORT = {
   positionTimeLimitMs: 1600,
   maxFillPages: 2
 } as const
+
+export function canChaseTail(input: {
+  mode: ViewportMode
+  restoring: boolean
+  isSessionOutputting: boolean
+  canStreamFollow: boolean
+  now: number
+  chaseUntil: number
+}): boolean {
+  if (input.restoring) return false
+  if (input.mode === 'positioning') return true
+  if (input.mode !== 'following') return false
+  if (input.isSessionOutputting) return input.canStreamFollow
+  return input.now < input.chaseUntil
+}
 
 export function shouldFinishPositioning(input: {
   stable: boolean

@@ -14,6 +14,7 @@ import {
 } from '@renderer/lib/content-blocks'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { summarizeToolInputForHistory } from '@renderer/lib/tools/tool-input-sanitizer'
+import { mergeWidgetToolInput } from '../../../../shared/live-tool-input-summary'
 import { useBackgroundSessionStore } from '@renderer/stores/background-session-store'
 import { recordStreamingForegroundFlush } from '@renderer/lib/streaming-perf'
 import { createResidentRequestDebugInfo } from '@renderer/lib/debug-store'
@@ -43,7 +44,10 @@ function upsertBufferedToolUse(blocks: ContentBlock[], toolUse: ToolUseBlock): v
   blocks[existingIndex] = {
     ...existing,
     ...toolUse,
-    input: toolUse.input
+    input:
+      existing.name === 'visualize_show_widget' || toolUse.name === 'visualize_show_widget'
+        ? mergeWidgetToolInput(existing.input, toolUse.input)
+        : toolUse.input
   }
 }
 
@@ -474,7 +478,10 @@ export function updateRuntimeToolUseInput(
       (item) => item.type === 'tool_use' && (item as ToolUseBlock).id === toolUseId
     ) as ToolUseBlock | undefined
     if (block) {
-      block.input = summarizeToolInputForHistory(block.name, input)
+      block.input = summarizeToolInputForHistory(
+        block.name,
+        block.name === 'visualize_show_widget' ? mergeWidgetToolInput(block.input, input) : input
+      )
     }
   })
 }

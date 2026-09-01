@@ -334,7 +334,12 @@ function normalizeWidgetPayload(input: Record<string, unknown>): WidgetToolPaylo
   }
 }
 
+function escapeWidgetCodeForInlineScript(code: string): string {
+  return JSON.stringify(code).replace(/</g, '\\u003c')
+}
+
 function buildWidgetDocument(payload: WidgetToolPayload): string {
+  const initialCodeLiteral = escapeWidgetCodeForInlineScript(payload.widgetCode)
   return `<!DOCTYPE html>
 <html>
   <head>
@@ -363,6 +368,7 @@ function buildWidgetDocument(payload: WidgetToolPayload): string {
     <script>
       (() => {
         const bridgeSource = ${JSON.stringify(WIDGET_BRIDGE_SOURCE)};
+        const initialWidgetCode = ${initialCodeLiteral};
         const post = (type, extra = {}) => {
           window.parent.postMessage({ source: bridgeSource, type, ...extra }, '*');
         };
@@ -378,16 +384,26 @@ function buildWidgetDocument(payload: WidgetToolPayload): string {
             element.offsetHeight || 0
           );
         };
+        let lastPostedHeight = 0;
+        let reportRaf = null;
         const reportSize = () => {
-          const root = document.getElementById('open-cowork-widget-root');
-          const content = root?.firstElementChild;
-          const nextHeight =
-            getBoundingHeight(content) ||
-            getBoundingHeight(root) ||
-            getContentHeight(root) ||
-            getBoundingHeight(document.body) ||
-            getContentHeight(document.body);
-          post('resize', { height: Math.max(nextHeight, 32) });
+          if (reportRaf != null) return;
+          reportRaf = window.requestAnimationFrame(() => {
+            reportRaf = null;
+            const root = document.getElementById('open-cowork-widget-root');
+            const content = root?.firstElementChild;
+            const nextHeight = Math.max(
+              getBoundingHeight(content) ||
+                getBoundingHeight(root) ||
+                getContentHeight(root) ||
+                getBoundingHeight(document.body) ||
+                getContentHeight(document.body),
+              32
+            );
+            if (Math.abs(nextHeight - lastPostedHeight) < 2) return;
+            lastPostedHeight = nextHeight;
+            post('resize', { height: nextHeight });
+          });
         };
         let lastAppliedCode = '';
 
@@ -436,6 +452,7 @@ function buildWidgetDocument(payload: WidgetToolPayload): string {
             const observer = new ResizeObserver(() => reportSize());
             observer.observe(root);
           }
+          applyWidgetCode(initialWidgetCode);
           post('ready');
           reportSize();
           window.requestAnimationFrame(reportSize);
@@ -516,11 +533,26 @@ export function WidgetOutputBlock({
   const { t } = useTranslation('chat')
   const isExecuting = status === 'streaming' || status === 'running'
   const payload = normalizeWidgetPayload(input)
-  const hasPayload = Boolean(payload)
+  const lastGoodCodeRef = React.useRef('')
+  if (payload?.widgetCode && payload.widgetCode.length >= lastGoodCodeRef.current.length) {
+    lastGoodCodeRef.current = payload.widgetCode
+  }
+  const widgetCode = payload?.widgetCode || lastGoodCodeRef.current
+  const resolvedPayload = payload
+    ? { ...payload, widgetCode }
+    : widgetCode
+      ? {
+          title: 'widget',
+          loadingMessages: [] as string[],
+          widgetCode,
+          kind: (/^<svg[\s>]/i.test(widgetCode.trimStart()) ? 'svg' : 'html') as 'svg' | 'html'
+        }
+      : null
+  const hasPayload = Boolean(resolvedPayload)
   const defaultLoadingMessage = t('toolCall.widget.rendering')
   const loadingMessages =
-    payload?.loadingMessages && payload.loadingMessages.length > 0
-      ? payload.loadingMessages
+    resolvedPayload?.loadingMessages && resolvedPayload.loadingMessages.length > 0
+      ? resolvedPayload.loadingMessages
       : [defaultLoadingMessage]
   const iframeRef = React.useRef<HTMLIFrameElement>(null)
   const resizeRafRef = React.useRef<number | null>(null)
@@ -528,9 +560,17 @@ export function WidgetOutputBlock({
   const [loaded, setLoaded] = React.useState(false)
   const [frameHeight, setFrameHeight] = React.useState(240)
   const [loadingIndex, setLoadingIndex] = React.useState(0)
-  const frameKey = payload ? `${payload.title}:${payload.kind}` : 'widget-empty'
+  const frameKey = resolvedPayload
+    ? `${resolvedPayload.title}:${resolvedPayload.kind}`
+    : 'widget-empty'
   const pendingWidgetCodeRef = React.useRef('')
   const lastPostedWidgetCodeRef = React.useRef('')
+  const srcDocRef = React.useRef('')
+  const srcDocKeyRef = React.useRef('')
+  if (resolvedPayload && srcDocKeyRef.current !== frameKey) {
+    srcDocKeyRef.current = frameKey
+    srcDocRef.current = buildWidgetDocument(resolvedPayload)
+  }
   const { sendMessage } = useChatActions()
 
   const postWidgetCode = React.useCallback((code: string): void => {
@@ -547,19 +587,22 @@ export function WidgetOutputBlock({
     )
   }, [])
 
+  const handleFrameLoad = React.useCallback((): void => {
+    setLoaded(true)
+    postWidgetCode(pendingWidgetCodeRef.current)
+  }, [postWidgetCode])
+
   React.useEffect(() => {
     setLoaded(false)
     setLoadingIndex(0)
-    setFrameHeight(payload?.kind === 'svg' ? 320 : 420)
+    setFrameHeight(resolvedPayload?.kind === 'svg' ? 320 : 420)
     lastPostedWidgetCodeRef.current = ''
-  }, [payload?.title, payload?.kind])
+  }, [resolvedPayload?.title, resolvedPayload?.kind])
 
   React.useEffect(() => {
-    pendingWidgetCodeRef.current = payload?.widgetCode ?? ''
-    if (loaded && payload?.widgetCode) {
-      postWidgetCode(payload.widgetCode)
-    }
-  }, [loaded, payload?.widgetCode, postWidgetCode])
+    pendingWidgetCodeRef.current = resolvedPayload?.widgetCode ?? ''
+    postWidgetCode(pendingWidgetCodeRef.current)
+  }, [resolvedPayload?.widgetCode, postWidgetCode])
 
   React.useEffect(() => {
     if (!hasPayload || loadingMessages.length <= 1 || loaded) return
@@ -587,7 +630,7 @@ export function WidgetOutputBlock({
         const nextHeight = (data as { height?: unknown }).height
         if (typeof nextHeight === 'number' && Number.isFinite(nextHeight)) {
           const normalizedHeight = Math.max(80, nextHeight)
-          if (Math.abs(normalizedHeight - lastAppliedHeightRef.current) >= 0.5) {
+          if (Math.abs(normalizedHeight - lastAppliedHeightRef.current) >= 2) {
             lastAppliedHeightRef.current = normalizedHeight
             if (resizeRafRef.current != null) {
               window.cancelAnimationFrame(resizeRafRef.current)
@@ -619,8 +662,8 @@ export function WidgetOutputBlock({
     }
   }, [postWidgetCode, sendMessage])
 
-  if (!payload) return null
-  if (!payload.widgetCode) {
+  if (!resolvedPayload) return null
+  if (!resolvedPayload.widgetCode) {
     return isExecuting ? null : (
       <div className="my-2 text-xs text-muted-foreground/60">
         {t('toolCall.widget.waitingCode')}
@@ -644,10 +687,11 @@ export function WidgetOutputBlock({
           <iframe
             key={frameKey}
             ref={iframeRef}
-            title={payload.title}
+            title={resolvedPayload.title}
             sandbox="allow-scripts allow-forms"
-            srcDoc={buildWidgetDocument(payload)}
-            className="block border-0 bg-transparent transition-[height] duration-200"
+            srcDoc={srcDocRef.current}
+            onLoad={handleFrameLoad}
+            className="block border-0 bg-transparent"
             style={{
               width: 'calc(100% + 1px)',
               height: `${frameHeight}px`,
@@ -657,7 +701,9 @@ export function WidgetOutputBlock({
               colorScheme: 'dark'
             }}
           />
-          {payload.kind === 'svg' ? <SvgWidgetCopyButton svg={payload.widgetCode} /> : null}
+          {resolvedPayload.kind === 'svg' ? (
+            <SvgWidgetCopyButton svg={resolvedPayload.widgetCode} />
+          ) : null}
         </div>
         {isPending && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">

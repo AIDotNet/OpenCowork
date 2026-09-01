@@ -15,7 +15,7 @@ import type {
   AssembledWireMessage,
   RunContextAssemblerDeps
 } from './run-context-assembler'
-import { hostedSessionPrefixIdentity } from './run-context-assembler'
+import { hostedSessionPrefixIdentity, hostedSessionProviderFence } from './run-context-assembler'
 import {
   applyCompactWatermark,
   compactWatermarkFence,
@@ -584,6 +584,7 @@ function prefixIdentityFromAssembledParams(
     providerId: readTrimmed(provider.providerId),
     modelId: readTrimmed(provider.model),
     providerType: readTrimmed(provider.type),
+    providerFence: hostedSessionProviderFence(provider),
     workingFolder: typeof params.workingFolder === 'string' ? params.workingFolder : null,
     sshConnectionId: typeof params.sshConnectionId === 'string' ? params.sshConnectionId : null,
     compactFence: compactWatermarkFence(compaction)

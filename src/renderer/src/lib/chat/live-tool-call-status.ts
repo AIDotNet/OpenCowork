@@ -1,5 +1,6 @@
 import type { ToolCallState, ToolCallStatus } from '../agent/types'
 import type { RunStatus } from '../../../../shared/runtime-contracts/generated/contracts'
+import { mergeWidgetToolInput } from '../../../../shared/live-tool-input-summary'
 
 const TOOL_STATUS_RANK: Record<ToolCallStatus | 'completed', number> = {
   streaming: 0,
@@ -40,7 +41,7 @@ function preferAdvancedToolCall(left: ToolCallState, right: ToolCallState): Tool
   return {
     ...other,
     ...advanced,
-    input: Object.keys(advanced.input ?? {}).length > 0 ? advanced.input : other.input,
+    input: mergeWidgetToolInput(other.input, advanced.input),
     output: advanced.output ?? other.output,
     error: advanced.error ?? other.error,
     startedAt: advanced.startedAt ?? other.startedAt,

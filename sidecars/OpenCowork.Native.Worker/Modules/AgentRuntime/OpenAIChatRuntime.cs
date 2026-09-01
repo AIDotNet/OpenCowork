@@ -2853,6 +2853,15 @@ internal static class OpenAIChatRuntime
                 {
                     continue;
                 }
+                // Gemini catalogs store a static thinking_level default. Chat
+                // completions must follow the selected effort, not that placeholder.
+                if (thinkingEnabled &&
+                    property.NameEquals("thinking_level") &&
+                    ResolveChatThinkingLevel(provider, thinkingConfig) is { Length: > 0 } level)
+                {
+                    writer.WriteString("thinking_level", level);
+                    continue;
+                }
                 property.WriteTo(writer);
             }
         }
@@ -2869,6 +2878,25 @@ internal static class OpenAIChatRuntime
         }
     }
 
+    /// <summary>
+    /// Maps the app's reasoning-effort selection onto Gemini-style
+    /// <c>thinking_level</c> (minimal/low/medium/high).
+    /// </summary>
+    private static string? ResolveChatThinkingLevel(JsonElement provider, JsonElement thinkingConfig)
+    {
+        var selected = JsonHelpers.GetString(provider, "reasoningEffort") ??
+            JsonHelpers.GetString(thinkingConfig, "defaultReasoningEffort");
+        selected = JsonHelpers.ResolveEffectiveReasoningEffort(selected, thinkingConfig);
+        return selected switch
+        {
+            "minimal" or "none" => "minimal",
+            "low" => "low",
+            "medium" => "medium",
+            "high" or "xhigh" or "max" => "high",
+            _ => "medium"
+        };
+    }
+
     // Models such as GLM-5.3 / Ox Alpha always reason. They reject thinking.type=disabled
     // and only accept reasoning_effort=low|high|max. If the catalog cannot represent "off"
     // (no disabledBodyParams, no none/minimal effort), still emit the effort field.
@@ -2881,6 +2909,15 @@ internal static class OpenAIChatRuntime
 
         if (thinkingConfig.TryGetProperty("disabledBodyParams", out var disabled) &&
             disabled.ValueKind == JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        // Gemini chat/completions catalogs enable thinking via thinking_level.
+        // Those models can turn thinking off; do not keep emitting reasoning_effort.
+        if (thinkingConfig.TryGetProperty("bodyParams", out var enabledParams) &&
+            enabledParams.ValueKind == JsonValueKind.Object &&
+            enabledParams.TryGetProperty("thinking_level", out _))
         {
             return false;
         }

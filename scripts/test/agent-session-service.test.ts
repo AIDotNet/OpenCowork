@@ -1341,6 +1341,51 @@ test('startAssembledRun reuses an open hosted session when prefix identity is un
   assert.deepEqual(calls, ['agent/session-open', 'agent/session-send', 'agent/session-send'])
 })
 
+test('startAssembledRun reopens when provider credentials change', async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const service = new AgentSessionService({
+    isRunning: () => true,
+    assemble: (intent) => assembleSessionContext(intent, assemblerDeps()),
+    request: async (method, params) => {
+      const record = (params ?? {}) as Record<string, unknown>
+      calls.push({ method, params: record })
+      if (method === 'agent/session-open') {
+        return { ok: true, sessionId: 'session-1', messageCount: 2 }
+      }
+      if (method === 'agent/session-send') {
+        return {
+          started: true,
+          runId: record.runId,
+          assistantMessageId: 'asst:run-cred',
+          accepted: true
+        }
+      }
+      throw new Error(`unexpected ${method}`)
+    }
+  })
+
+  await service.startAssembledRun({ ...assembledRunParams }, { runId: 'run-1' })
+  await service.startAssembledRun(
+    {
+      ...assembledRunParams,
+      provider: {
+        ...assembledRunParams.provider,
+        apiKey: 'new-key',
+        baseUrl: 'http://localhost:5236/antigravity/v1'
+      }
+    },
+    { runId: 'run-2' }
+  )
+
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ['agent/session-open', 'agent/session-send', 'agent/session-open', 'agent/session-send']
+  )
+  const reopened = calls[2]?.params.provider as { apiKey?: string; baseUrl?: string }
+  assert.equal(reopened.apiKey, 'new-key')
+  assert.equal(reopened.baseUrl, 'http://localhost:5236/antigravity/v1')
+})
+
 /**
  * Main owns the cut, so it must enforce it on payloads the renderer assembled
  * from its own view of the transcript. A renderer view that predates the last
@@ -1638,6 +1683,81 @@ test('assembler omits compression when the setting is disabled', async () => {
   assert.equal(assembled.openTemplate.compression, undefined)
   assert.equal(assembled.openTemplate.compressionProvider, undefined)
   assert.match(assembled.prefixIdentity, /\0off\0/)
+})
+
+test('assembler prefix identity changes when provider credentials change', async () => {
+  const intent = {
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'model-1',
+    attachmentIds: [],
+    commandMetadata: null
+  }
+  const before = await assembleSessionContext(intent, assemblerDeps())
+  const after = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    resolveProvider: (providerId: string, modelId: string) => ({
+      type: 'openai-chat',
+      apiKey: 'rotated-key',
+      baseUrl: 'http://localhost:5236/antigravity/v1',
+      model: modelId,
+      providerId
+    })
+  })
+  assert.notEqual(before.prefixIdentity, after.prefixIdentity)
+  assert.equal((before.openTemplate.provider as { apiKey?: string }).apiKey, 'k')
+  assert.equal((after.openTemplate.provider as { apiKey?: string }).apiKey, 'rotated-key')
+  assert.equal(
+    (after.openTemplate.provider as { baseUrl?: string }).baseUrl,
+    'http://localhost:5236/antigravity/v1'
+  )
+})
+
+test('assembler prefix identity changes when thinking is toggled off', async () => {
+  const intent = {
+    sessionId: 'session-1',
+    triggerMessageId: 'user-2',
+    mode: 'chat',
+    providerId: 'prov-1',
+    modelId: 'gemini-3.7-flash',
+    attachmentIds: [],
+    commandMetadata: null
+  }
+  const before = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    resolveProvider: (providerId: string, modelId: string) => ({
+      type: 'openai-chat',
+      apiKey: 'k',
+      model: modelId,
+      providerId,
+      thinkingEnabled: true,
+      reasoningEffort: 'high',
+      thinkingConfig: {
+        bodyParams: { thinking_level: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high']
+      }
+    })
+  })
+  const after = await assembleSessionContext(intent, {
+    ...assemblerDeps(),
+    resolveProvider: (providerId: string, modelId: string) => ({
+      type: 'openai-chat',
+      apiKey: 'k',
+      model: modelId,
+      providerId,
+      thinkingEnabled: false,
+      reasoningEffort: 'high',
+      thinkingConfig: {
+        bodyParams: { thinking_level: 'medium' },
+        reasoningEffortLevels: ['minimal', 'low', 'medium', 'high']
+      }
+    })
+  })
+  assert.notEqual(before.prefixIdentity, after.prefixIdentity)
+  assert.equal((before.openTemplate.provider as { thinkingEnabled?: boolean }).thinkingEnabled, true)
+  assert.equal((after.openTemplate.provider as { thinkingEnabled?: boolean }).thinkingEnabled, false)
 })
 
 test('assembler prefix identity changes when the request protocol changes', async () => {

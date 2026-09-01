@@ -57,6 +57,11 @@ export function hostedSessionPrefixIdentity(args: {
   modelId: string
   /** Request protocol. Changing chat ↔ responses must reopen; the Worker pins provider on open. */
   providerType?: string | null
+  /**
+   * Credential / endpoint fingerprint. The Worker pins the whole provider on
+   * session-open, so a new apiKey or baseUrl must reopen rather than reuse.
+   */
+  providerFence?: string | null
   workingFolder: string | null
   sshConnectionId: string | null
   /** Recorded compaction cut; changes after compression force a reopen. */
@@ -70,11 +75,44 @@ export function hostedSessionPrefixIdentity(args: {
     args.providerId,
     args.modelId,
     args.providerType ?? '',
+    args.providerFence ?? '',
     args.workingFolder ?? '',
     args.sshConnectionId ?? '',
     args.compressionFence ?? '',
     args.compactFence ?? ''
   ].join('\0')
+}
+
+/** Request-routing fields pinned on session-open; changing any of them forces a reopen. */
+export function hostedSessionProviderFence(
+  provider: Record<string, unknown> | null | undefined
+): string {
+  if (!provider) return ''
+  return [
+    typeof provider.apiKey === 'string' ? provider.apiKey : '',
+    typeof provider.baseUrl === 'string' ? provider.baseUrl : '',
+    typeof provider.accountId === 'string' ? provider.accountId : '',
+    typeof provider.userAgent === 'string' ? provider.userAgent : '',
+    provider.useSystemProxy === true ? '1' : '',
+    provider.allowInsecureTls === true ? '1' : '',
+    typeof provider.websocketUrl === 'string' ? provider.websocketUrl : '',
+    typeof provider.websocketMode === 'string' ? provider.websocketMode : '',
+    serializeFenceJson(provider.requestOverrides),
+    // Thinking is pinned on the stored provider. Omitting it here reused a
+    // session-open template that still emitted thinking_level / reasoning_effort
+    // after the user turned Deep Thinking off.
+    provider.thinkingEnabled === true ? '1' : '0',
+    typeof provider.reasoningEffort === 'string' ? provider.reasoningEffort : ''
+  ].join('\x1f')
+}
+
+function serializeFenceJson(value: unknown): string {
+  if (value == null || typeof value !== 'object') return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return ''
+  }
 }
 
 export type SessionRecord = {
@@ -395,6 +433,7 @@ export async function assembleSessionContext(
       providerId,
       modelId,
       providerType: typeof provider.type === 'string' ? provider.type : '',
+      providerFence: hostedSessionProviderFence(provider),
       workingFolder: session.workingFolder,
       sshConnectionId: session.sshConnectionId,
       compressionFence: compressionFenceForTemplate({ compression, compressionProvider }),

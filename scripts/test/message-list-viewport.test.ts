@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   VIEWPORT,
+  canChaseTail,
   resolveTurnSpacer,
   shouldFinishPositioning
 } from '../../src/renderer/src/components/chat/message-list-viewport.ts'
@@ -99,6 +100,73 @@ test('turn spacer collapses to the minimum when the last turn fills the viewport
       previousSpacer: 240
     }),
     VIEWPORT.turnSpacerMinHeight
+  )
+})
+
+test('following an idle transcript does not keep chasing the tail', () => {
+  assert.equal(
+    canChaseTail({
+      mode: 'following',
+      restoring: false,
+      isSessionOutputting: false,
+      canStreamFollow: false,
+      now: 2_000,
+      chaseUntil: 1_000
+    }),
+    false
+  )
+})
+
+test('following settles for a short window after the stream ends', () => {
+  assert.equal(
+    canChaseTail({
+      mode: 'following',
+      restoring: false,
+      isSessionOutputting: false,
+      canStreamFollow: false,
+      now: 1_500,
+      chaseUntil: 2_000
+    }),
+    true
+  )
+})
+
+test('following a live stream chases only when this view may follow it', () => {
+  assert.equal(
+    canChaseTail({
+      mode: 'following',
+      restoring: false,
+      isSessionOutputting: true,
+      canStreamFollow: true,
+      now: 0,
+      chaseUntil: 0
+    }),
+    true
+  )
+  assert.equal(
+    canChaseTail({
+      mode: 'following',
+      restoring: false,
+      isSessionOutputting: true,
+      canStreamFollow: false,
+      now: 0,
+      chaseUntil: Number.POSITIVE_INFINITY
+    }),
+    false
+  )
+})
+
+test('browsing never chases the tail', () => {
+  assert.equal(
+    canChaseTail({
+      mode: 'browsing',
+      restoring: false,
+      isSessionOutputting: true,
+      canStreamFollow: true,
+      now: 0,
+      chaseUntil: Number.POSITIVE_INFINITY
+    }),
+    false
   )
 })
 

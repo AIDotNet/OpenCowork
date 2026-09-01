@@ -67,6 +67,7 @@ import {
   summarizeToolInputForHistory,
   sanitizeMessagesForToolReplay
 } from '../lib/tools/tool-input-sanitizer'
+import { mergeWidgetToolInput } from '../../../shared/live-tool-input-summary'
 import {
   applyCompactWatermark,
   deriveCompactWatermarkFromTranscript,
@@ -6253,10 +6254,15 @@ export const useChatStore = create<ChatStore>()(
             sealIncompleteThinkingBlocks(blocks, Date.now())
             blocks.push(normalizedToolUse)
           } else {
+            const existing = blocks[existingIndex] as ToolUseBlock
             blocks[existingIndex] = {
-              ...(blocks[existingIndex] as ToolUseBlock),
+              ...existing,
               ...normalizedToolUse,
-              input: normalizedToolUse.input
+              input:
+                existing.name === 'visualize_show_widget' ||
+                normalizedToolUse.name === 'visualize_show_widget'
+                  ? mergeWidgetToolInput(existing.input, normalizedToolUse.input)
+                  : normalizedToolUse.input
             }
           }
         }
@@ -6292,7 +6298,12 @@ export const useChatStore = create<ChatStore>()(
           (b) => b.type === 'tool_use' && (b as ToolUseBlock).id === toolUseId
         ) as ToolUseBlock | undefined
         if (block) {
-          block.input = summarizeToolInputForHistory(block.name, input)
+          block.input = summarizeToolInputForHistory(
+            block.name,
+            block.name === 'visualize_show_widget'
+              ? mergeWidgetToolInput(block.input, input)
+              : input
+          )
           if (block.name === 'visualize_show_widget') {
             logWidgetTrace('log', '[WidgetTrace] block.input written', {
               msgId,

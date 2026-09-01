@@ -1709,6 +1709,7 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
     contentRef,
     topSentinelRef,
     phase: messageWindowPhase,
+    isChasingTail,
     isAtBottom,
     turnSpacerHeight,
     hasLoadOlderRow,
@@ -1755,9 +1756,8 @@ function MessageListInner(props: MessageListProps): React.JSX.Element {
   })
   virtualizerRef.current = rowVirtualizer as typeof virtualizerRef.current
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = shouldAdjustScrollOnItemSizeChange
-  ;(rowVirtualizer.options as { anchorTo?: 'start' | 'end' }).anchorTo = isAtBottom
-    ? 'end'
-    : 'start'
+  ;(rowVirtualizer.options as { anchorTo?: 'start' | 'end' }).anchorTo =
+    messageWindowPhase === 'positioning' || isChasingTail ? 'end' : 'start'
 
   const measuredVirtualSize = rowVirtualizer.getTotalSize()
   React.useLayoutEffect(() => {

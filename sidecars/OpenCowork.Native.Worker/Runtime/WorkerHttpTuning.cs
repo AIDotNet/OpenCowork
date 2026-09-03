@@ -45,10 +45,15 @@ internal static class WorkerHttpTuning
         "OPEN_COWORK_NATIVE_RETRY_STREAM_ATTEMPTS", 2, min: 0, max: 10);
 
     /// <summary>
-    /// Wall-clock ceiling across all retries of one provider turn. Without it, ten responses
-    /// carrying Retry-After: 60 would stall a turn for ten minutes with no output.
+    /// Ceiling on the time one provider turn may spend *waiting between* attempts. Without it, ten
+    /// responses carrying Retry-After: 60 would stall a turn for ten minutes with no output.
+    ///
+    /// Deliberately not wall-clock since the turn began: a reasoning model or a server-side image
+    /// call can legitimately stream for many minutes before the connection drops, and charging that
+    /// healthy time to the budget would leave nothing to retry with exactly when a retry is most
+    /// warranted. Total attempts stay bounded by the per-category attempt caps above.
     /// </summary>
-    public static TimeSpan MaxRetryElapsed { get; } = TimeSpan.FromMilliseconds(ReadInt(
+    public static TimeSpan MaxRetryDelayBudget { get; } = TimeSpan.FromMilliseconds(ReadInt(
         "OPEN_COWORK_NATIVE_RETRY_MAX_ELAPSED_MS", 300_000, min: 1_000, max: 3_600_000));
 
     public static int StatusBaseDelayMs { get; } = ReadInt(

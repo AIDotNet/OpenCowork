@@ -3693,7 +3693,9 @@ export class OpenCoworkWorkerRuntime implements AgentRuntime {
       this.push({ type: 'assistant.delta', id, text: stringValue(event.text) })
       return
     }
-    if (type === 'thinking_delta') {
+    // The CLI renders a linear stream, so reasoning a provider disclosed only after its
+    // answer is surfaced where it arrives rather than repositioned.
+    if (type === 'thinking_delta' || type === 'thinking_backfill') {
       const id = this.ensureAssistant()
       this.push({ type: 'assistant.thinking', id, thinking: stringValue(event.thinking) })
       return

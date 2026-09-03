@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid'
+﻿import { nanoid } from 'nanoid'
 import {
   createFileReferenceMarkdown,
   createSelectPluginTag,
@@ -128,27 +128,30 @@ export function createSelectedFileItem(
   filePath: string,
   workingFolder?: string
 ): SelectedFileItem | null {
-  const normalizedOriginalPath = normalizePath(filePath)
-  if (!normalizedOriginalPath) return null
+  const normalizedInputPath = normalizePath(filePath)
+  if (!normalizedInputPath) return null
 
   const normalizedWorkingFolder = workingFolder
     ? normalizePath(workingFolder).replace(/\/+$/, '')
     : ''
+  // @ search and other pickers may pass a workspace-relative path. Resolve it
+  // before the workspace-prefix check so preview/read use a real filesystem path.
+  const resolvedPath = toPreviewPath(normalizedInputPath, normalizedWorkingFolder || undefined)
   const workingFolderKey = normalizedWorkingFolder
     ? `${normalizePathKey(normalizedWorkingFolder)}/`
     : ''
-  const originalPathKey = normalizePathKey(normalizedOriginalPath)
-  const isWorkspaceFile = Boolean(workingFolderKey) && originalPathKey.startsWith(workingFolderKey)
+  const resolvedPathKey = normalizePathKey(resolvedPath)
+  const isWorkspaceFile = Boolean(workingFolderKey) && resolvedPathKey.startsWith(workingFolderKey)
   const sendPath = isWorkspaceFile
-    ? normalizedOriginalPath.slice(normalizedWorkingFolder.length).replace(/^\/+/, '')
-    : normalizedOriginalPath
+    ? resolvedPath.slice(normalizedWorkingFolder.length).replace(/^\/+/, '')
+    : resolvedPath
 
   return {
     id: nanoid(),
-    name: getBaseName(normalizedOriginalPath),
-    originalPath: normalizedOriginalPath,
+    name: getBaseName(resolvedPath),
+    originalPath: resolvedPath,
     sendPath,
-    previewPath: normalizedOriginalPath,
+    previewPath: resolvedPath,
     isWorkspaceFile
   }
 }

@@ -447,14 +447,30 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         }
         var encrypted = JsonHelpers.GetString(block, "encryptedContent");
         var encryptedProvider = JsonHelpers.GetString(block, "encryptedContentProvider");
-        if (string.IsNullOrWhiteSpace(encrypted) ||
-            (encryptedProvider is { Length: > 0 } && encryptedProvider != "openai-responses"))
+        if (encryptedProvider is { Length: > 0 } && encryptedProvider != "openai-responses")
         {
+            // A signature minted by a different provider is not a handle this endpoint
+            // can resolve, so it must not be replayed as one.
+            encrypted = null;
+        }
+        // `encrypted_content` only comes back from endpoints that honour
+        // include=reasoning.encrypted_content. The rest identify reasoning by the item id
+        // instead, which is the form the Responses schema asks for on input; without
+        // either handle there is nothing the endpoint could match, so the block is
+        // dropped rather than sent as an unanchored reasoning item.
+        var reasoningItemId = JsonHelpers.GetString(block, "reasoningItemId");
+        if (string.IsNullOrWhiteSpace(encrypted) && string.IsNullOrWhiteSpace(reasoningItemId))
+        {
+            WorkerLog.Debug("responses reasoning replay skipped: block carries no id or encrypted_content");
             return;
         }
 
         writer.WriteStartObject();
         writer.WriteString("type", "reasoning");
+        if (reasoningItemId is { Length: > 0 })
+        {
+            writer.WriteString("id", reasoningItemId);
+        }
         writer.WritePropertyName("summary");
         writer.WriteStartArray();
         if (JsonHelpers.GetString(block, "thinking") is { Length: > 0 } thinking)
@@ -465,7 +481,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
-        writer.WriteString("encrypted_content", encrypted);
+        if (encrypted is { Length: > 0 })
+        {
+            writer.WriteString("encrypted_content", encrypted);
+        }
         writer.WriteEndObject();
     }
 
@@ -970,7 +989,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                         break;
                     case "thinking":
                         if (!string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "thinking")) ||
-                            !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "encryptedContent")))
+                            !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "encryptedContent")) ||
+                            !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "reasoningItemId")))
                         {
                             return true;
                         }

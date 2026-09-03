@@ -1,4 +1,4 @@
-import {
+﻿import {
   app,
   shell,
   BrowserWindow,
@@ -60,6 +60,11 @@ import { registerGoalRuntimeHandlers } from './ipc/goal-runtime-handlers'
 import { registerConfigHandlers } from './ipc/secure-key-store'
 import { registerAiProviderHandlers } from './ipc/ai-provider-handlers'
 import { applyOpenCoworkImportUrl, findOpenCoworkImportUrl } from './lib/opencowork-import'
+import {
+  findOpenCoworkOAuthCallbackUrl,
+  parseOpenCoworkOAuthCallbackUrl
+} from './lib/opencowork-oauth-link'
+import { completeAccountOAuth } from './account/oauth-service'
 import { registerExtensionHandlers } from './ipc/extension-handlers'
 import { registerChannelHandlers, autoStartChannels } from './ipc/channel-handlers'
 import { ChannelManager } from './channels/channel-manager'
@@ -78,6 +83,9 @@ import { registerScreenshotHandlers } from './ipc/screenshot-handlers'
 import { registerWebSearchHandlers } from './ipc/web-search-handlers'
 import { registerBrowserHandlers } from './ipc/browser-handlers'
 import { registerOauthHandlers } from './ipc/oauth-handlers'
+import { registerAccountOAuthHandlers } from './ipc/account-oauth-handlers'
+import { registerRemoteControlHandlers } from './ipc/remote-control-handlers'
+import { disposeRemoteControl } from './remote-control/remote-control-client'
 import { registerGitHandlers } from './ipc/git-handlers'
 import { registerSyncHandlers } from './ipc/sync-handlers'
 import { registerHooksHandlers } from './ipc/hooks-handlers'
@@ -92,6 +100,7 @@ import {
   stopCodeGraphWorker,
   stopNativeWorker
 } from './lib/native-worker'
+import { refreshWorkerProxy } from './lib/worker-proxy'
 import { registerTeamRuntimeHandlers } from './ipc/team-runtime-handlers'
 import { loadPersistedJobs, cancelAllJobs } from './cron/cron-scheduler'
 import { McpManager } from './mcp/mcp-manager'
@@ -180,6 +189,10 @@ async function configureSystemProxy(): Promise<void> {
       await session.defaultSession.setProxy({ mode: 'system' })
       console.log('[Main] Using system proxy settings')
     }
+
+    // Electron's sessions are only half the story: provider traffic is sent by the native
+    // worker, which cannot read the OS proxy settings on its own.
+    await refreshWorkerProxy(proxyUrl)
   } catch (err) {
     console.error('[Main] Failed to configure system proxy:', err)
   }
@@ -1380,6 +1393,8 @@ if (!gotSingleInstanceLock) {
 
 /** Deep-link URL received before the app finished booting (cold start). */
 let pendingOpenCoworkImportUrl: string | null = null
+/** OAuth callback received before the app finished booting (cold start). */
+let pendingOpenCoworkOAuthUrl: string | null = null
 
 function registerOpenCoworkProtocolClient(): void {
   if (process.defaultApp) {
@@ -1391,6 +1406,23 @@ function registerOpenCoworkProtocolClient(): void {
     }
   }
   app.setAsDefaultProtocolClient('opencowork')
+}
+
+function handleOpenCoworkOAuthCallbackUrl(rawUrl: string): boolean {
+  const callback = parseOpenCoworkOAuthCallbackUrl(rawUrl)
+  if (!callback) return false
+  void completeAccountOAuth(callback)
+    .catch((error) => {
+      console.warn(
+        `[AccountOAuth] Failed to complete OAuth callback: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    })
+    .finally(() => {
+      showMainWindow()
+    })
+  return true
 }
 
 function handleOpenCoworkImportUrl(rawUrl: string): boolean {
@@ -1422,6 +1454,14 @@ function handleOpenCoworkImportUrl(rawUrl: string): boolean {
 function consumeOpenCoworkImportCandidate(rawUrl: string | null | undefined): boolean {
   if (!rawUrl) return false
   if (!rawUrl.startsWith('opencowork:')) return false
+  // OAuth callbacks must never fall through to the API-key import pipeline.
+  if (parseOpenCoworkOAuthCallbackUrl(rawUrl)) {
+    if (!app.isReady()) {
+      pendingOpenCoworkOAuthUrl = rawUrl
+      return true
+    }
+    return handleOpenCoworkOAuthCallbackUrl(rawUrl)
+  }
   if (!app.isReady()) {
     pendingOpenCoworkImportUrl = rawUrl
     return true
@@ -1439,10 +1479,17 @@ if (gotSingleInstanceLock) {
   registerOpenCoworkProtocolClient()
 
   // Windows/Linux cold-start: the protocol URL is in process.argv.
+  const coldStartOAuthUrl = findOpenCoworkOAuthCallbackUrl(process.argv)
+  if (coldStartOAuthUrl) pendingOpenCoworkOAuthUrl = coldStartOAuthUrl
   const coldStartImportUrl = findOpenCoworkImportUrl(process.argv)
-  if (coldStartImportUrl) pendingOpenCoworkImportUrl = coldStartImportUrl
+  if (coldStartImportUrl && coldStartImportUrl !== coldStartOAuthUrl) {
+    pendingOpenCoworkImportUrl = coldStartImportUrl
+  }
 
   app.on('second-instance', (_event, commandLine) => {
+    const oauthUrl = findOpenCoworkOAuthCallbackUrl(commandLine)
+    if (oauthUrl && handleOpenCoworkOAuthCallbackUrl(oauthUrl)) return
+
     const importUrl = findOpenCoworkImportUrl(commandLine)
     if (importUrl && handleOpenCoworkImportUrl(importUrl)) return
 
@@ -1600,6 +1647,8 @@ if (gotSingleInstanceLock) {
     registerWebSearchHandlers()
     registerBrowserHandlers()
     registerOauthHandlers()
+    registerAccountOAuthHandlers()
+    registerRemoteControlHandlers()
     registerGitHandlers()
     registerSyncHandlers()
 
@@ -1779,6 +1828,12 @@ if (gotSingleInstanceLock) {
     runLoggedStartupStep('create_main_window', createWindow)
     scheduleUsageEventsStartupCleanup()
 
+    if (pendingOpenCoworkOAuthUrl) {
+      const pendingUrl = pendingOpenCoworkOAuthUrl
+      pendingOpenCoworkOAuthUrl = null
+      handleOpenCoworkOAuthCallbackUrl(pendingUrl)
+    }
+
     if (pendingOpenCoworkImportUrl) {
       const pendingUrl = pendingOpenCoworkImportUrl
       pendingOpenCoworkImportUrl = null
@@ -1828,6 +1883,7 @@ app.on('window-all-closed', () => {
   mcpManager.disconnectAll()
   killAllManagedProcesses()
   killAllTerminalSessions()
+  void disposeRemoteControl()
   closeAllSshSessions()
   cancelAllJobs()
   void stopNativeWorker()

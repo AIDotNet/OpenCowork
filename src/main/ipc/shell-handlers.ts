@@ -375,6 +375,12 @@ export function registerShellHandlers(): void {
     { terminalId: string; abort: (reason?: 'user' | 'timeout') => void }
   >()
 
+  const requestNativeAbort = (execId: string, reason: 'user' | 'timeout' = 'user'): void => {
+    void nativeWorker
+      .request<NativeShellAbortResult>('shell/abort', { execId, reason }, 10_000)
+      .catch((error) => console.warn('[Shell] Native abort failed:', error))
+  }
+
   if (!shellOutputForwardingRegistered) {
     shellOutputForwardingRegistered = true
     nativeWorker.onEvent('shell/output', (params) => {
@@ -412,11 +418,7 @@ export function registerShellHandlers(): void {
       }
       runningShellProcesses.set(execId, {
         terminalId: payload.terminalId,
-        abort: (reason: 'user' | 'timeout' = 'user') => {
-          void nativeWorker
-            .request<NativeShellAbortResult>('shell/abort', { execId, reason }, 10_000)
-            .catch((error) => console.warn('[Shell] Native abort failed:', error))
-        }
+        abort: (reason: 'user' | 'timeout' = 'user') => requestNativeAbort(execId, reason)
       })
       safeSendMessagePackToWindow(ownerWindow, 'shell:started', payload)
     })
@@ -424,11 +426,7 @@ export function registerShellHandlers(): void {
     if (execId) {
       runningShellProcesses.set(execId, {
         terminalId: `native-shell-${execId}`,
-        abort: (reason: 'user' | 'timeout' = 'user') => {
-          void nativeWorker
-            .request<NativeShellAbortResult>('shell/abort', { execId, reason }, 10_000)
-            .catch((error) => console.warn('[Shell] Native abort failed:', error))
-        }
+        abort: (reason: 'user' | 'timeout' = 'user') => requestNativeAbort(execId, reason)
       })
     }
 
@@ -485,11 +483,15 @@ export function registerShellHandlers(): void {
   })
 
   const abortShellProcess = (data: { execId?: string }): void => {
-    const execId = data?.execId
+    const execId = data?.execId?.trim()
     if (!execId) return
     const running = runningShellProcesses.get(execId)
-    if (!running) return
-    running.abort('user')
+    if (running) {
+      running.abort('user')
+      return
+    }
+    // Agent Bash never enters this map; still forward abort to the worker.
+    requestNativeAbort(execId)
   }
 
   ipcMain.on(toMessagePackChannel('shell:abort'), (_event, bytes: Uint8Array) => {

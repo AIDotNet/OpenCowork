@@ -841,7 +841,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
                     Text: item.Text,
                     SubAgentName: subAgentName,
                     ToolUseId: toolUseId),
-                "thinking_delta" => new AgentRuntimeStreamEvent(
+                // A sub-agent transcript is a flat log, so late-disclosed reasoning is
+                // folded in as an ordinary delta rather than repositioned.
+                "thinking_delta" or "thinking_backfill" => new AgentRuntimeStreamEvent(
                     "sub_agent_thinking_delta",
                     Thinking: item.Thinking,
                     SubAgentName: subAgentName,

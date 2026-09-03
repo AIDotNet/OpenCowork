@@ -677,14 +677,7 @@ export function SessionListPanel(): React.JSX.Element {
       if (!project) return
 
       if (value === '__global__') {
-        const now = Date.now()
-        useChatStore.setState((state) => {
-          const target = state.projects.find((item) => item.id === projectModelDialog.projectId)
-          if (!target) return
-          target.providerId = undefined
-          target.modelId = undefined
-          target.updatedAt = now
-        })
+        useChatStore.getState().setProjectModel(projectModelDialog.projectId, null)
         setProjectModelDialog(null)
         toast.success('Project default model changed to follow global')
         return
@@ -693,14 +686,7 @@ export function SessionListPanel(): React.JSX.Element {
       const [providerId, modelId] = value.split(':')
       if (!providerId || !modelId) return
 
-      const now = Date.now()
-      useChatStore.setState((state) => {
-        const target = state.projects.find((item) => item.id === projectModelDialog.projectId)
-        if (!target) return
-        target.providerId = providerId
-        target.modelId = modelId
-        target.updatedAt = now
-      })
+      useChatStore.getState().setProjectModel(projectModelDialog.projectId, { providerId, modelId })
       setProjectModelDialog(null)
       toast.success('Project default model updated')
     },

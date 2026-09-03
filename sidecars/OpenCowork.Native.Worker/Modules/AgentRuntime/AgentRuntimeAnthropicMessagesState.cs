@@ -124,6 +124,11 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         public StringBuilder AssistantText { get; } = new();
         public Dictionary<int, AnthropicToolBuffer> ToolBuffers { get; } = new();
         public List<AgentRuntimeNativeToolCall> ToolCalls { get; } = new();
+        public List<JsonElement> ContentBlocks { get; } = new();
+        public StringBuilder? OpenThinking { get; set; }
+        public StringBuilder? OpenText { get; set; }
+        public string? OpenThinkingEncrypted { get; set; }
+        public bool OpenThinkingRedacted { get; set; }
         public HashSet<string> EmittedEncryptedReasoning { get; } = new(StringComparer.Ordinal);
         /// <summary>Thinking deltas streamed inside the measured window.</summary>
         public bool ReasoningStreamed { get; set; }

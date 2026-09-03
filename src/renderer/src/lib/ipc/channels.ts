@@ -1,4 +1,4 @@
-// IPC Channel Constants
+﻿// IPC Channel Constants
 
 export const IPC = {
   // App
@@ -346,6 +346,28 @@ export const IPC = {
   OAUTH_START: 'oauth:start',
   OAUTH_STOP: 'oauth:stop',
   OAUTH_CALLBACK: 'oauth:callback',
+
+  // Desktop account (RoutIn OAuth)
+  ACCOUNT_OAUTH_GET: 'account-oauth:get',
+  ACCOUNT_OAUTH_START: 'account-oauth:start',
+  ACCOUNT_OAUTH_CANCEL: 'account-oauth:cancel',
+  ACCOUNT_OAUTH_REFRESH: 'account-oauth:refresh',
+  ACCOUNT_OAUTH_LOGOUT: 'account-oauth:logout',
+  ACCOUNT_OAUTH_CHANGED: 'account-oauth:changed',
+
+  // Mobile remote control
+  REMOTE_CONTROL_GET: 'remote-control:get',
+  REMOTE_CONTROL_START: 'remote-control:start',
+  REMOTE_CONTROL_STOP: 'remote-control:stop',
+  REMOTE_CONTROL_ROTATE: 'remote-control:rotate',
+  REMOTE_CONTROL_DISCONNECT_MOBILE: 'remote-control:disconnect-mobile',
+  REMOTE_CONTROL_SET_TERMINAL_WRITE: 'remote-control:set-terminal-write',
+  REMOTE_CONTROL_SET_GIT_WRITE: 'remote-control:set-git-write',
+  REMOTE_CONTROL_SET_API_BASE_URL: 'remote-control:set-api-base-url',
+  REMOTE_CONTROL_CHANGED: 'remote-control:changed',
+  REMOTE_CONTROL_REQUEST: 'remote-control:request',
+  REMOTE_CONTROL_RESPONSE: 'remote-control:response',
+  REMOTE_CONTROL_EVENT: 'remote-control:event',
 
   // SSH Management
   SSH_GROUP_LIST: 'ssh:group:list',

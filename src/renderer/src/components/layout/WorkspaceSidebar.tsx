@@ -1,6 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useStoreWithEqualityFn } from 'zustand/traditional'
-import packageJson from '../../../../../package.json'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowDownAZ,
@@ -23,7 +22,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Settings,
   Server,
   SquareKanban,
   SquarePen,
@@ -102,6 +100,7 @@ import { clampLeftSidebarWidth, LEFT_SIDEBAR_DEFAULT_WIDTH } from './right-panel
 import { WorkingFolderSelectorDialog } from '@renderer/components/chat/WorkingFolderSelectorDialog'
 import { toast } from 'sonner'
 import { confirm } from '@renderer/components/ui/confirm-dialog'
+import { AccountMenu } from './AccountMenu'
 
 const DEFAULT_VISIBLE_SESSIONS_PER_PROJECT = 4
 const MINUTE_MS = 60 * 1000
@@ -2227,19 +2226,7 @@ export function WorkspaceSidebar(): React.JSX.Element {
               />
             </div>
             <div className="px-1 pb-1 pt-2">
-              <button
-                type="button"
-                className={cn(SIDEBAR_NAV_BUTTON_CLASS, 'justify-between')}
-                onClick={() => useUIStore.getState().openSettingsPage('general')}
-              >
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <Settings className="size-4 shrink-0" />
-                  <span className="truncate">{t('sidebar.systemSettings')}</span>
-                </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground/80">
-                  v{packageJson.version}
-                </span>
-              </button>
+              <AccountMenu />
             </div>
           </div>
         </div>

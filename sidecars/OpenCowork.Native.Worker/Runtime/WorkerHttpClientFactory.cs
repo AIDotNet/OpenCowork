@@ -27,6 +27,9 @@ internal static class WorkerHttpClientFactory
             // most of the request deadline before failing and the user is told the model is slow.
             ConnectTimeout = WorkerHttpTuning.ConnectTimeout,
             UseProxy = true,
+            // Resolves per request, so the host can push an OS-level proxy after this client has
+            // already dispatched requests — neither Proxy nor DefaultProxy can be reassigned then.
+            Proxy = WorkerHttpProxy.Instance,
             AutomaticDecompression = DecompressionMethods.None,
             SslOptions = new SslClientAuthenticationOptions
             {

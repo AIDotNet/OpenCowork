@@ -23,6 +23,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         foreach (var call in toolCalls)
         {
             parseState.ToolCalls.Add(call);
+            DraftToolCall(parseState, call);
             await AgentRuntimeTools.EmitProjectedAsync(
                 state,
                 context,

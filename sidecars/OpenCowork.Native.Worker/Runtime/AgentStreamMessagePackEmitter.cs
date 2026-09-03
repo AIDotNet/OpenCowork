@@ -91,6 +91,7 @@ internal static class AgentStreamMessagePackEmitter
         WriteOptionalJson(writer, "requestModel", streamEvent.RequestModel);
         WriteOptionalString(writer, "thinkingEncryptedContent", streamEvent.ThinkingEncryptedContent);
         WriteOptionalString(writer, "thinkingEncryptedProvider", streamEvent.ThinkingEncryptedProvider);
+        WriteOptionalString(writer, "reasoningItemId", streamEvent.ReasoningItemId);
         WriteOptionalJson(writer, "toolCallExtraContent", streamEvent.SubAgentToolCallExtraContent);
         WriteOptionalJson(writer, "webSearchSources", streamEvent.WebSearchSources);
         WriteOptionalString(writer, "webSearchId", streamEvent.WebSearchId);
@@ -149,6 +150,7 @@ internal static class AgentStreamMessagePackEmitter
         if (HasJson(streamEvent.RequestModel)) count++;
         if (streamEvent.ThinkingEncryptedContent is not null) count++;
         if (streamEvent.ThinkingEncryptedProvider is not null) count++;
+        if (streamEvent.ReasoningItemId is not null) count++;
         if (HasJson(streamEvent.SubAgentToolCallExtraContent)) count++;
         if (HasJson(streamEvent.WebSearchSources)) count++;
         if (streamEvent.WebSearchId is not null) count++;

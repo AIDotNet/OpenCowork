@@ -1067,7 +1067,10 @@ function BashOutputBlock({
   const exitCode = process?.exitCode ?? parsed?.exitCode
   const statusText = process ? t(`toolCall.processStatus.${process.status}`) : null
   const canStopForegroundExec =
-    !process && status === 'running' && !!toolUseId && !!foregroundExecId
+    !process &&
+    (status === 'running' || status === 'streaming') &&
+    !!toolUseId &&
+    !!foregroundExecId
 
   const liveText = liveShellOutput.execId === foregroundExecId ? liveShellOutput.text : ''
   const storedText = parsed ? buildStoredShellOutput(parsed) : normalizeLiveShellChunk(output)

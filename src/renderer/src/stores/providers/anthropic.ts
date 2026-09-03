@@ -3,7 +3,8 @@ import type { BuiltinProviderPreset } from './types'
 export const anthropicPreset: BuiltinProviderPreset = {
   builtinId: 'anthropic',
   // v3: add Claude Opus 5 (official current lineup: Fable 5 / Opus 5 / Sonnet 5 / Haiku 4.5)
-  version: 3,
+  // v4: add Claude Fable 5.1 (cache read $0.25)
+  version: 4,
   name: 'Anthropic',
   type: 'anthropic',
   defaultBaseUrl: 'https://api.anthropic.com',
@@ -16,7 +17,29 @@ export const anthropicPreset: BuiltinProviderPreset = {
     'claude-3-5-haiku-20241022'
   ],
   defaultModels: [
-    // Claude Fable 5 (highest capability — always-on adaptive thinking, 1M context)
+    // Claude Fable 5.1 (latest highest capability — always-on adaptive thinking, 1M context)
+    {
+      id: 'claude-fable-5-1',
+      name: 'Claude Fable 5.1',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 0.25,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
+    },
+    // Claude Fable 5 (previous highest capability — always-on adaptive thinking, 1M context)
     {
       id: 'claude-fable-5',
       name: 'Claude Fable 5',

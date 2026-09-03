@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Net;
+﻿using System.Net;
 using System.Text.Json;
 
 internal sealed class AgentRuntimeProviderHttpException : InvalidOperationException
@@ -152,7 +151,8 @@ internal static class AgentRuntimeProviderRetryPolicy
         var transportAttempts = 0;
         var streamTransportAttempts = 0;
         var previousStatusDelayMs = 0;
-        var startedAt = Stopwatch.GetTimestamp();
+        // Only backoff counts against the budget. See WorkerHttpTuning.MaxRetryDelayBudget.
+        var retryDelayTotalMs = 0;
 
         while (true)
         {
@@ -167,11 +167,12 @@ internal static class AgentRuntimeProviderRetryPolicy
                 IsRetryableStatus(ex.StatusCode) &&
                 statusAttempts < WorkerHttpTuning.StatusRetryAttempts &&
                 !state.IsCancellationRequested &&
-                HasTimeRemaining(startedAt))
+                HasDelayBudgetRemaining(retryDelayTotalMs))
             {
                 statusAttempts++;
                 var delayMs = ComputeStatusDelayMs(statusAttempts, previousStatusDelayMs, ex.RetryAfter);
                 previousStatusDelayMs = delayMs;
+                retryDelayTotalMs += delayMs;
 
                 WorkerLog.Warn(
                     $"provider request HTTP {ex.StatusCode}; retrying in {delayMs}ms " +
@@ -191,7 +192,7 @@ internal static class AgentRuntimeProviderRetryPolicy
                 !state.ProviderOutputProjected &&
                 statusAttempts < WorkerHttpTuning.StatusRetryAttempts &&
                 !state.IsCancellationRequested &&
-                HasTimeRemaining(startedAt))
+                HasDelayBudgetRemaining(retryDelayTotalMs))
             {
                 statusAttempts++;
                 var delayMs = ComputeStatusDelayMs(
@@ -199,6 +200,7 @@ internal static class AgentRuntimeProviderRetryPolicy
                     previousStatusDelayMs,
                     retryAfter: null);
                 previousStatusDelayMs = delayMs;
+                retryDelayTotalMs += delayMs;
 
                 WorkerLog.Warn(
                     $"provider stream error={ex.Code}; retrying in {delayMs}ms " +
@@ -216,10 +218,11 @@ internal static class AgentRuntimeProviderRetryPolicy
             catch (AgentRuntimeProviderRequestTimeoutException) when (
                 requestTimeoutAttempts < WorkerHttpTuning.RequestTimeoutRetryAttempts &&
                 !state.IsCancellationRequested &&
-                HasTimeRemaining(startedAt))
+                HasDelayBudgetRemaining(retryDelayTotalMs))
             {
                 requestTimeoutAttempts++;
                 var delayMs = ComputeTransportDelayMs(requestTimeoutAttempts);
+                retryDelayTotalMs += delayMs;
 
                 WorkerLog.Warn(
                     "provider response-header timeout; retrying " +
@@ -236,11 +239,12 @@ internal static class AgentRuntimeProviderRetryPolicy
                 await Task.Delay(delayMs, state.CancellationToken);
             }
             catch (AgentRuntimeProviderTransportException ex) when (
-                CanRetryTransport(ex, transportAttempts, state, startedAt))
+                CanRetryTransport(ex, transportAttempts, state, retryDelayTotalMs))
             {
                 transportAttempts++;
                 var maxAttempts = WorkerHttpTuning.ResolveAttempts(ex.Fault.Budget);
                 var delayMs = ComputeTransportDelayMs(transportAttempts);
+                retryDelayTotalMs += delayMs;
 
                 WorkerLog.Warn(
                     $"provider transport fault={ex.Fault.Code}; retrying in {delayMs}ms " +
@@ -256,13 +260,14 @@ internal static class AgentRuntimeProviderRetryPolicy
                 await Task.Delay(delayMs, state.CancellationToken);
             }
             catch (AgentRuntimeProviderStreamTransportException ex) when (
-                CanRetryStreamTransport(ex, streamTransportAttempts, state, startedAt))
+                CanRetryStreamTransport(ex, streamTransportAttempts, state, retryDelayTotalMs))
             {
                 streamTransportAttempts++;
                 // A mid-stream drop means the link worked and died; give it a bit more room than
                 // the pre-header ladder but still bounded — a dead route should fail visibly.
                 var maxAttempts = WorkerHttpTuning.StreamRetryAttempts;
                 var delayMs = ComputeTransportDelayMs(transportAttempts + streamTransportAttempts);
+                retryDelayTotalMs += delayMs;
 
                 WorkerLog.Warn(
                     $"provider stream fault={ex.Fault.Code}; resuming in {delayMs}ms " +
@@ -284,12 +289,12 @@ internal static class AgentRuntimeProviderRetryPolicy
         AgentRuntimeProviderTransportException exception,
         int transportAttempts,
         AgentRuntimeTools.AgentRuntimeRunState state,
-        long startedAt)
+        int retryDelayTotalMs)
     {
         if (!WorkerHttpTuning.TransportRetryEnabled ||
             !exception.Fault.Retryable ||
             state.IsCancellationRequested ||
-            !HasTimeRemaining(startedAt))
+            !HasDelayBudgetRemaining(retryDelayTotalMs))
         {
             return false;
         }
@@ -308,12 +313,12 @@ internal static class AgentRuntimeProviderRetryPolicy
         AgentRuntimeProviderStreamTransportException exception,
         int streamTransportAttempts,
         AgentRuntimeTools.AgentRuntimeRunState state,
-        long startedAt)
+        int retryDelayTotalMs)
     {
         if (!WorkerHttpTuning.TransportRetryEnabled ||
             !exception.Fault.Retryable ||
             state.IsCancellationRequested ||
-            !HasTimeRemaining(startedAt))
+            !HasDelayBudgetRemaining(retryDelayTotalMs))
         {
             return false;
         }
@@ -350,9 +355,9 @@ internal static class AgentRuntimeProviderRetryPolicy
                 StatusCode: statusCode));
     }
 
-    private static bool HasTimeRemaining(long startedAt)
+    private static bool HasDelayBudgetRemaining(int retryDelayTotalMs)
     {
-        return Stopwatch.GetElapsedTime(startedAt) < WorkerHttpTuning.MaxRetryElapsed;
+        return retryDelayTotalMs < WorkerHttpTuning.MaxRetryDelayBudget.TotalMilliseconds;
     }
 
     private static bool IsRetryableStatus(int statusCode)

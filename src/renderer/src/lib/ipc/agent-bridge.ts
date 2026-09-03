@@ -22,7 +22,8 @@ import {
 } from '@renderer/lib/ipc/sidecar-protocol'
 import type {
   SidecarSlashCommandContext,
-  SidecarSystemCommandContext
+  SidecarSystemCommandContext,
+  SidecarUnifiedMessage
 } from '@renderer/lib/ipc/sidecar-protocol'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { invokeMessagePackBinary } from '@renderer/lib/ipc/messagepack-ipc-client'
@@ -388,9 +389,18 @@ class AgentBridgeClient {
     }
   }
 
+  /**
+   * Appends messages to a run that is already in flight. The worker's agent loop
+   * drains this queue at the top of each iteration, so the messages reach the
+   * model at the next provider-request boundary rather than after the run ends.
+   *
+   * Takes wire messages, not `UnifiedMessage`: the worker reads the same shape
+   * `buildSidecarAgentRunRequest` sends, so callers must map through
+   * `mapSidecarMessage` first.
+   */
   async appendAgentMessages(
     runId: string,
-    messages: UnifiedMessage[]
+    messages: SidecarUnifiedMessage[]
   ): Promise<{ appended: boolean; runId?: string; count: number }> {
     try {
       return (await this.request('agent/append-messages', { runId, messages }, 10_000)) as {
@@ -499,6 +509,8 @@ function mapAgentEventToProviderEvents(
       return [{ type: 'text_delta', text: event.text }]
     case 'thinking_delta':
       return [{ type: 'thinking_delta', thinking: event.thinking }]
+    case 'thinking_backfill':
+      return [{ type: 'thinking_backfill', thinking: event.thinking }]
     case 'thinking_encrypted':
       return [
         {
@@ -507,6 +519,8 @@ function mapAgentEventToProviderEvents(
           thinkingEncryptedProvider: event.thinkingEncryptedProvider
         }
       ]
+    case 'thinking_reasoning_id':
+      return [{ type: 'thinking_reasoning_id', reasoningItemId: event.reasoningItemId }]
     case 'image_generation_started':
       return [{ type: 'image_generation_started' }]
     case 'image_generation_partial':

@@ -82,10 +82,12 @@ internal static class AgentRuntimeGeminiInteractionsProvider
 
         await using var responseStream = await response.Content.ReadAsStreamAsync(state.CancellationToken);
         using var reader = new StreamReader(responseStream, Encoding.UTF8);
+        using var idleGate = new AgentRuntimeStreamIdleGate(state.CancellationToken);
         var dataBuilder = new StringBuilder();
         string? line;
         while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
             reader,
+            idleGate,
             provider,
             "Gemini Interactions",
             url,

@@ -27,7 +27,12 @@ export const routinAiPreset: BuiltinProviderPreset = {
   // v25: remove ox-alpha and add GLM-5.3-Flash
   // v26: add qwen3.8-flash and hy4-preview
   // v27: add qwen3.8-max; Qwen3.8-Max-Preview routes to production
-  version: 27,
+  // v28: add Claude Fable 5.1（cache read $0.25，其余价格与 Fable 5 相同）
+  // v29: add Gemini 3.7 / 3.6 Flash and Gemini 2.5 Pro / Flash / Flash-Lite
+  // v30: add Gemini 3.8 Flash
+  // v31: gemini-3.8-flash 支持思考（openai-chat reasoning_effort）
+  // v32: gemini-3.8-flash 对齐官方 thinking_level=LOW/MEDIUM/HIGH（无 MINIMAL）与 $0.75/$3.75
+  version: 32,
   name: 'Routin AI',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/v1',
@@ -594,6 +599,28 @@ export const routinAiPreset: BuiltinProviderPreset = {
       type: 'openai-images',
       supportsVision: true,
       supportsFunctionCall: false
+    },
+    {
+      id: 'claude-fable-5-1',
+      name: 'Claude Fable 5.1',
+      icon: 'claude',
+      type: 'anthropic',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 0.25,
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
+      }
     },
     {
       id: 'claude-fable-5',
@@ -1360,6 +1387,55 @@ export const routinAiPreset: BuiltinProviderPreset = {
     },
     // ── Google Gemini ──
     {
+      id: 'gemini-3.8-flash',
+      name: 'Gemini 3.8 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      // Official intro pricing (same as 3.7 Flash): $0.75 / $3.75 per 1M tokens.
+      // https://blog.google/innovation-and-ai/models-and-research/gemini-models/3-8-flash-and-3-8-flash-cyber/
+      inputPrice: 0.75,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.075,
+      supportsThinking: true,
+      // Official: thinking_level LOW/MEDIUM/HIGH (default MEDIUM). MINIMAL returns 400.
+      // https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash
+      thinkingConfig: {
+        bodyParams: { reasoning_effort: 'medium' },
+        reasoningEffortLevels: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'gemini-3.7-flash',
+      name: 'Gemini 3.7 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.5,
+      outputPrice: 3.75,
+      cacheHitPrice: 0.05
+    },
+    {
+      id: 'gemini-3.6-flash',
+      name: 'Gemini 3.6 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.5,
+      outputPrice: 7.5,
+      cacheHitPrice: 0.15
+    },
+    {
       id: 'gemini-3.5-flash',
       name: 'Gemini 3.5 Flash',
       icon: 'gemini',
@@ -1419,6 +1495,42 @@ export const routinAiPreset: BuiltinProviderPreset = {
       supportsFunctionCall: true,
       inputPrice: 0.2,
       outputPrice: 1.5
+    },
+    {
+      id: 'gemini-2.5-pro',
+      name: 'Gemini 2.5 Pro',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 1.25,
+      outputPrice: 10
+    },
+    {
+      id: 'gemini-2.5-flash',
+      name: 'Gemini 2.5 Flash',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.3,
+      outputPrice: 2.5
+    },
+    {
+      id: 'gemini-2.5-flash-lite',
+      name: 'Gemini 2.5 Flash-Lite',
+      icon: 'gemini',
+      enabled: true,
+      contextLength: 1_048_576,
+      maxOutputTokens: 65_536,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 0.1,
+      outputPrice: 0.4
     },
     {
       id: 'gemini-3.1-flash-image-preview',
@@ -2090,6 +2202,7 @@ const ROUTIN_AI_PLAN_MODEL_ORDER = [
   'gpt-5.6-luna',
   'gpt-5.5',
   'gpt-5.3-codex-spark',
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-sonnet-5',
@@ -2109,7 +2222,8 @@ export const routinAiPlanPreset: BuiltinProviderPreset = {
   // v2: gpt-5.4+ models support the Responses WebSocket transport (supportsWebsocket)
   // v3: add Claude Opus 5 to the plan model list.
   // v4: GPT 5.6 Sol first in the plan model list.
-  version: 4,
+  // v5: add Claude Fable 5.1 to the plan model list.
+  version: 5,
   name: 'Routin AI（套餐）',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.routin.ai/plan/v1',

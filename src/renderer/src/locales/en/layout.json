@@ -1,4 +1,4 @@
-{
+﻿{
   "sidebar": {
     "openCowork": "OpenCowork",
     "conversations": "Conversations",
@@ -1431,5 +1431,43 @@
     "terminalExited": "Terminal session ended",
     "terminalExitedWithError": "Terminal session exited",
     "exitCode": "Exit code: {{code}}"
+  },
+  "remoteControl": {
+    "title": "Remote control",
+    "description": "Connect your phone to OpenCowork",
+    "start": "Enable",
+    "stop": "Stop",
+    "refreshQr": "Refresh QR",
+    "copyLink": "Copy link",
+    "copied": "Link copied",
+    "qrUnavailable": "Enable remote control to show a QR code.",
+    "qrChanged": "The QR code changed. Please scan it again.",
+    "connectionFailed": "Could not reach the remote control server.",
+    "apiBaseUrl": "API address",
+    "apiBaseUrlHint": "Remote-control SignalR host. Change this for a local or custom environment.",
+    "apiBaseUrlPlaceholder": "https://api.routin.ai",
+    "terminalWrite": "Allow remote terminal execution",
+    "terminalWarning": "A leaked QR code grants shell access.",
+    "connections": "Connected phones",
+    "noConnections": "No phones connected.",
+    "disconnect": "Disconnect",
+    "devicePhone": "Phone",
+    "deviceDesktop": "Desktop",
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} hr ago",
+    "daysAgo": "{{count}}d ago",
+    "status": {
+      "disabled": "Disabled",
+      "connecting": "Connecting",
+      "online": "Online",
+      "reconnecting": "Reconnecting",
+      "error": "Error"
+    },
+    "gitWrite": "Allow commits from phone",
+    "gitWarning": "Lets a paired phone stage and commit. Off by default — anyone with the QR code could write to the repository."
+  },
+  "account": {
+    "remoteControl": "Remote control"
   }
 }

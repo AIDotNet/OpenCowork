@@ -80,6 +80,38 @@ function cloneModelConfig(model: AIModelConfig): AIModelConfig {
   return cloneValue(model)
 }
 
+/** Copilot plan / premium-request metadata must not travel with a shared model id. */
+function omitCopilotLocalModelFields<T extends AIModelConfig>(model: T): T {
+  if (
+    model.availablePlans === undefined &&
+    model.premiumRequestMultiplier === undefined
+  ) {
+    return model
+  }
+  const next = { ...model }
+  delete next.availablePlans
+  delete next.premiumRequestMultiplier
+  return next
+}
+
+function scopeCopilotLocalModelFields(
+  model: AIModelConfig,
+  owner: AIModelConfig
+): AIModelConfig {
+  const keepPlans = owner.availablePlans !== undefined
+  const keepPremium = owner.premiumRequestMultiplier !== undefined
+  if (
+    (keepPlans || model.availablePlans === undefined) &&
+    (keepPremium || model.premiumRequestMultiplier === undefined)
+  ) {
+    return model
+  }
+  const next = { ...model }
+  if (!keepPlans) delete next.availablePlans
+  if (!keepPremium) delete next.premiumRequestMultiplier
+  return next
+}
+
 function omitUnsupportedDisabledThinkingParams(model: AIModelConfig): AIModelConfig {
   if (!KIMI_ENABLED_ONLY_THINKING_MODEL_KEYS.has(normalizeModelKey(model.id))) return model
   if (!model.thinkingConfig?.disabledBodyParams) return model
@@ -187,7 +219,7 @@ function collectBuiltinManagedModels(): ManagedModelConfig[] {
 
   for (const preset of builtinProviderPresets) {
     for (const model of preset.defaultModels) {
-      const candidate = toManagedModelConfig(model)
+      const candidate = omitCopilotLocalModelFields(toManagedModelConfig(model))
       const existing = managedByKey.get(candidate.normalizedKey)
       if (!existing) {
         managedByKey.set(candidate.normalizedKey, candidate)
@@ -337,6 +369,59 @@ export function resolveModelThinkingConfig(
   ).thinkingConfig
 }
 
+/**
+ * Anthropic's `thinking.budget_tokens` lives inside the model's thinking config
+ * body params rather than as a field of its own. These read/clamp/write helpers
+ * are the only sanctioned way to touch it — the composer's model settings popover
+ * and the phone's remote projection both go through them.
+ */
+export const MIN_ANTHROPIC_THINKING_BUDGET = 1024
+export const DEFAULT_ANTHROPIC_THINKING_BUDGET = 10000
+
+function isThinkingRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function readAnthropicThinkingBudget(model?: AIModelConfig): number | null {
+  const thinking = model?.thinkingConfig?.bodyParams.thinking
+  if (!isThinkingRecord(thinking)) return null
+  const value = thinking.budget_tokens
+  const numeric =
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null
+}
+
+export function clampThinkingBudget(value: number, maxOutputTokens?: number): number {
+  const upperBound = Math.max(
+    MIN_ANTHROPIC_THINKING_BUDGET,
+    Math.floor((maxOutputTokens ?? 64_000) - 1)
+  )
+  return Math.min(upperBound, Math.max(MIN_ANTHROPIC_THINKING_BUDGET, Math.floor(value)))
+}
+
+export function buildAnthropicThinkingConfigWithBudget(
+  config: ThinkingConfig | undefined,
+  budget: number
+): ThinkingConfig {
+  const nextConfig: ThinkingConfig = {
+    ...(config ?? { bodyParams: {} }),
+    bodyParams: { ...(config?.bodyParams ?? {}) }
+  }
+  const rawThinking = nextConfig.bodyParams.thinking
+  nextConfig.bodyParams.thinking = {
+    ...(isThinkingRecord(rawThinking) ? rawThinking : {}),
+    type: 'enabled',
+    budget_tokens: budget
+  }
+  delete nextConfig.bodyParams.enable_thinking
+  return nextConfig
+}
+
+/** Fast mode is offered only by models that carry a priority service tier. */
+export function supportsPriorityServiceTier(model: AIModelConfig | undefined): boolean {
+  return !!model?.serviceTier
+}
+
 export function buildProviderModelSnapshot(
   model: AIModelConfig,
   options: {
@@ -345,7 +430,9 @@ export function buildProviderModelSnapshot(
   } = {}
 ): AIModelConfig {
   const baseModel = cloneModelConfig(model)
-  const managedModel = options.managedModel ? toManagedModelBase(options.managedModel) : null
+  const managedModel = options.managedModel
+    ? omitCopilotLocalModelFields(toManagedModelBase(options.managedModel))
+    : null
   const existingModel = options.existingModel ? cloneModelConfig(options.existingModel) : null
 
   if (existingModel) {
@@ -732,10 +819,13 @@ function mergeBuiltinModels(
 
   const merged = presetModels.map((presetModel) => {
     const modelKey = normalizeModelKey(presetModel.id)
-    return buildProviderModelSnapshot(presetModel, {
-      managedModel: getManagedModelFromCollection(managedModels, presetModel.id) ?? null,
-      existingModel: existingByKey.get(modelKey) ?? null
-    })
+    return scopeCopilotLocalModelFields(
+      buildProviderModelSnapshot(presetModel, {
+        managedModel: getManagedModelFromCollection(managedModels, presetModel.id) ?? null,
+        existingModel: existingByKey.get(modelKey) ?? null
+      }),
+      presetModel
+    )
   })
 
   for (const existingModel of existingModels) {
@@ -1894,15 +1984,46 @@ function syncManagedModelsWithBuiltins(): void {
     }
 
     const result = mergeManagedModelMissingFields(managedModels[existingIndex], builtinModel)
-    const reconciled = reconcileReasoningEffortLevels(result.model, builtinModel)
+    const reconciled = omitCopilotLocalModelFields(
+      reconcileReasoningEffortLevels(result.model, builtinModel)
+    )
     if (result.changed || reconciled !== result.model) {
       managedModels[existingIndex] = reconciled
       changed = true
     }
   }
 
+  for (let i = 0; i < managedModels.length; i++) {
+    const stripped = omitCopilotLocalModelFields(managedModels[i])
+    if (stripped !== managedModels[i]) {
+      managedModels[i] = stripped
+      changed = true
+    }
+  }
+
   if (changed) {
     useProviderStore.setState({ managedModels: sortManagedModels(managedModels) })
+  }
+}
+
+function stripCopilotLocalFieldsFromForeignProviders(): void {
+  const providers = useProviderStore.getState().providers
+  let changed = false
+  const next = providers.map((provider) => {
+    if (provider.builtinId === 'copilot-oauth') return provider
+    let modelsChanged = false
+    const models = provider.models.map((model) => {
+      const stripped = omitCopilotLocalModelFields(model)
+      if (stripped === model) return model
+      modelsChanged = true
+      return stripped
+    })
+    if (!modelsChanged) return provider
+    changed = true
+    return { ...provider, models }
+  })
+  if (changed) {
+    useProviderStore.setState({ providers: next })
   }
 }
 
@@ -2338,6 +2459,8 @@ function ensureBuiltinPresets(): void {
       }
     }
   }
+
+  stripCopilotLocalFieldsFromForeignProviders()
 
   if (!useProviderStore.getState().activeProviderId) {
     const providers = useProviderStore.getState().providers

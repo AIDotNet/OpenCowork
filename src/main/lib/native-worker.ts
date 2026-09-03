@@ -28,6 +28,7 @@ import {
 // Resolved lazily at spawn time (function-level cycle — safe): tells the CodeGraph
 // worker where to load its bundled, updated, or dev tree-sitter grammars from.
 import { resolveCodeGraphGrammarsDir } from './codegraph-assets'
+import { applyWorkerProxyEnv } from './worker-proxy'
 
 const NATIVE_WORKER_STDERR_TAIL_LINES = 40
 const NATIVE_WORKER_STDERR_MAX_LINE = 2000
@@ -1496,6 +1497,8 @@ function createNativeWorkerEnv(): NodeJS.ProcessEnv {
   if (grammarsDir) {
     env.OPEN_COWORK_CODEGRAPH_GRAMMARS_DIR ??= grammarsDir
   }
+  // Every provider request leaves from this worker, and .NET cannot see the OS proxy settings.
+  applyWorkerProxyEnv(env)
   return env
 }
 

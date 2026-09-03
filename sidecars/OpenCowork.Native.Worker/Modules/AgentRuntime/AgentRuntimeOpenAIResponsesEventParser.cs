@@ -47,6 +47,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 {
                     MarkFirstToken(parseState, startedAt);
                     parseState.EstimatedOutputTokens += EstimateTokenCount(delta);
+                    DraftText(parseState, delta);
                     await AgentRuntimeTools.EmitProjectedAsync(
                         state,
                         context,
@@ -63,6 +64,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     MarkFirstToken(parseState, startedAt);
                     parseState.EmittedThinkingDelta = true;
                     parseState.ReasoningStreamedLive = true;
+                    DraftThinking(parseState, thinking, backfill: false);
                     await AgentRuntimeTools.EmitProjectedAsync(
                         state,
                         context,
@@ -307,6 +309,10 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         {
             TryEmitThinkingSummary(item, parseState, state, context, startedAt);
             TryEmitThinkingEncrypted(item, parseState, state, context);
+            DraftReasoningIdentityFromItem(item, parseState, state, context);
+            // The item is finished, so any further reasoning starts its own block rather
+            // than growing this one — a turn can hold several reasoning items.
+            CloseOpenThinkingDrafts(parseState);
             return;
         }
         if (itemType == "computer_call")
@@ -526,6 +532,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             return;
         }
         parseState.ToolCalls.Add(call);
+        DraftToolCall(parseState, call);
         parseState.ToolBuffers.Remove(callId);
     }
 
@@ -551,6 +558,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
             if (parseState.EmittedToolCallKeys.Add(BuildToolCallKey(call)))
             {
                 parseState.ToolCalls.Add(call);
+                DraftToolCall(parseState, call);
             }
         }
         parseState.ToolBuffers.Clear();
@@ -576,6 +584,37 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                 Provider: "openai-responses"));
     }
 
+    /// <summary>
+    /// Record how this reasoning item can be replayed on the next request. Only runs when
+    /// the item is complete, so the summary text it belongs to has already been drafted.
+    /// The id also goes to the host: this run's own drafts die with the run, and a later
+    /// user turn replays history the host persisted, which needs the handle too.
+    /// </summary>
+    private static void DraftReasoningIdentityFromItem(
+        JsonElement item,
+        ResponsesParseState parseState,
+        AgentRuntimeTools.AgentRuntimeRunState state,
+        WorkerRequestContext context)
+    {
+        var reasoningItemId = JsonHelpers.GetString(item, "id");
+        if (string.IsNullOrWhiteSpace(reasoningItemId) ||
+            !parseState.DraftedReasoningItemIds.Add(reasoningItemId))
+        {
+            return;
+        }
+        var encrypted = JsonHelpers.GetString(item, "encrypted_content");
+        DraftReasoningIdentity(
+            parseState,
+            string.IsNullOrWhiteSpace(encrypted) ? null : encrypted,
+            reasoningItemId);
+        _ = AgentRuntimeTools.EmitProjectedAsync(
+            state,
+            context,
+            new AgentRuntimeStreamEvent(
+                "thinking_reasoning_id",
+                ReasoningItemId: reasoningItemId));
+    }
+
     private static void TryEmitThinkingSummary(
         JsonElement item,
         ResponsesParseState parseState,
@@ -596,10 +635,18 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         }
         parseState.EmittedThinkingDelta = true;
         MarkFirstToken(parseState, startedAt);
+        // Gateways that never stream reasoning_summary_text.delta only disclose the
+        // summary on the reasoning item, which for some of them arrives inside
+        // response.completed — after the answer already streamed. Say so, or the host
+        // appends the reasoning below the reply it produced.
+        var backfill = parseState.AssistantText.Length > 0;
+        DraftThinking(parseState, thinking, backfill);
         _ = AgentRuntimeTools.EmitProjectedAsync(
             state,
             context,
-            new AgentRuntimeStreamEvent("thinking_delta", Thinking: thinking));
+            new AgentRuntimeStreamEvent(
+                backfill ? "thinking_backfill" : "thinking_delta",
+                Thinking: thinking));
     }
 
     private static bool IsWebSocketTransportUnavailableEvent(JsonElement payload)

@@ -123,6 +123,33 @@
     "smartRename": "智能重命名",
     "smartRenaming": "智能命名中"
   },
+  "account": {
+    "signedOutTitle": "OpenCowork",
+    "signedOutSubtitle": "未登录",
+    "badge": "社区版",
+    "signIn": "登录",
+    "signingIn": "登录中…",
+    "cancelSignIn": "取消登录",
+    "signOut": "退出登录",
+    "openMenu": "打开账户菜单",
+    "manageAccount": "管理账户",
+    "messages": "消息中心",
+    "systemSettings": "系统设置",
+    "refresh": "刷新登录状态",
+    "sessionExpiresAt": "登录有效期至 {{time}}",
+    "error": {
+      "access_denied": "你已取消授权",
+      "invalid_grant": "授权码无效或已过期，请重新登录",
+      "invalid_client": "客户端未被授权，请更新 OpenCowork",
+      "invalid_request": "授权请求无效，请重试",
+      "state_mismatch": "授权校验失败，请重新登录",
+      "network_error": "网络异常，请稍后重试",
+      "refresh_expired": "登录已过期，请重新登录",
+      "timeout": "登录超时，请重新登录",
+      "unknown": "登录失败，请重试"
+    },
+    "remoteControl": "远程控制"
+  },
   "sidebar_toast": {
     "sessionDeleted": "会话已删除",
     "exported": "已导出所有会话",
@@ -1431,5 +1458,40 @@
     "terminalExited": "终端会话已结束",
     "terminalExitedWithError": "终端会话已退出",
     "exitCode": "退出码：{{code}}"
+  },
+  "remoteControl": {
+    "title": "远程控制",
+    "description": "将手机连接到 OpenCowork",
+    "start": "启用",
+    "stop": "停止",
+    "refreshQr": "刷新二维码",
+    "copyLink": "复制链接",
+    "copied": "链接已复制",
+    "qrUnavailable": "启用远程控制后将显示二维码。",
+    "qrChanged": "二维码已更新，请重新扫码。",
+    "connectionFailed": "无法连接到远程控制服务器。",
+    "apiBaseUrl": "API 地址",
+    "apiBaseUrlHint": "远程控制 SignalR 服务地址，可改为本地或自定义环境。",
+    "apiBaseUrlPlaceholder": "https://api.routin.ai",
+    "terminalWrite": "允许远程终端执行",
+    "terminalWarning": "二维码泄露可能授予终端访问权限。",
+    "connections": "已连接手机",
+    "noConnections": "暂无手机连接",
+    "disconnect": "断开连接",
+    "devicePhone": "手机",
+    "deviceDesktop": "电脑",
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前",
+    "daysAgo": "{{count}} 天前",
+    "status": {
+      "disabled": "未启用",
+      "connecting": "连接中",
+      "online": "在线",
+      "reconnecting": "重连中",
+      "error": "错误"
+    },
+    "gitWrite": "允许手机提交",
+    "gitWarning": "开启后手机可以暂存并提交改动。默认关闭：扫到二维码的人将能写入仓库。"
   }
 }

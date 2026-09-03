@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 
 internal static partial class AgentRuntimeAnthropicMessagesProvider
@@ -77,6 +78,8 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         var blockType = JsonHelpers.GetString(block, "type");
         if (blockType == "tool_use")
         {
+            FlushOpenAnthropicText(parseState);
+            FlushOpenAnthropicThinking(parseState);
             var id = JsonHelpers.GetString(block, "id") ?? $"toolu_{index}";
             var name = JsonHelpers.GetString(block, "name") ?? string.Empty;
             parseState.ToolBuffers[index] = new AnthropicToolBuffer(id, name);
@@ -90,8 +93,30 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             return;
         }
 
+        if (blockType == "redacted_thinking")
+        {
+            FlushOpenAnthropicText(parseState);
+            FlushOpenAnthropicThinking(parseState);
+            var data = JsonHelpers.GetString(block, "data") ??
+                JsonHelpers.GetString(block, "signature") ??
+                JsonHelpers.GetString(block, "encrypted_content");
+            parseState.ContentBlocks.Add(CreateAnthropicThinkingBlock(string.Empty, data, redacted: true));
+            TryEmitThinkingEncrypted(block, parseState, state, context);
+            return;
+        }
+
         if (blockType == "thinking")
         {
+            FlushOpenAnthropicText(parseState);
+            FlushOpenAnthropicThinking(parseState);
+            parseState.OpenThinking = new StringBuilder();
+            if (JsonHelpers.GetString(block, "thinking") is { Length: > 0 } initialThinking)
+            {
+                parseState.OpenThinking.Append(initialThinking);
+            }
+            parseState.OpenThinkingEncrypted = JsonHelpers.GetString(block, "signature") ??
+                JsonHelpers.GetString(block, "encrypted_content");
+            parseState.OpenThinkingRedacted = false;
             TryEmitThinkingEncrypted(block, parseState, state, context);
         }
     }
@@ -119,6 +144,9 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             {
                 return;
             }
+            FlushOpenAnthropicThinking(parseState);
+            parseState.OpenText ??= new StringBuilder();
+            parseState.OpenText.Append(text);
             parseState.AssistantText.Append(text);
             parseState.EstimatedOutputTokens += EstimateTokenCount(text);
             await AgentRuntimeTools.EmitProjectedAsync(
@@ -133,6 +161,10 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             var thinking = JsonHelpers.GetString(delta, "thinking") ?? string.Empty;
             if (thinking.Length > 0)
             {
+                FlushOpenAnthropicText(parseState);
+                parseState.OpenThinking ??= new StringBuilder();
+                parseState.OpenThinking.Append(thinking);
+                parseState.OpenThinkingRedacted = false;
                 parseState.ReasoningStreamed = true;
                 parseState.EstimatedOutputTokens += EstimateTokenCount(thinking);
                 await AgentRuntimeTools.EmitProjectedAsync(
@@ -145,6 +177,10 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
 
         if (deltaType == "signature_delta")
         {
+            if (JsonHelpers.GetString(delta, "signature") is { Length: > 0 } signature)
+            {
+                parseState.OpenThinkingEncrypted = signature;
+            }
             TryEmitThinkingEncrypted(delta, parseState, state, context);
             return;
         }
@@ -179,11 +215,32 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
 
     private static void ProcessContentBlockStop(JsonElement root, AnthropicParseState parseState)
     {
+        FlushOpenAnthropicThinking(parseState);
+        FlushOpenAnthropicText(parseState);
         var index = JsonHelpers.GetInt(root, "index", -1);
         if (index < 0 || !parseState.ToolBuffers.TryGetValue(index, out var buffer))
         {
             return;
         }
+        CompleteAnthropicToolBuffer(parseState, buffer);
+        parseState.ToolBuffers.Remove(index);
+    }
+
+    private static void FlushPendingToolCalls(AnthropicParseState parseState)
+    {
+        FlushOpenAnthropicThinking(parseState);
+        FlushOpenAnthropicText(parseState);
+        foreach (var item in parseState.ToolBuffers.ToArray())
+        {
+            CompleteAnthropicToolBuffer(parseState, item.Value);
+            parseState.ToolBuffers.Remove(item.Key);
+        }
+    }
+
+    private static void CompleteAnthropicToolBuffer(
+        AnthropicParseState parseState,
+        AnthropicToolBuffer buffer)
+    {
         var rawArguments = buffer.Arguments.ToString();
         var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
         var input = parsedSuccessfully
@@ -195,29 +252,83 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             input,
             RawArguments: rawArguments,
             ParseError: parsedSuccessfully ? null : "Expected a valid JSON object."));
-        parseState.ToolBuffers.Remove(index);
+        parseState.ContentBlocks.Add(CreateAnthropicToolUseBlock(buffer.Id, buffer.Name, input));
     }
 
-    private static void FlushPendingToolCalls(AnthropicParseState parseState)
+    private static void FlushOpenAnthropicThinking(AnthropicParseState parseState)
     {
-        foreach (var item in parseState.ToolBuffers.ToArray())
+        if (parseState.OpenThinking is null &&
+            string.IsNullOrWhiteSpace(parseState.OpenThinkingEncrypted))
         {
-            var buffer = item.Value;
-            var rawArguments = buffer.Arguments.ToString();
-            var parsedSuccessfully = TryParseJsonObject(rawArguments, out var parsed);
-            var input = parsedSuccessfully
-                ? parsed
-                : CreateEmptyObjectElement();
-            parseState.ToolCalls.Add(new AgentRuntimeNativeToolCall(
-                buffer.Id,
-                buffer.Name,
-                input,
-                RawArguments: rawArguments,
-                ParseError: parsedSuccessfully ? null : "Expected a valid JSON object."));
-            parseState.ToolBuffers.Remove(item.Key);
+            parseState.OpenThinkingRedacted = false;
+            return;
         }
+
+        var thinking = parseState.OpenThinking?.ToString() ?? string.Empty;
+        var encrypted = parseState.OpenThinkingEncrypted;
+        var redacted = parseState.OpenThinkingRedacted ||
+            (string.IsNullOrWhiteSpace(thinking) && !string.IsNullOrWhiteSpace(encrypted));
+        if (!string.IsNullOrWhiteSpace(thinking) || !string.IsNullOrWhiteSpace(encrypted))
+        {
+            parseState.ContentBlocks.Add(CreateAnthropicThinkingBlock(thinking, encrypted, redacted));
+        }
+        parseState.OpenThinking = null;
+        parseState.OpenThinkingEncrypted = null;
+        parseState.OpenThinkingRedacted = false;
     }
 
+    private static void FlushOpenAnthropicText(AnthropicParseState parseState)
+    {
+        if (parseState.OpenText is null || parseState.OpenText.Length == 0)
+        {
+            parseState.OpenText = null;
+            return;
+        }
+
+        var text = parseState.OpenText.ToString();
+        parseState.ContentBlocks.Add(AgentRuntimeProviderSupport.CreateObjectElement(writer =>
+        {
+            writer.WriteString("type", "text");
+            writer.WriteString("text", text);
+        }));
+        parseState.OpenText = null;
+    }
+
+    private static JsonElement CreateAnthropicThinkingBlock(
+        string thinking,
+        string? encrypted,
+        bool redacted)
+    {
+        return AgentRuntimeProviderSupport.CreateObjectElement(writer =>
+        {
+            writer.WriteString("type", redacted ? "redacted_thinking" : "thinking");
+            if (!redacted)
+            {
+                writer.WriteString("thinking", thinking);
+            }
+            if (!string.IsNullOrWhiteSpace(encrypted))
+            {
+                writer.WriteString("encryptedContent", encrypted);
+                writer.WriteString("encryptedContentProvider", "anthropic");
+            }
+            if (redacted)
+            {
+                writer.WriteBoolean("redacted", true);
+            }
+        });
+    }
+
+    private static JsonElement CreateAnthropicToolUseBlock(string id, string name, JsonElement input)
+    {
+        return AgentRuntimeProviderSupport.CreateObjectElement(writer =>
+        {
+            writer.WriteString("type", "tool_use");
+            writer.WriteString("id", id);
+            writer.WriteString("name", name);
+            writer.WritePropertyName("input");
+            input.WriteTo(writer);
+        });
+    }
 
     private static void TryEmitThinkingEncrypted(
         JsonElement element,
@@ -226,7 +337,8 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
         WorkerRequestContext context)
     {
         var encrypted = JsonHelpers.GetString(element, "signature") ??
-            JsonHelpers.GetString(element, "encrypted_content");
+            JsonHelpers.GetString(element, "encrypted_content") ??
+            JsonHelpers.GetString(element, "data");
         if (string.IsNullOrWhiteSpace(encrypted) || !parseState.EmittedEncryptedReasoning.Add(encrypted))
         {
             return;

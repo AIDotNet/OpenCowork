@@ -1,4 +1,4 @@
-import { HOOK_IPC_CHANNELS } from '../../../../shared/hooks/types'
+﻿import { HOOK_IPC_CHANNELS } from '../../../../shared/hooks/types'
 
 const MESSAGEPACK_INVOKE_CHANNELS = new Set<string>([
   'app:homedir',
@@ -90,6 +90,18 @@ const MESSAGEPACK_INVOKE_CHANNELS = new Set<string>([
   'desktop:input:scroll',
   'oauth:start',
   'oauth:stop',
+  'account-oauth:get',
+  'account-oauth:start',
+  'account-oauth:cancel',
+  'account-oauth:refresh',
+  'account-oauth:logout',
+  'remote-control:get',
+  'remote-control:start',
+  'remote-control:stop',
+  'remote-control:rotate',
+  'remote-control:disconnect-mobile',
+  'remote-control:set-terminal-write',
+  'remote-control:set-api-base-url',
   'goal-runtime:can-mark-blocked',
   'ssh:group:list',
   'ssh:group:create',
@@ -297,7 +309,9 @@ const MESSAGEPACK_SEND_CHANNELS = new Set<string>([
   'shell:abort',
   'ssh:data',
   'ssh:resize',
-  'sidecar:notify'
+  'sidecar:notify',
+  'remote-control:response',
+  'remote-control:event'
 ])
 
 const MESSAGEPACK_EVENT_CHANNELS = new Set<string>([
@@ -316,6 +330,8 @@ const MESSAGEPACK_EVENT_CHANNELS = new Set<string>([
   'terminal:created',
   'terminal:output',
   'terminal:exit',
+  'remote-control:changed',
+  'remote-control:request',
   'ssh:output',
   'cron:run-started',
   'cron:run-progress',
@@ -332,6 +348,7 @@ const MESSAGEPACK_EVENT_CHANNELS = new Set<string>([
   'ssh:connect:log',
   'ssh:config:changed',
   'oauth:callback',
+  'account-oauth:changed',
   'cron:fired',
   'plugin:incoming-message',
   'plugin:session-task',

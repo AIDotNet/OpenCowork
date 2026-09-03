@@ -38,7 +38,8 @@ const projection = run(process.execPath, [
   'scripts/test/session-scope.test.ts',
   'scripts/test/compact-request-view.test.ts',
   'scripts/test/compact-watermark.test.ts',
-  'scripts/test/system-command.test.ts'
+  'scripts/test/system-command.test.ts',
+  'scripts/test/content-blocks-thinking.test.ts'
 ])
 if (projection.status !== 0) {
   process.stderr.write(projection.stderr || projection.stdout || '')

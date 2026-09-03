@@ -363,6 +363,34 @@ export async function createTerminalSession(
   return { error: `Failed to start terminal shell.${cwdHint} Last error: ${lastError}` }
 }
 
+export function listTerminalSessionSnapshots(): TerminalSessionListEntry[] {
+  pruneExpiredExitedSessions()
+  return Array.from(terminalSessions.values())
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((session) => toSessionRecord(session, true))
+}
+
+export async function resizeTerminalSession(
+  id: string,
+  cols: number,
+  rows: number
+): Promise<{ success?: true; error?: string }> {
+  pruneExpiredExitedSessions()
+  const session = terminalSessions.get(id)
+  if (!session) return { error: 'Terminal not found' }
+  if (session.exitCode !== undefined) return { success: true }
+  try {
+    const nextCols = Math.max(MIN_COLS, Math.floor(cols))
+    const nextRows = Math.max(MIN_ROWS, Math.floor(rows))
+    session.pty.resize(nextCols, nextRows)
+    session.cols = nextCols
+    session.rows = nextRows
+    return { success: true }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 export function onTerminalSessionOutput(
   listener: (event: TerminalOutputEvent) => void
 ): () => void {
@@ -386,22 +414,7 @@ export function registerTerminalHandlers(): void {
 
   registerMessagePackHandler<{ id: string; cols: number; rows: number }>(
     'terminal:resize',
-    async (args) => {
-      pruneExpiredExitedSessions()
-      const session = terminalSessions.get(args.id)
-      if (!session) return { error: 'Terminal not found' }
-      if (session.exitCode !== undefined) return { success: true }
-      try {
-        const cols = Math.max(MIN_COLS, Math.floor(args.cols))
-        const rows = Math.max(MIN_ROWS, Math.floor(args.rows))
-        session.pty.resize(cols, rows)
-        session.cols = cols
-        session.rows = rows
-        return { success: true }
-      } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) }
-      }
-    }
+    async (args) => resizeTerminalSession(args.id, args.cols, args.rows)
   )
 
   registerMessagePackHandler<{ id: string }>('terminal:kill', async (args) => {

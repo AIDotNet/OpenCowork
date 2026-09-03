@@ -68,11 +68,13 @@ export type InteractiveAgentEvent =
   | { type: 'loop_start'; assistantMessageId?: string }
   | { type: 'iteration_start'; iteration: number }
   | { type: 'thinking_delta'; thinking: string }
+  | { type: 'thinking_backfill'; thinking: string }
   | {
       type: 'thinking_encrypted'
       thinkingEncryptedContent: string
       thinkingEncryptedProvider: 'anthropic' | 'openai-responses' | 'google'
     }
+  | { type: 'thinking_reasoning_id'; reasoningItemId: string }
   | { type: 'text_delta'; text: string }
   | {
       type: 'tool_use_streaming_start'
@@ -168,6 +170,8 @@ export type AgentLoopContentBlock =
       thinking: string
       encryptedContent?: string
       encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
+      reasoningItemId?: string
+      redacted?: boolean
     }
   | {
       type: 'tool_use'

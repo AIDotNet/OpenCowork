@@ -429,3 +429,106 @@ test('seals an open think after text when overlay already has the next tools', (
     { type: 'tool_use', id: 'tool-2', name: 'Grep', input: { pattern: 'x' } }
   ])
 })
+
+test('reasoning that arrives after the answer is placed above it, not below', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst:run-1',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'here is the answer' }],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 5
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: 'here is the answer',
+          thinking: 'weighed two options'
+        }
+      ]
+    }),
+    null,
+    'session-1'
+  )
+
+  assert.deepEqual(view.messages[0]?.content, [
+    { type: 'thinking', thinking: 'weighed two options' },
+    { type: 'text', text: 'here is the answer' }
+  ])
+})
+
+test('reasoning backfilled after a tool call still follows that call', () => {
+  const messages: UnifiedMessage[] = [
+    {
+      id: 'asst:run-1',
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+        { type: 'text', text: 'first pass' },
+        { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+        { type: 'text', text: 'second pass' }
+      ],
+      createdAt: 1
+    }
+  ]
+  const view = applyRuntimeOverlayToMessages(
+    messages,
+    projection({
+      runs: [
+        {
+          runId: 'run-1',
+          sessionId: 'session-1',
+          status: 'running',
+          assistantMessageId: 'asst:run-1',
+          lastSeq: 6
+        }
+      ],
+      messages: [
+        {
+          messageId: 'asst:run-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          role: 'assistant',
+          text: 'first passsecond pass',
+          thinking: 'plan Aplan B'
+        }
+      ],
+      toolCalls: [
+        {
+          toolCallId: 'tool-1',
+          runId: 'run-1',
+          sessionId: 'session-1',
+          toolName: 'Read',
+          status: 'running',
+          input: { path: 'a.ts' },
+          output: null
+        }
+      ]
+    }),
+    null,
+    'session-1'
+  )
+
+  assert.deepEqual(view.messages[0]?.content, [
+    { type: 'thinking', thinking: 'plan A', startedAt: 10, completedAt: 20 },
+    { type: 'text', text: 'first pass' },
+    { type: 'tool_use', id: 'tool-1', name: 'Read', input: { path: 'a.ts' } },
+    { type: 'thinking', thinking: 'plan B' },
+    { type: 'text', text: 'second pass' }
+  ])
+})

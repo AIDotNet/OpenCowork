@@ -44,6 +44,7 @@ import { NotifyToastContainer } from './components/notify/NotifyWindow'
 import { installAgentRuntimeSyncListener } from './lib/agent-runtime-sync'
 import { installSessionRuntimeSyncListener } from './lib/session-runtime-sync'
 import { installRendererMemoryMonitor } from './lib/renderer-memory-monitor'
+import { startRemoteStateBridge } from './lib/remote-control/state-projector'
 import {
   getGlobalMemorySnapshot,
   loadGlobalMemorySnapshot,
@@ -372,6 +373,7 @@ function App(): React.JSX.Element {
   useEffect(() => installAgentRuntimeSyncListener(), [])
   useEffect(() => installRendererMemoryMonitor(), [])
   useEffect(() => installGoalSyncListener(), [])
+  useEffect(() => startRemoteStateBridge(), [])
 
   // When the worker is recycled underneath us, re-pull runtime state so any run
   // that survived (or the reconciled status of one that didn't) is reflected.

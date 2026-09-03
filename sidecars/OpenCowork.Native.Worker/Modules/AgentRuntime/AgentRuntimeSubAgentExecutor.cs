@@ -1761,6 +1761,9 @@ internal static partial class AgentRuntimeSubAgentExecutor
                         ToolUseId: toolUseId));
                     break;
                 case "thinking_delta":
+                // A sub-agent transcript is a flat log, so late-disclosed reasoning is
+                // folded in as an ordinary delta rather than repositioned.
+                case "thinking_backfill":
                     await EmitAsync(new AgentRuntimeStreamEvent(
                         "sub_agent_thinking_delta",
                         Thinking: item.Thinking,

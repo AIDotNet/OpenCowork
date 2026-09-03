@@ -545,6 +545,8 @@ internal static class DbSchemaMigrator
               ssh_connection_id TEXT,
               plugin_id TEXT,
               pinned INTEGER DEFAULT 0,
+              provider_id TEXT,
+              model_id TEXT,
               created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             );
@@ -911,6 +913,8 @@ internal static class DbSchemaMigrator
         EnsureColumn(connection, "draw_runs", "meta_json", "TEXT");
         EnsureColumn(connection, "projects", "pinned", "INTEGER DEFAULT 0");
         EnsureColumn(connection, "projects", "icon", "TEXT");
+        EnsureColumn(connection, "projects", "provider_id", "TEXT");
+        EnsureColumn(connection, "projects", "model_id", "TEXT");
 
         EnsureColumn(connection, "cron_jobs", "plugin_id", "TEXT");
         EnsureColumn(connection, "cron_jobs", "plugin_chat_id", "TEXT");

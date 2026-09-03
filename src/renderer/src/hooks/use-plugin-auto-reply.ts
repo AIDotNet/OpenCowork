@@ -245,6 +245,22 @@ function appendPluginRuntimeThinkingDelta(
   })
 }
 
+function backfillPluginRuntimeThinking(
+  sessionId: string,
+  messageId: string,
+  thinking: string
+): void {
+  const cleanedThinking = stripThinkTagMarkers(thinking)
+  if (!cleanedThinking) return
+  useChatStore.getState().backfillThinking(sessionId, messageId, cleanedThinking)
+  emitSessionRuntimeSync({
+    kind: 'backfill_thinking',
+    sessionId,
+    messageId,
+    thinking: cleanedThinking
+  })
+}
+
 function setPluginRuntimeThinkingEncryptedContent(
   sessionId: string,
   messageId: string,
@@ -261,6 +277,21 @@ function setPluginRuntimeThinkingEncryptedContent(
     messageId,
     encryptedContent,
     provider
+  })
+}
+
+function setPluginRuntimeThinkingReasoningId(
+  sessionId: string,
+  messageId: string,
+  reasoningItemId: string
+): void {
+  if (!reasoningItemId) return
+  useChatStore.getState().setThinkingReasoningId(sessionId, messageId, reasoningItemId)
+  emitSessionRuntimeSync({
+    kind: 'set_thinking_reasoning_id',
+    sessionId,
+    messageId,
+    reasoningItemId
   })
 }
 
@@ -1011,6 +1042,14 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
           appendPluginRuntimeThinkingDelta(sessionId, assistantMsgId, event.thinking)
           break
 
+        // Late reasoning belongs above the answer that already streamed.
+        case 'thinking_backfill':
+          if (event.thinking) {
+            hasThinkingDelta = true
+            backfillPluginRuntimeThinking(sessionId, assistantMsgId, event.thinking)
+          }
+          break
+
         case 'thinking_encrypted':
           if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
             setPluginRuntimeThinkingEncryptedContent(
@@ -1019,6 +1058,12 @@ async function _runPluginAgent(task: PluginAutoReplyTask): Promise<void> {
               event.thinkingEncryptedContent,
               event.thinkingEncryptedProvider
             )
+          }
+          break
+
+        case 'thinking_reasoning_id':
+          if (event.reasoningItemId) {
+            setPluginRuntimeThinkingReasoningId(sessionId, assistantMsgId, event.reasoningItemId)
           }
           break
 

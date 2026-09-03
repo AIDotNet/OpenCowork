@@ -503,6 +503,14 @@ interface UIStore {
   planModesBySession: Record<string, boolean>
   isPlanModeEnabled: (sessionId?: string | null) => boolean
   chatView: ChatView
+  /**
+   * Model picked in a composer whose session does not exist yet (the home and
+   * project-home pages). Consumed by chat-store's createSession so the pick is
+   * not overridden by the project binding or the fixed new-session default.
+   * Transient — deliberately excluded from persistence.
+   */
+  pendingNewSessionModel: { providerId: string; modelId: string } | null
+  setPendingNewSessionModel: (binding: { providerId: string; modelId: string } | null) => void
   navigateToHome: () => void
   navigateToProject: (projectId?: string | null) => void
   navigateToArchive: (projectId?: string | null) => void
@@ -651,7 +659,8 @@ const CHAT_SURFACE_NAV_RESET = {
   tasksPageOpen: false,
   taskBoardPageOpen: false,
   codeGraphPageOpen: false,
-  pendingInsertText: null
+  pendingInsertText: null,
+  pendingNewSessionModel: null
 } as const
 
 function replaceChatRouteFromCurrentState(chatView: ChatView): void {
@@ -2033,6 +2042,8 @@ export const useUIStore = create<UIStore>()(
         return Boolean(get().planModesBySession[resolvedSessionId])
       },
       chatView: 'home',
+      pendingNewSessionModel: null,
+      setPendingNewSessionModel: (binding) => set({ pendingNewSessionModel: binding }),
       navigateToHome: () => {
         // 进入主页（新建会话视图）意味着没有活动会话，立即退订当前会话，
         // 避免旧的 MessageList 在视图退场动画期间继续全量重渲染与 IPC 加载造成卡顿。

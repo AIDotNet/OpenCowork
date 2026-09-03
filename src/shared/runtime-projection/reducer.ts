@@ -303,7 +303,13 @@ export function projectStreamEvent(
           thinking: null
         }
       ]
+    // `thinking_backfill` is reasoning a provider disclosed only after its answer had
+    // streamed. The overlay carries thinking as one flat string, so it produces the same
+    // patch as a delta here; placement is resolved where the overlay merges into a
+    // structured timeline (apply-runtime-overlay), which puts thinking ahead of the
+    // trailing text run.
     case 'thinking_delta':
+    case 'thinking_backfill':
       return [
         {
           type: 'runtime.message-delta',
@@ -517,10 +523,11 @@ export function projectStreamEvent(
     //     window that arrives later wants the finished image, which
     //     `image_generated` provides; replaying a stale preview would show
     //     progress for work that already finished.
-    //   thinking_encrypted — provider bookkeeping that lets a later request
-    //     replay reasoning. It patches a thinking block rather than rendering,
-    //     and the overlay holds thinking as one flat string with nowhere to put
-    //     it. Nothing visible is lost by leaving it to the transcript.
+    //   thinking_encrypted / thinking_reasoning_id — provider bookkeeping that
+    //     lets a later request replay reasoning. Both patch a thinking block
+    //     rather than rendering, and the overlay holds thinking as one flat
+    //     string with nowhere to put them. Nothing visible is lost by leaving
+    //     them to the transcript.
     //   request_debug — a large dev-only diagnostics payload attached to a
     //     message, with no overlay reader and no rendering role.
     //   context_compression_delta — the worker publishes summarizer draft tokens
@@ -532,6 +539,7 @@ export function projectStreamEvent(
     case 'image_generation_started':
     case 'image_generation_partial':
     case 'thinking_encrypted':
+    case 'thinking_reasoning_id':
     case 'request_debug':
     case 'context_compression_delta':
     case 'translation_buffer_update':

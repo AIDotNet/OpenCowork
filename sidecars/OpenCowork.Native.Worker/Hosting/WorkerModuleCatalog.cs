@@ -3,6 +3,7 @@ internal static class WorkerModuleCatalog
     public static IReadOnlyList<IWorkerModule> Default { get; } =
     [
         new SystemModule(),
+        new NetworkModule(),
         new FileModule(),
         new GitModule(),
         new DbModule(),

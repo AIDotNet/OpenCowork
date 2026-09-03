@@ -7,7 +7,8 @@ import type { BuiltinProviderPreset } from './types'
 export const copilotOAuthPreset: BuiltinProviderPreset = {
   builtinId: 'copilot-oauth',
   // v4: refresh forwarded VS Code / Copilot Chat client versions (1.134 / 0.55)
-  version: 4,
+  // v5: add Claude Fable 5.1
+  version: 5,
   name: 'GitHub Copilot (OAuth)',
   type: 'openai-chat',
   defaultBaseUrl: 'https://api.githubcopilot.com',
@@ -267,6 +268,28 @@ export const copilotOAuthPreset: BuiltinProviderPreset = {
         bodyParams: { reasoning_effort: 'medium' },
         reasoningEffortLevels: ['minimal', 'low', 'medium', 'high'],
         defaultReasoningEffort: 'medium'
+      }
+    },
+    {
+      id: 'claude-fable-5-1',
+      name: 'Claude Fable 5.1',
+      icon: 'claude',
+      enabled: true,
+      contextLength: 1_000_000,
+      maxOutputTokens: 128_000,
+      supportsVision: true,
+      supportsFunctionCall: true,
+      inputPrice: 10,
+      outputPrice: 50,
+      cacheCreationPrice: 12.5,
+      cacheHitPrice: 0.25,
+      availablePlans: ['pro+', 'business', 'enterprise'],
+      supportsThinking: true,
+      thinkingConfig: {
+        bodyParams: { thinking: { type: 'adaptive' } },
+        forceTemperature: 1,
+        reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+        defaultReasoningEffort: 'high'
       }
     },
     {

@@ -50,11 +50,13 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
 
         await using var responseStream = await response.Content.ReadAsStreamAsync(state.CancellationToken);
         using var reader = new StreamReader(responseStream, Encoding.UTF8);
+        using var idleGate = new AgentRuntimeStreamIdleGate(state.CancellationToken);
         var dataBuilder = new StringBuilder();
         string? eventName = null;
         string? line;
         while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
             reader,
+            idleGate,
             provider,
             "OpenAI Responses",
             url,
@@ -133,6 +135,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
         firstMessageCts.CancelAfter(WebSocketFirstMessageTimeoutMs);
 
         var buffer = new byte[64 * 1024];
+        using var idleGate = new AgentRuntimeStreamIdleGate(state.CancellationToken);
         while (socket.State == WebSocketState.Open && !state.CancellationToken.IsCancellationRequested)
         {
             using var message = new MemoryStream();
@@ -145,6 +148,7 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                         ? await AgentRuntimeRequestTimeout.ReceiveWebSocketAsync(
                             socket,
                             buffer,
+                            idleGate,
                             provider,
                             "OpenAI Responses",
                             state.CancellationToken,

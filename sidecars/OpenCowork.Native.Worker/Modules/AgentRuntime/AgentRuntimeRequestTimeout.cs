@@ -14,6 +14,53 @@ internal sealed class AgentRuntimeProviderRequestTimeoutException : TimeoutExcep
     }
 }
 
+/// <summary>
+/// Reusable stream-idle deadline for the lifetime of one stream.
+///
+/// The deadline applies per read, but one long answer is tens of thousands of SSE lines and a
+/// linked CancellationTokenSource is not free: each one allocates, registers on the run token, and
+/// creates a timer — for a deadline that, at its 30-minute default, never fires. Re-arming a single
+/// source instead costs one Timer.Change per read.
+///
+/// Not thread-safe: one gate belongs to one read loop, which is how every provider uses it.
+/// </summary>
+internal sealed class AgentRuntimeStreamIdleGate : IDisposable
+{
+    private readonly CancellationToken cancellationToken;
+    private CancellationTokenSource? source;
+
+    public AgentRuntimeStreamIdleGate(CancellationToken cancellationToken)
+    {
+        this.cancellationToken = cancellationToken;
+    }
+
+    /// <summary>True when the deadline armed for the last read is what cancelled it.</summary>
+    public bool Expired => source is { IsCancellationRequested: true };
+
+    /// <summary>
+    /// Returns a token that cancels after <paramref name="timeout"/>, or as soon as the run is
+    /// cancelled. Verified: TryReset keeps the link to the run token intact and re-arms the timer,
+    /// and returns false once the source has actually been cancelled — so a fresh source is only
+    /// allocated when the previous one is genuinely spent.
+    /// </summary>
+    public CancellationToken Arm(TimeSpan timeout)
+    {
+        if (source is null || !source.TryReset())
+        {
+            source?.Dispose();
+            source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        }
+        source.CancelAfter(timeout);
+        return source.Token;
+    }
+
+    public void Dispose()
+    {
+        source?.Dispose();
+        source = null;
+    }
+}
+
 // Provider HTTP requests go through a shared static HttpClient, and HttpClient.Timeout can no
 // longer be reassigned once that client has dispatched its first request. A user-configurable
 // deadline therefore cannot live on the client: the provider clients are created with
@@ -95,6 +142,7 @@ internal static class AgentRuntimeRequestTimeout
 
     private static async ValueTask<string?> ReadLineCoreAsync(
         StreamReader reader,
+        AgentRuntimeStreamIdleGate idleGate,
         JsonElement provider,
         string providerLabel,
         CancellationToken cancellationToken,
@@ -106,14 +154,12 @@ internal static class AgentRuntimeRequestTimeout
             return await reader.ReadLineAsync(cancellationToken);
         }
 
-        using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        idle.CancelAfter(timeout);
         try
         {
-            return await reader.ReadLineAsync(idle.Token);
+            return await reader.ReadLineAsync(idleGate.Arm(timeout));
         }
         catch (OperationCanceledException ex)
-            when (idle.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            when (idleGate.Expired && !cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"{providerLabel} stream produced no data for {timeout.TotalSeconds:0}s" +
@@ -126,6 +172,7 @@ internal static class AgentRuntimeRequestTimeout
     public static async Task<WebSocketReceiveResult> ReceiveWebSocketAsync(
         ClientWebSocket socket,
         ArraySegment<byte> buffer,
+        AgentRuntimeStreamIdleGate idleGate,
         JsonElement provider,
         string providerLabel,
         CancellationToken cancellationToken,
@@ -137,14 +184,12 @@ internal static class AgentRuntimeRequestTimeout
             return await socket.ReceiveAsync(buffer, cancellationToken);
         }
 
-        using var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        idle.CancelAfter(timeout);
         try
         {
-            return await socket.ReceiveAsync(buffer, idle.Token);
+            return await socket.ReceiveAsync(buffer, idleGate.Arm(timeout));
         }
         catch (OperationCanceledException ex)
-            when (idle.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            when (idleGate.Expired && !cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
                 $"{providerLabel} WebSocket produced no frame for {timeout.TotalSeconds:0}s" +
@@ -268,6 +313,7 @@ internal static class AgentRuntimeRequestTimeout
     /// </summary>
     public static async ValueTask<string?> ReadLineAsync(
         StreamReader reader,
+        AgentRuntimeStreamIdleGate idleGate,
         JsonElement provider,
         string providerLabel,
         string requestUrl,
@@ -278,6 +324,7 @@ internal static class AgentRuntimeRequestTimeout
         {
             return await ReadLineCoreAsync(
                 reader,
+                idleGate,
                 provider,
                 providerLabel,
                 cancellationToken,

@@ -14,12 +14,19 @@ export type SessionRuntimeSyncEvent =
   | { kind: 'update_message'; sessionId: string; messageId: string; patch: Partial<UnifiedMessage> }
   | { kind: 'append_text_delta'; sessionId: string; messageId: string; text: string }
   | { kind: 'append_thinking_delta'; sessionId: string; messageId: string; thinking: string }
+  | { kind: 'backfill_thinking'; sessionId: string; messageId: string; thinking: string }
   | {
       kind: 'set_thinking_encrypted'
       sessionId: string
       messageId: string
       encryptedContent: string
       provider: ThinkingProvider
+    }
+  | {
+      kind: 'set_thinking_reasoning_id'
+      sessionId: string
+      messageId: string
+      reasoningItemId: string
     }
   | { kind: 'complete_thinking'; sessionId: string; messageId: string }
   | { kind: 'append_tool_use'; sessionId: string; messageId: string; toolUse: ToolUseBlock }
@@ -99,6 +106,11 @@ function applySessionRuntimeSyncEvent(event: SessionRuntimeSyncEvent): void {
       chatStore.appendThinkingDelta(event.sessionId, event.messageId, event.thinking)
       return
 
+    case 'backfill_thinking':
+      if (!messageExists(event.sessionId, event.messageId)) return
+      chatStore.backfillThinking(event.sessionId, event.messageId, event.thinking)
+      return
+
     case 'set_thinking_encrypted':
       if (!messageExists(event.sessionId, event.messageId)) return
       chatStore.setThinkingEncryptedContent(
@@ -107,6 +119,11 @@ function applySessionRuntimeSyncEvent(event: SessionRuntimeSyncEvent): void {
         event.encryptedContent,
         event.provider
       )
+      return
+
+    case 'set_thinking_reasoning_id':
+      if (!messageExists(event.sessionId, event.messageId)) return
+      chatStore.setThinkingReasoningId(event.sessionId, event.messageId, event.reasoningItemId)
       return
 
     case 'complete_thinking':

@@ -339,6 +339,8 @@ export async function registerDbHandlers(options: RegisterDbHandlersOptions = {}
         sshConnectionId: string | null
         pluginId: string | null
         pinned: boolean
+        providerId: string | null
+        modelId: string | null
         updatedAt: number
       }>
     }>(bytes)

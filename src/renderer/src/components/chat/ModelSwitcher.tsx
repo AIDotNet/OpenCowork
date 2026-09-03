@@ -28,7 +28,13 @@ import {
   modelSupportsComputerUse,
   isGptLongContextEnabled,
   resolveEffectiveModelContextLength,
-  resolveModelThinkingConfig
+  resolveModelThinkingConfig,
+  supportsPriorityServiceTier,
+  readAnthropicThinkingBudget,
+  clampThinkingBudget,
+  buildAnthropicThinkingConfigWithBudget,
+  MIN_ANTHROPIC_THINKING_BUDGET,
+  DEFAULT_ANTHROPIC_THINKING_BUDGET
 } from '@renderer/stores/provider-store'
 import {
   useSettingsStore,
@@ -37,6 +43,7 @@ import {
 } from '@renderer/stores/settings-store'
 import { useChatStore } from '@renderer/stores/chat-store'
 import { useChannelStore } from '@renderer/stores/channel-store'
+import { useUIStore } from '@renderer/stores/ui-store'
 import { useQuotaStore } from '@renderer/stores/quota-store'
 
 import { useTranslation } from 'react-i18next'
@@ -46,12 +53,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@renderer/compone
 
 import { ProviderIcon } from '@renderer/components/settings/provider-icons'
 import { cn } from '@renderer/lib/utils'
-import type {
-  AIModelConfig,
-  AIProvider,
-  ReasoningEffortLevel,
-  ThinkingConfig
-} from '@renderer/lib/api/types'
+import type { AIModelConfig, AIProvider, ReasoningEffortLevel } from '@renderer/lib/api/types'
 import {
   hasOffPeakPricing,
   resolveModelPricingBrackets,
@@ -67,13 +69,6 @@ function formatContextLength(length?: number): string | null {
     return `${(length / 1_000_000).toFixed(length % 1_000_000 === 0 ? 0 : 1)}M`
   if (length >= 1_000) return `${Math.round(length / 1_000)}K`
   return String(length)
-}
-
-const MIN_ANTHROPIC_THINKING_BUDGET = 1024
-const DEFAULT_ANTHROPIC_THINKING_BUDGET = 10000
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function formatTokenCount(value?: number): string {
@@ -92,41 +87,6 @@ function formatPrice(value?: number): string {
           .replace(/\.$/, '')
       : value.toFixed(2)
   return `$${text}/M tokens`
-}
-
-function readAnthropicThinkingBudget(model?: AIModelConfig): number | null {
-  const thinking = model?.thinkingConfig?.bodyParams.thinking
-  if (!isRecord(thinking)) return null
-  const value = thinking.budget_tokens
-  const numeric =
-    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
-  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : null
-}
-
-function clampThinkingBudget(value: number, maxOutputTokens?: number): number {
-  const upperBound = Math.max(
-    MIN_ANTHROPIC_THINKING_BUDGET,
-    Math.floor((maxOutputTokens ?? 64_000) - 1)
-  )
-  return Math.min(upperBound, Math.max(MIN_ANTHROPIC_THINKING_BUDGET, Math.floor(value)))
-}
-
-function buildAnthropicThinkingConfigWithBudget(
-  config: ThinkingConfig | undefined,
-  budget: number
-): ThinkingConfig {
-  const nextConfig: ThinkingConfig = {
-    ...(config ?? { bodyParams: {} }),
-    bodyParams: { ...(config?.bodyParams ?? {}) }
-  }
-  const rawThinking = nextConfig.bodyParams.thinking
-  nextConfig.bodyParams.thinking = {
-    ...(isRecord(rawThinking) ? rawThinking : {}),
-    type: 'enabled',
-    budget_tokens: budget
-  }
-  delete nextConfig.bodyParams.enable_thinking
-  return nextConfig
 }
 
 function SettingSection({
@@ -779,10 +739,6 @@ interface ModelSwitcherSessionSnapshot {
   modelId?: string
 }
 
-function supportsPriorityServiceTier(model: AIModelConfig | undefined): boolean {
-  return !!model?.serviceTier
-}
-
 function selectModel(
   provider: AIProvider,
   modelId: string,
@@ -805,6 +761,18 @@ function selectModel(
     const providerStore = useProviderStore.getState()
     if (pid !== providerStore.activeProviderId) providerStore.setActiveProvider(pid)
     providerStore.setActiveModel(modelId)
+    // The composer has no session yet (home / project home). Record the pick so
+    // createSession honours it instead of falling back to the project binding or
+    // the fixed new-session default, both of which would silently discard it.
+    // Read the selection back: the store normalizes away models it cannot use.
+    const settled = useProviderStore.getState()
+    useUIStore
+      .getState()
+      .setPendingNewSessionModel(
+        settled.activeProviderId && settled.activeModelId
+          ? { providerId: settled.activeProviderId, modelId: settled.activeModelId }
+          : { providerId: pid, modelId }
+      )
   }
   setOpen(false)
 }

@@ -6,13 +6,15 @@ import type {
   ContentBlock,
   TextBlock,
   ImageBlock,
-  ThinkingBlock,
   ToolUseBlock,
   ToolDefinition
 } from '../lib/api/types'
 import {
   appendOrUpsertContentBlock,
   appendThinkingDeltaToBlocks,
+  attachThinkingEncryptedToBlocks,
+  attachThinkingReasoningIdToBlocks,
+  insertBackfilledThinkingIntoBlocks,
   sealIncompleteThinkingBlocks
 } from '../lib/content-blocks'
 import { invokeMessagePack, invokeMessagePackBinary } from '../lib/ipc/messagepack-ipc-client'
@@ -52,6 +54,7 @@ import { useBackgroundSessionStore } from './background-session-store'
 import { useSettingsStore } from './settings-store'
 import { useProviderStore } from './provider-store'
 import { removeSessionInputDraft } from '../lib/input-drafts'
+import { resolveNewSessionModel } from '../lib/session-model-resolution'
 import {
   invalidateVisibleSessionCache,
   isSessionForeground
@@ -1463,6 +1466,11 @@ interface ChatStore {
   deleteProject: (projectId: string) => Promise<void>
   togglePinProject: (projectId: string) => void
   updateProjectIcon: (projectId: string, icon: string | null) => void
+  /** Pin a project to one model, or pass null to fall back to the global selection. */
+  setProjectModel: (
+    projectId: string,
+    binding: { providerId: string; modelId: string } | null
+  ) => void
   updateProjectDirectory: (
     projectId: string,
     patch: Partial<{
@@ -1531,12 +1539,18 @@ interface ChatStore {
   removeMessageById: (sessionId: string, msgId: string) => boolean
   appendTextDelta: (sessionId: string, msgId: string, text: string) => void
   appendThinkingDelta: (sessionId: string, msgId: string, thinking: string) => void
+  /** Reasoning a provider disclosed only after its answer streamed. Placed ahead of the
+   *  trailing text instead of appended, so the Thought card stays above the reply. */
+  backfillThinking: (sessionId: string, msgId: string, thinking: string) => void
   setThinkingEncryptedContent: (
     sessionId: string,
     msgId: string,
     encryptedContent: string,
     provider: 'anthropic' | 'openai-responses' | 'google'
   ) => void
+  /** OpenAI Responses reasoning item id — the replay handle on endpoints that never
+   *  return `reasoning.encrypted_content`. Persisted with the block. */
+  setThinkingReasoningId: (sessionId: string, msgId: string, reasoningItemId: string) => void
   completeThinking: (sessionId: string, msgId: string) => void
   appendToolUse: (sessionId: string, msgId: string, toolUse: ToolUseBlock) => void
   updateToolUseInput: (
@@ -1600,6 +1614,8 @@ interface ProjectRow {
   ssh_connection_id: string | null
   plugin_id?: string | null
   pinned: number
+  provider_id?: string | null
+  model_id?: string | null
   session_count?: number
 }
 
@@ -1837,6 +1853,8 @@ function rowToProject(row: ProjectRow): Project {
     sshConnectionId: row.ssh_connection_id ?? undefined,
     pluginId: row.plugin_id ?? undefined,
     pinned: row.pinned === 1,
+    providerId: row.provider_id ?? undefined,
+    modelId: row.model_id ?? undefined,
     sessionCount: row.session_count
   }
 }
@@ -3282,6 +3300,23 @@ export const useChatStore = create<ChatStore>()(
       })
     },
 
+    setProjectModel: (projectId, binding) => {
+      const now = Date.now()
+      set((state) => {
+        const project = state.projects.find((item) => item.id === projectId)
+        if (!project) return
+        project.providerId = binding?.providerId ?? undefined
+        project.modelId = binding?.modelId ?? undefined
+        project.updatedAt = now
+      })
+
+      dbUpdateProject(projectId, {
+        providerId: binding?.providerId ?? null,
+        modelId: binding?.modelId ?? null,
+        updatedAt: now
+      })
+    },
+
     updateProjectDirectory: (projectId, patch) => {
       const now = Date.now()
       const current = get().projects.find((project) => project.id === projectId)
@@ -4693,23 +4728,19 @@ export const useChatStore = create<ChatStore>()(
         targetProjectId = targetProject.id
       }
 
-      const projectHasModelBinding = Boolean(targetProject?.providerId && targetProject?.modelId)
-      const hasFixedDefaultModel = Boolean(
-        !projectHasModelBinding &&
-        newSessionDefaultModel?.useGlobalActiveModel === false &&
-        newSessionDefaultModel.providerId &&
-        newSessionDefaultModel.modelId
-      )
-      const sessionProviderId = projectHasModelBinding
-        ? targetProject?.providerId
-        : hasFixedDefaultModel
-          ? newSessionDefaultModel?.providerId
-          : (activeProviderId ?? undefined)
-      const sessionModelId = projectHasModelBinding
-        ? targetProject?.modelId
-        : hasFixedDefaultModel
-          ? newSessionDefaultModel?.modelId
-          : activeModelId || undefined
+      const pendingNewSessionModel = useUIStore.getState().pendingNewSessionModel
+      const resolvedNewSessionModel = resolveNewSessionModel({
+        pendingSelection: pendingNewSessionModel,
+        project: targetProject,
+        newSessionDefaultModel,
+        activeProviderId,
+        activeModelId
+      })
+      if (pendingNewSessionModel) {
+        useUIStore.getState().setPendingNewSessionModel(null)
+      }
+      const sessionProviderId = resolvedNewSessionModel.providerId
+      const sessionModelId = resolvedNewSessionModel.modelId
       const modelSelectionMode: SessionModelSelectionMode = 'manual'
 
       const newSession: Session = {
@@ -6124,9 +6155,13 @@ export const useChatStore = create<ChatStore>()(
       _scheduleStreamDeltaFlush()
     },
 
-    setThinkingEncryptedContent: (sessionId, msgId, encryptedContent, provider) => {
-      if (!encryptedContent) return
+    // Placement depends on what is already in the block array, so the RAF-batched
+    // deltas have to land first — otherwise the trailing text run is not there yet.
+    backfillThinking: (sessionId, msgId, thinking) => {
+      const cleanedThinking = stripThinkTagMarkers(thinking)
+      if (!cleanedThinking) return
 
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
       set((state) => {
         const session = getSessionByIdFromState(state, sessionId)
         if (!session) return
@@ -6135,62 +6170,66 @@ export const useChatStore = create<ChatStore>()(
         backfillStreamingMessage(state, sessionId, msgId)
         bumpMessageRevision(msg)
 
-        const now = Date.now()
         if (typeof msg.content === 'string') {
           const existingText = msg.content
-          msg.content = [
-            {
-              type: 'thinking',
-              thinking: '',
-              encryptedContent,
-              encryptedContentProvider: provider,
-              startedAt: now
-            },
-            ...(existingText ? [{ type: 'text' as const, text: existingText }] : [])
-          ]
-          msg.contentBytes = estimateMessageWeight(msg)
-          syncSessionMessageWindowFlags(session)
-          return
+          msg.content = existingText ? [{ type: 'text' as const, text: existingText }] : []
         }
 
-        const blocks = msg.content as ContentBlock[]
-        let targetThinkingBlock: ThinkingBlock | null = null
-        let providerMatchedThinkingBlock: ThinkingBlock | null = null
+        insertBackfilledThinkingIntoBlocks(msg.content as ContentBlock[], cleanedThinking)
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
+      })
+    },
 
-        for (let i = blocks.length - 1; i >= 0; i--) {
-          const block = blocks[i]
-          if (block.type !== 'thinking') continue
+    setThinkingEncryptedContent: (sessionId, msgId, encryptedContent, provider) => {
+      if (!encryptedContent) return
 
-          const thinkingBlock = block as ThinkingBlock
-          if (!thinkingBlock.encryptedContent) {
-            targetThinkingBlock = thinkingBlock
-            break
-          }
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
+      set((state) => {
+        const session = getSessionByIdFromState(state, sessionId)
+        if (!session) return
+        const msg = session.messages.find((m) => m.id === msgId)
+        if (!msg) return
+        backfillStreamingMessage(state, sessionId, msgId)
+        bumpMessageRevision(msg)
 
-          if (
-            !providerMatchedThinkingBlock &&
-            thinkingBlock.encryptedContentProvider === provider
-          ) {
-            providerMatchedThinkingBlock = thinkingBlock
-          }
+        if (typeof msg.content === 'string') {
+          const existingText = msg.content
+          msg.content = existingText ? [{ type: 'text' as const, text: existingText }] : []
         }
 
-        if (!targetThinkingBlock && providerMatchedThinkingBlock) {
-          targetThinkingBlock = providerMatchedThinkingBlock
+        attachThinkingEncryptedToBlocks(
+          msg.content as ContentBlock[],
+          encryptedContent,
+          provider
+        )
+        msg.contentBytes = estimateMessageWeight(msg)
+        syncSessionMessageWindowFlags(session)
+      })
+
+      const session = getSessionByIdFromState(get(), sessionId)
+      const msg = session?.messages.find((m) => m.id === msgId)
+      if (msg) dbFlushMessage(sessionId, msg)
+    },
+
+    setThinkingReasoningId: (sessionId, msgId, reasoningItemId) => {
+      if (!reasoningItemId) return
+
+      flushPendingStreamDeltasForMessage(sessionId, msgId)
+      set((state) => {
+        const session = getSessionByIdFromState(state, sessionId)
+        if (!session) return
+        const msg = session.messages.find((m) => m.id === msgId)
+        if (!msg) return
+        backfillStreamingMessage(state, sessionId, msgId)
+        bumpMessageRevision(msg)
+
+        if (typeof msg.content === 'string') {
+          const existingText = msg.content
+          msg.content = existingText ? [{ type: 'text' as const, text: existingText }] : []
         }
 
-        if (targetThinkingBlock) {
-          targetThinkingBlock.encryptedContent = encryptedContent
-          targetThinkingBlock.encryptedContentProvider = provider
-        } else {
-          blocks.push({
-            type: 'thinking',
-            thinking: '',
-            encryptedContent,
-            encryptedContentProvider: provider,
-            startedAt: now
-          })
-        }
+        attachThinkingReasoningIdToBlocks(msg.content as ContentBlock[], reasoningItemId)
         msg.contentBytes = estimateMessageWeight(msg)
         syncSessionMessageWindowFlags(session)
       })

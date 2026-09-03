@@ -11,6 +11,8 @@ export interface ProjectRow {
   ssh_connection_id: string | null
   plugin_id: string | null
   pinned: number
+  provider_id: string | null
+  model_id: string | null
   created_at: number
   updated_at: number
   session_count: number
@@ -111,6 +113,8 @@ export async function updateProject(
     sshConnectionId: string | null
     pluginId: string | null
     pinned: boolean
+    providerId: string | null
+    modelId: string | null
     updatedAt: number
   }>
 ): Promise<void> {

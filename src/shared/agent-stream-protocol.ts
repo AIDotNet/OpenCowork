@@ -184,6 +184,11 @@ export type ContentBlockWire =
       thinking: string
       encryptedContent?: string
       encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
+      /** OpenAI Responses: the reasoning item's own id. Endpoints that do not return
+       *  `reasoning.encrypted_content` accept a reasoning item replayed by id instead,
+       *  so this is the only handle their reasoning has once the turn is stored. */
+      reasoningItemId?: string
+      redacted?: boolean
     }
   // Display-only: a provider-native web search the model ran server-side. Rendered as
   // an activity component (live "searching" -> resolved query + sources); dropped when
@@ -220,7 +225,15 @@ export type AgentStreamEvent =
   // Streaming deltas (aggregatable)
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
+  // Reasoning a provider only disclosed once its answer had already streamed. Carries
+  // the whole summary at once and is placed ahead of the trailing text rather than
+  // appended, so it is deliberately not aggregatable with `thinking_delta`.
+  | { type: 'thinking_backfill'; thinking: string }
   | { type: 'thinking_encrypted'; content: string; provider: ThinkingProviderWire }
+  // OpenAI Responses only: the id of the reasoning item that produced the current think
+  // block. Bookkeeping, never rendered — it is what lets a later request replay reasoning
+  // on endpoints that do not return `reasoning.encrypted_content`.
+  | { type: 'thinking_reasoning_id'; reasoningItemId: string }
   | { type: 'translation_buffer_update'; content: string }
   // Image generation
   | { type: 'image_generation_started' }

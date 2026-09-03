@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -8,7 +7,6 @@ internal static class ShellTools
     private const int DefaultTimeoutMs = 600_000;
     private const int MaxTimeoutMs = 3_600_000;
     private const int MaxCollectedOutputChars = 64_000;
-    private static readonly ConcurrentDictionary<string, RunningShellProcess> Running = new(StringComparer.Ordinal);
 
     public static async Task<WorkerResponse> ExecAsync(JsonElement parameters, WorkerRequestContext context)
     {
@@ -41,10 +39,11 @@ internal static class ShellTools
                 $"shell process started execId={FormatLogValue(execId)} pid={processId} " +
                 $"terminalId={terminalId} spawnMs={spawnMs}");
 
-            var running = new RunningShellProcess(process);
+            var running = string.IsNullOrEmpty(execId)
+                ? new TrackedShellProcess(process)
+                : RunningShellRegistry.Track(execId, process);
             if (!string.IsNullOrEmpty(execId))
             {
-                Running[execId] = running;
                 await context.EmitEventAsync(
                     "shell/started",
                     new ShellStartedEvent(execId, processId, terminalId),
@@ -84,10 +83,7 @@ internal static class ShellTools
             finally
             {
                 await timeoutCts.CancelAsync();
-                if (!string.IsNullOrEmpty(execId))
-                {
-                    Running.TryRemove(execId, out _);
-                }
+                RunningShellRegistry.Untrack(execId ?? string.Empty);
             }
 
             await Task.WhenAll(stdoutTask, stderrTask);
@@ -120,6 +116,7 @@ internal static class ShellTools
         }
         catch (Exception ex)
         {
+            RunningShellRegistry.Untrack(JsonHelpers.GetString(parameters, "execId")?.Trim() ?? string.Empty);
             WorkerLog.Warn(
                 $"shell exec failed execId={FormatLogValue(JsonHelpers.GetString(parameters, "execId"))} " +
                 $"elapsedMs={ElapsedMs(startedAt)} error={ex.GetType().Name}: {ex.Message}");
@@ -147,7 +144,7 @@ internal static class ShellTools
         try
         {
             var execId = RequireString(parameters, "execId");
-            if (!Running.TryGetValue(execId, out var running))
+            if (!RunningShellRegistry.TryAbort(execId, "user"))
             {
                 WorkerLog.Debug($"shell abort ignored execId={execId} found=false");
                 return WorkerResponse.Json(
@@ -155,7 +152,6 @@ internal static class ShellTools
                     WorkerJsonContext.Default.ShellAbortResult);
             }
 
-            running.Abort("user");
             WorkerLog.Debug($"shell abort requested execId={execId} found=true");
             return WorkerResponse.Json(
                 new ShellAbortResult(true, true, null),
@@ -170,7 +166,7 @@ internal static class ShellTools
     }
 
     private static async Task AbortOnTimeoutAsync(
-        RunningShellProcess running,
+        TrackedShellProcess running,
         int timeoutMs,
         CancellationToken cancellationToken)
     {
@@ -358,34 +354,6 @@ internal static class ShellTools
     }
 
     private sealed record ShellLaunch(string Shell, string[] Args);
-
-    private sealed class RunningShellProcess
-    {
-        private readonly Process process;
-
-        public RunningShellProcess(Process process)
-        {
-            this.process = process;
-        }
-
-        public string? AbortReason { get; private set; }
-
-        public void Abort(string reason)
-        {
-            AbortReason ??= reason;
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-            }
-            catch
-            {
-                // The process may have exited between the check and Kill().
-            }
-        }
-    }
 
     private sealed class OutputCollector
     {

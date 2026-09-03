@@ -345,6 +345,13 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
                     sanitizedBlocks.Add(block);
                     stats.ToolResults++;
                     continue;
+                case "thinking":
+                case "redacted_thinking":
+                    // Keep every thinking block until Normalize can see the whole
+                    // assistant message. Dropping only the unsigned ones here would
+                    // rewrite positions of the signed blocks Anthropic must replay.
+                    sanitizedBlocks.Add(block);
+                    continue;
                 default:
                     if (IsAnthropicWritableNonToolBlock(block))
                     {
@@ -352,6 +359,12 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
                     }
                     continue;
             }
+        }
+
+        if (role == "assistant" &&
+            NormalizeAnthropicAssistantThinking(sanitizedBlocks))
+        {
+            stats.DroppedUnreplayableThinking++;
         }
 
         if (sanitizedBlocks.Count == 0)
@@ -514,13 +527,104 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             JsonHelpers.GetString(block, "tool_use_id");
     }
 
+    private static bool NormalizeAnthropicAssistantThinking(List<JsonElement> blocks)
+    {
+        if (!AnthropicAssistantThinkingIsUnreplayable(blocks))
+        {
+            return false;
+        }
+
+        // The last assistant turn's thinking/redacted_thinking must be byte-identical
+        // to the original response. A missing signature cannot be replayed, and
+        // dropping only some of those blocks still counts as a modification. Omit
+        // every thinking block from this message so the follow-up user turn is valid.
+        var removed = blocks.RemoveAll(block =>
+            JsonHelpers.GetString(block, "type") is "thinking" or "redacted_thinking");
+        return removed > 0;
+    }
+
+    private static bool AnthropicAssistantThinkingIsUnreplayable(IReadOnlyList<JsonElement> blocks)
+    {
+        string? previousType = null;
+        foreach (var block in blocks)
+        {
+            var type = JsonHelpers.GetString(block, "type");
+            if (type is "thinking" or "redacted_thinking")
+            {
+                if (string.IsNullOrWhiteSpace(ReadAnthropicThinkingEncrypted(block)))
+                {
+                    return true;
+                }
+
+                // Late signature attach used to append an empty unsigned-looking
+                // think card after text/tools. Those blocks are not redacted and
+                // were never in the original response.
+                var redacted = type == "redacted_thinking" ||
+                    JsonHelpers.GetBool(block, "redacted", false);
+                if (!redacted &&
+                    string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "thinking")) &&
+                    previousType is "text" or "tool_use")
+                {
+                    return true;
+                }
+            }
+
+            previousType = type;
+        }
+
+        return false;
+    }
+
+    private static IReadOnlyList<AgentRuntimeChatMessage> StripAnthropicAssistantThinking(
+        IReadOnlyList<AgentRuntimeChatMessage> conversation)
+    {
+        var stripped = new List<AgentRuntimeChatMessage>(conversation.Count);
+        foreach (var message in conversation)
+        {
+            if (message.Role != "assistant" || message.ContentBlocks is not { Count: > 0 } blocks)
+            {
+                stripped.Add(message);
+                continue;
+            }
+
+            var kept = new List<JsonElement>(blocks.Count);
+            foreach (var block in blocks)
+            {
+                if (JsonHelpers.GetString(block, "type") is "thinking" or "redacted_thinking")
+                {
+                    continue;
+                }
+
+                kept.Add(block);
+            }
+
+            if (kept.Count == blocks.Count)
+            {
+                stripped.Add(message);
+                continue;
+            }
+
+            if (kept.Count == 0 &&
+                string.IsNullOrWhiteSpace(message.Text) &&
+                message.ToolUses.Count == 0)
+            {
+                continue;
+            }
+
+            stripped.Add(message with { ContentBlocks = kept.Count > 0 ? kept : null });
+        }
+
+        return stripped;
+    }
+
     private static bool IsAnthropicWritableNonToolBlock(JsonElement block)
     {
         return JsonHelpers.GetString(block, "type") switch
         {
             "text" => !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "text")),
             "thinking" => !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "thinking")) ||
-                !string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "encryptedContent")),
+                !string.IsNullOrWhiteSpace(ReadAnthropicThinkingEncrypted(block)),
+            "redacted_thinking" => !string.IsNullOrWhiteSpace(ReadAnthropicThinkingEncrypted(block)),
             "image" => block.TryGetProperty("source", out var source) &&
                 source.ValueKind == JsonValueKind.Object,
             _ => false
@@ -557,6 +661,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             $"droppedInvalidToolUses={stats.DroppedInvalidToolUses} " +
             $"droppedInvalidRoleToolBlocks={stats.DroppedInvalidRoleToolBlocks} " +
             $"droppedEmptyMessages={stats.DroppedEmptyMessages} " +
+            $"droppedUnreplayableThinking={stats.DroppedUnreplayableThinking} " +
             $"mergedToolResultMessages={stats.MergedToolResultMessages} " +
             $"writerDroppedOrphanToolResults={stats.WriterDroppedOrphanToolResults} " +
             $"writerDroppedDuplicateToolResults={stats.WriterDroppedDuplicateToolResults} " +
@@ -615,6 +720,8 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
 
         public int DroppedEmptyMessages { get; set; }
 
+        public int DroppedUnreplayableThinking { get; set; }
+
         public int MergedToolResultMessages { get; set; }
 
         public int WriterDroppedOrphanToolResults { get; set; }
@@ -638,6 +745,7 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             DroppedInvalidToolUses > 0 ||
             DroppedInvalidRoleToolBlocks > 0 ||
             DroppedEmptyMessages > 0 ||
+            DroppedUnreplayableThinking > 0 ||
             WriterDroppedOrphanToolResults > 0 ||
             WriterDroppedDuplicateToolResults > 0 ||
             WriterDroppedDuplicateToolUses > 0 ||

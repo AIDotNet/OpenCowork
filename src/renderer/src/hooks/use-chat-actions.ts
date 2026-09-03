@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+﻿import { useCallback, useEffect } from 'react'
 import { nanoid } from 'nanoid'
 import { toast } from 'sonner'
 import i18n from '@renderer/locales'
@@ -145,11 +145,13 @@ import {
   appendRuntimeTextDelta,
   appendRuntimeThinkingDelta,
   appendRuntimeToolUse,
+  backfillRuntimeThinking,
   completeRuntimeThinking,
   flushRuntimeForegroundMutations,
   flushBackgroundSessionToForeground,
   isSessionForeground,
   setRuntimeThinkingEncryptedContent,
+  setRuntimeThinkingReasoningId,
   updateRuntimeMessage,
   updateRuntimeToolUseInput
 } from '@renderer/lib/agent/session-runtime-router'
@@ -227,6 +229,7 @@ import { getNativeWorkerState } from '@renderer/lib/ipc/native-worker-state'
 import {
   buildSidecarAgentRunRequest,
   isNativeSidecarProviderConfig,
+  mapSidecarMessage,
   normalizeSidecarApprovalRequest,
   type SidecarPluginChannelContext,
   type SidecarPlanExecutionContext,
@@ -234,9 +237,17 @@ import {
   type SidecarSlashCommandContext,
   type SidecarSystemCommandContext
 } from '@renderer/lib/ipc/sidecar-protocol'
+import {
+  buildSteeringWireMessage,
+  planQuotedMessageDelivery,
+  reorderSteerMessageAfterToolResults
+} from '@renderer/lib/chat/quoted-message-steering'
 import { agentStream } from '@renderer/lib/ipc/agent-stream-receiver'
 import { toAgentEvent, toSubAgentEvent } from '@renderer/lib/agent/stream-event-adapter'
-import { beginLiveStreamSession, sessionSidecarRunIds } from '@renderer/lib/agent/session-run-registry'
+import {
+  beginLiveStreamSession,
+  sessionSidecarRunIds
+} from '@renderer/lib/agent/session-run-registry'
 import {
   cancelHostedSessionRun,
   resolveHostedTriggerMessageId,
@@ -857,10 +868,14 @@ async function buildSelectedFileReadContext(args: {
   const metaFiles: SelectedFileReadItemMeta[] = []
   const contextSections: string[] = []
   const sshConnectionId = args.session?.sshConnectionId
+  const workingFolder = resolveSessionWorkingFolder(args.session)
 
   for (const file of files) {
     const displayPath = file.sendPath || file.previewPath || file.originalPath
-    const readPath = file.previewPath || file.originalPath || file.sendPath
+    const readPath = resolvePreviewPath(
+      file.previewPath || file.originalPath || file.sendPath,
+      workingFolder
+    )
     const baseMeta: SelectedFileReadItemMeta = {
       id: file.id,
       name: file.name || getBaseNameFromPath(displayPath),
@@ -2009,6 +2024,85 @@ export function promotePendingSessionMessageForImmediateDispatch(
   return true
 }
 
+/**
+ * Steer messages a live run has accepted, waiting for the worker to reach the
+ * iteration that folds them into its conversation. Keyed by sessionId; the values
+ * are transcript message ids that still carry `meta.quotedPending`.
+ */
+const injectedSteerMessageIds = new Map<string, string[]>()
+
+function rememberInjectedSteerMessage(sessionId: string, messageId: string): void {
+  const pending = injectedSteerMessageIds.get(sessionId)
+  if (pending) pending.push(messageId)
+  else injectedSteerMessageIds.set(sessionId, [messageId])
+}
+
+/**
+ * Give injected steer messages their final transcript position once the run that
+ * consumed them is over.
+ *
+ * Deliberately not done mid-run. The reorder goes through
+ * `replaceSessionMessages`, which swaps the whole resident window, drops the
+ * session's deferred message writes and clears streaming dirty marks — safe once
+ * the stream is finished, destructive while tool results and deltas are still
+ * landing. Run completion is the same point the queued-dispatch path has always
+ * settled its pre-rendered quotes at.
+ */
+function settleInjectedSteerMessages(sessionId: string): void {
+  const pending = injectedSteerMessageIds.get(sessionId)
+  if (!pending || pending.length === 0) return
+  injectedSteerMessageIds.delete(sessionId)
+
+  void (async () => {
+    const chatStore = useChatStore.getState()
+    try {
+      let messages = await chatStore.getFullSessionMessagesForMutation(sessionId)
+      let changed = false
+      for (const messageId of pending) {
+        const reordered = reorderSteerMessageAfterToolResults(messages, messageId)
+        if (!reordered) continue
+        messages = reordered
+        changed = true
+      }
+      if (changed) chatStore.replaceSessionMessages(sessionId, messages)
+    } catch (error) {
+      // Keep the markers on failure: request assembly still moves the steer behind
+      // any in-flight tool results, which is the safe placement.
+      console.warn('[ChatActions] Failed to settle injected steer messages:', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
+  })()
+}
+
+/**
+ * Hand a steer message to the run that is already in flight.
+ *
+ * Resolves true only when the worker took ownership, because the caller uses that
+ * to decide whether the renderer-side queue still has to carry the message. The
+ * worker answers `appended: false` once a run's message queue is closed — it
+ * closes atomically with the loop's decision to finish — and that is exactly the
+ * case where the queue fallback is still needed.
+ */
+async function injectSteerMessageIntoActiveRun(
+  runId: string,
+  message: UnifiedMessage
+): Promise<boolean> {
+  const wireMessage = mapSidecarMessage(buildSteeringWireMessage(message))
+  if (!wireMessage) return false
+  try {
+    const result = await agentBridge.appendAgentMessages(runId, [wireMessage])
+    return result.appended === true && result.count > 0
+  } catch (error) {
+    console.warn('[ChatActions] Failed to inject a steer message into the active run:', {
+      runId,
+      error: error instanceof Error ? error.message : String(error)
+    })
+    return false
+  }
+}
+
 export function quotePendingSessionMessageIntoConversation(
   sessionId: string,
   messageId: string
@@ -2023,11 +2117,10 @@ export function quotePendingSessionMessageIntoConversation(
   const hasImages = !!target.images && target.images.length > 0
   const trimmedText = target.text.trim()
   if (!trimmedText && !hasImages && !target.command) return false
-  const shouldSettleQuotedOrdering = hasActiveSessionRun(sessionId)
+  const hasActiveRun = hasActiveSessionRun(sessionId)
 
-  // Render the quoted message optimistically. The actual agent request is still
-  // dispatched through the hidden queue entry below, so the current run can
-  // finish its response before the quoted turn starts.
+  // Render the quoted message optimistically so the bubble appears the moment the
+  // user sends it, whichever delivery route is taken below.
   const userMessageText = trimmedText
   const userMsg: UnifiedMessage = {
     id: nanoid(),
@@ -2035,7 +2128,7 @@ export function quotePendingSessionMessageIntoConversation(
     content: buildUserMessageContent(userMessageText, target.images, target.command),
     createdAt: Date.now(),
     source: 'quoted',
-    ...(shouldSettleQuotedOrdering ? { meta: { quotedPending: true } } : {})
+    ...(hasActiveRun ? { meta: { quotedPending: true } } : {})
   }
   addMessageWithSync(sessionId, userMsg)
 
@@ -2053,10 +2146,50 @@ export function quotePendingSessionMessageIntoConversation(
     options: processOnlyOptions
   }
 
+  // Delivery routing. `inject` reaches the model at the next provider-request
+  // boundary of the *current* run; the queue below only runs after the whole run
+  // ends, as a brand new run. See lib/chat/quoted-message-steering.ts — this has
+  // regressed to queue-only more than once, and the transcript looks identical
+  // either way, so do not "simplify" the injection branch away.
+  const plan = planQuotedMessageDelivery({
+    activeRunId: sessionSidecarRunIds.get(sessionId),
+    hasActiveRun,
+    hasCommand: !!target.command,
+    hasSelectedFileReferences: (target.options?.selectedFileReferences?.length ?? 0) > 0
+  })
+
+  if (plan.route === 'inject') {
+    // The entry leaves the queue before the injection is attempted, rather than
+    // waiting for the worker's answer: an entry sitting in the queue could be
+    // dispatched as a fresh run by the run-completion handler in the same window
+    // the worker accepts the message, sending it twice. Nothing is lost, because
+    // the rejection branch puts it back and drains the queue itself.
+    replaceSessionPendingMessages(sessionId, remaining)
+    setPendingSessionDispatchPaused(sessionId, false)
+
+    void injectSteerMessageIntoActiveRun(plan.runId, userMsg).then((injected) => {
+      if (injected) {
+        rememberInjectedSteerMessage(sessionId, userMsg.id)
+        return
+      }
+      // Head of the queue: a rejected steer is still the next thing to send.
+      replaceSessionPendingMessages(sessionId, [
+        processOnly,
+        ...(pendingSessionMessages.get(sessionId) ?? [])
+      ])
+      // No unpause here. If the user hit stop while the injection was in flight,
+      // dispatch is paused on purpose and this message waits with the rest of the
+      // queue. Otherwise this call covers the run having finished in that window,
+      // which leaves nothing else to drain the queue.
+      dispatchNextQueuedMessage(sessionId)
+    })
+    return true
+  }
+
   replaceSessionPendingMessages(sessionId, [processOnly, ...remaining])
   setPendingSessionDispatchPaused(sessionId, false)
 
-  if (!hasActiveSessionRun(sessionId)) {
+  if (!hasActiveRun) {
     dispatchNextQueuedMessage(sessionId)
   }
 
@@ -5605,14 +5738,32 @@ export function useChatActions(): {
                   streamDeltaBuffer.pushThinking(event.thinking)
                   break
 
+                // Late reasoning: it belongs above the answer that already streamed, so
+                // it is placed rather than pushed, and it does not reopen the think phase.
+                case 'thinking_backfill':
+                  if (event.thinking) {
+                    hasThinkingDelta = true
+                    streamDeltaBuffer.flushNow()
+                    backfillRuntimeThinking(sessionId!, assistantMsgId, event.thinking)
+                  }
+                  break
+
                 case 'thinking_encrypted':
                   if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+                    streamDeltaBuffer.flushNow()
                     setRuntimeThinkingEncryptedContent(
                       sessionId!,
                       assistantMsgId,
                       event.thinkingEncryptedContent,
                       event.thinkingEncryptedProvider
                     )
+                  }
+                  break
+
+                case 'thinking_reasoning_id':
+                  if (event.reasoningItemId) {
+                    streamDeltaBuffer.flushNow()
+                    setRuntimeThinkingReasoningId(sessionId!, assistantMsgId, event.reasoningItemId)
                   }
                   break
 
@@ -6446,6 +6597,10 @@ export function useChatActions(): {
             setStreamingMessageIdWithSync(sessionId, null)
             sessionAbortControllers.delete(sessionId)
             sessionSidecarRunIds.delete(sessionId)
+            // Steer messages injected into this run were rendered above the tool
+            // results they actually follow. The stream is finished, so the
+            // transcript can safely be put in the order the worker used.
+            settleInjectedSteerMessages(sessionId)
             // Derive global isRunning from remaining running sessions
             const hasOtherRunning = Object.values(useAgentStore.getState().runningSessions).some(
               (s) => s === 'running' || s === 'retrying'
@@ -6694,53 +6849,11 @@ export function useChatActions(): {
     }
   }, [sendMessage])
 
-  const retryLastMessage = useCallback(
-    async (assistantMessageId?: string) => {
-      stopStreaming()
-      const chatStore = useChatStore.getState()
-      const sessionId = chatStore.activeSessionId
-      if (!sessionId) return
-
-      clearPendingSessionMessages(sessionId)
-      const { target } = await resolveSessionMessageTarget(chatStore, sessionId, (messages) =>
-        assistantMessageId
-          ? findRetryAssistantTarget(messages, assistantMessageId)
-          : (() => {
-              const lastEditable = findLastEditableUserMessage(messages)
-              if (!lastEditable) return null
-              const assistantIndex = messages.findLastIndex((message, index) => {
-                if (index <= lastEditable.index) return false
-                return message.role === 'assistant'
-              })
-              if (assistantIndex < 0) return null
-              return {
-                assistantIndex,
-                userIndex: lastEditable.index,
-                draft: lastEditable.draft
-              }
-            })()
-      )
-      if (!target) return
-
-      chatStore.truncateMessagesFrom(sessionId, target.userIndex)
-      // The store method fires the DB truncation asynchronously.  Await the
-      // same IPC call so sendMessage's loadRecentSessionMessages reads the
-      // updated DB state instead of reloading the old (possibly empty)
-      // assistant message that was just removed from the in-memory store.
-      await invokeMessagePack(DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL, {
-        sessionId,
-        fromSortOrder: target.userIndex
-      }).catch(() => {})
-      await sendMessage(
-        target.draft.text,
-        target.draft.images.length > 0 ? cloneImageAttachments(target.draft.images) : undefined,
-        undefined,
-        undefined,
-        target.draft.command
-      )
-    },
-    [sendMessage, stopStreaming]
-  )
+  const retryLastMessage = useCallback(async (assistantMessageId?: string) => {
+    const sessionId = useChatStore.getState().activeSessionId
+    if (!sessionId) return
+    await retrySessionMessage(sessionId, assistantMessageId)
+  }, [])
 
   const editAndResend = useCallback(
     async (messageId: string, draft: EditableUserMessageDraft) => {
@@ -6778,30 +6891,11 @@ export function useChatActions(): {
     [sendMessage, stopStreaming]
   )
 
-  const deleteMessage = useCallback(
-    async (messageId: string) => {
-      stopStreaming()
-      const chatStore = useChatStore.getState()
-      const sessionId = chatStore.activeSessionId
-      if (!sessionId) return
-
-      clearPendingSessionMessages(sessionId)
-      const { messages, target: nextMessages } = await resolveSessionMessageTarget(
-        chatStore,
-        sessionId,
-        (messages) => buildDeletedMessages(messages, messageId)
-      )
-      if (!nextMessages || nextMessages.length === messages.length) return
-
-      if (nextMessages.length === 0) {
-        chatStore.clearSessionMessages(sessionId)
-        return
-      }
-
-      chatStore.replaceSessionMessages(sessionId, nextMessages)
-    },
-    [stopStreaming]
-  )
+  const deleteMessage = useCallback(async (messageId: string) => {
+    const sessionId = useChatStore.getState().activeSessionId
+    if (!sessionId) return
+    await deleteSessionMessage(sessionId, messageId)
+  }, [])
 
   const manualCompressContext = useCallback(async (focusPrompt?: string) => {
     const chatStore = useChatStore.getState()
@@ -7338,14 +7432,30 @@ async function runSimpleChat(
           thinkingDone = false
           streamDeltaBuffer.pushThinking(event.thinking!)
           break
+        // Late reasoning: it belongs above the answer that already streamed, so it is
+        // placed rather than pushed, and it does not reopen the think phase.
+        case 'thinking_backfill':
+          if (event.thinking) {
+            hasThinkingDelta = true
+            streamDeltaBuffer.flushNow()
+            backfillRuntimeThinking(sessionId, assistantMsgId, event.thinking)
+          }
+          break
         case 'thinking_encrypted':
           if (event.thinkingEncryptedContent && event.thinkingEncryptedProvider) {
+            streamDeltaBuffer.flushNow()
             setRuntimeThinkingEncryptedContent(
               sessionId,
               assistantMsgId,
               event.thinkingEncryptedContent,
               event.thinkingEncryptedProvider
             )
+          }
+          break
+        case 'thinking_reasoning_id':
+          if (event.reasoningItemId) {
+            streamDeltaBuffer.flushNow()
+            setRuntimeThinkingReasoningId(sessionId, assistantMsgId, event.reasoningItemId)
           }
           break
         case 'text_delta':
@@ -7617,6 +7727,97 @@ export function triggerSendMessage(
     return
   }
   void _sendMessageFn(text, images, undefined, targetSessionId)
+}
+
+/**
+ * The assistant turn a bare "regenerate" means: the last one, together with the
+ * user message that prompted it.
+ */
+function findLastRetryTarget(messages: UnifiedMessage[]): RetryAssistantTarget | null {
+  const lastEditable = findLastEditableUserMessage(messages)
+  if (!lastEditable) return null
+  const assistantIndex = messages.findLastIndex(
+    (message, index) => index > lastEditable.index && message.role === 'assistant'
+  )
+  if (assistantIndex < 0) return null
+  return { assistantIndex, userIndex: lastEditable.index, draft: lastEditable.draft }
+}
+
+/**
+ * Regenerates a turn in a session named explicitly, rather than in whichever
+ * session the desktop happens to be showing.
+ *
+ * The hook's `retryLastMessage` is this bound to the active session. A remote
+ * caller has no active session, and quietly rerunning the desktop's foreground
+ * turn instead of the one the phone is looking at is the worst way to be wrong
+ * here — it would discard work the user can't see from where they are.
+ *
+ * Returns false when there is nothing to regenerate, so a caller can say so
+ * rather than leave a spinner running.
+ */
+export async function retrySessionMessage(
+  sessionId: string,
+  assistantMessageId?: string
+): Promise<boolean> {
+  if (!sessionId) return false
+  stopSessionStreaming(sessionId)
+  const chatStore = useChatStore.getState()
+
+  clearPendingSessionMessages(sessionId)
+  const { target } = await resolveSessionMessageTarget(chatStore, sessionId, (messages) =>
+    assistantMessageId
+      ? findRetryAssistantTarget(messages, assistantMessageId)
+      : findLastRetryTarget(messages)
+  )
+  if (!target) return false
+
+  chatStore.truncateMessagesFrom(sessionId, target.userIndex)
+  // The store method fires the DB truncation asynchronously.  Await the
+  // same IPC call so sendMessage's loadRecentSessionMessages reads the
+  // updated DB state instead of reloading the old (possibly empty)
+  // assistant message that was just removed from the in-memory store.
+  await invokeMessagePack(DB_MESSAGES_TRUNCATE_FROM_MSGPACK_CHANNEL, {
+    sessionId,
+    fromSortOrder: target.userIndex
+  }).catch(() => {})
+  const sendMessage = _sendMessageFn
+  if (!sendMessage) return false
+  await sendMessage(
+    target.draft.text,
+    target.draft.images.length > 0 ? cloneImageAttachments(target.draft.images) : undefined,
+    undefined,
+    sessionId,
+    target.draft.command
+  )
+  return true
+}
+
+/**
+ * Deletes one message from a named session, taking its dependents with it —
+ * an assistant turn drags along the tool results that answer it, a user turn
+ * drags along everything it produced. A message removed on its own would leave
+ * a `tool_use` with no result, which the next request cannot be built from.
+ */
+export async function deleteSessionMessage(sessionId: string, messageId: string): Promise<boolean> {
+  if (!sessionId || !messageId) return false
+  stopSessionStreaming(sessionId)
+  const chatStore = useChatStore.getState()
+
+  clearPendingSessionMessages(sessionId)
+  const { messages, target: nextMessages } = await resolveSessionMessageTarget(
+    chatStore,
+    sessionId,
+    (messages) => buildDeletedMessages(messages, messageId)
+  )
+  if (!nextMessages || nextMessages.length === messages.length) return false
+
+  if (nextMessages.length === 0) {
+    chatStore.clearSessionMessages(sessionId)
+    return true
+  }
+
+  chatStore.replaceSessionMessages(sessionId, nextMessages)
+  return true
 }
 
 function mergeUsage(target: TokenUsage, incoming: TokenUsage): void {

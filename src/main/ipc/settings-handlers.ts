@@ -3,6 +3,7 @@ import { migrateLegacySubAgentHistorySettings } from '../db/sub-agent-history-da
 import { initializeDatabase } from '../db/database'
 import { getNativeWorker, stopCodeGraphWorker } from '../lib/native-worker'
 import { clearCodeGraphSyncQueues } from '../lib/codegraph-sync'
+import { refreshWorkerProxy } from '../lib/worker-proxy'
 import { registerMessagePackHandler } from './messagepack-handler'
 import {
   sanitizePermissionPolicy,
@@ -187,6 +188,10 @@ async function applySystemProxy(proxyUrl: string): Promise<void> {
   } catch (err) {
     console.error('[Settings] Failed to configure system proxy:', err)
   }
+  // The native worker sends every provider request and cannot read the OS proxy settings, so it
+  // needs the new value pushed to it explicitly. Clearing the setting re-resolves rather than
+  // going direct: the OS may still have a proxy configured.
+  await refreshWorkerProxy(proxyUrl || null)
 }
 
 export async function setSettingsValue(key: string, value: unknown): Promise<void> {

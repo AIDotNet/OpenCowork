@@ -116,11 +116,13 @@ export type AgentEvent =
   | { type: 'iteration_start'; iteration: number }
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; thinking: string }
+  | { type: 'thinking_backfill'; thinking: string }
   | {
       type: 'thinking_encrypted'
       thinkingEncryptedContent: string
       thinkingEncryptedProvider: 'anthropic' | 'openai-responses' | 'google'
     }
+  | { type: 'thinking_reasoning_id'; reasoningItemId: string }
   | { type: 'translation_buffer_update'; content: string }
   | { type: 'image_generation_started' }
   | { type: 'image_generation_partial'; imageBlock: ImageBlock; partialImageIndex?: number }

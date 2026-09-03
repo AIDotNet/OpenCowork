@@ -23,6 +23,12 @@ internal sealed class ProjectRow
     [JsonPropertyName("pinned")]
     public int Pinned { get; set; }
 
+    [JsonPropertyName("provider_id")]
+    public string? ProviderId { get; set; }
+
+    [JsonPropertyName("model_id")]
+    public string? ModelId { get; set; }
+
     [JsonPropertyName("created_at")]
     public long CreatedAt { get; set; }
 

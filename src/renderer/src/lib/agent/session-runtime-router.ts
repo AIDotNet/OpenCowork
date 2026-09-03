@@ -1,6 +1,5 @@
 import type {
   ContentBlock,
-  ThinkingBlock,
   TokenUsage,
   ToolUseBlock,
   UnifiedMessage
@@ -10,6 +9,9 @@ import { emitSessionRuntimeSync } from '@renderer/lib/session-runtime-sync'
 import {
   appendOrUpsertContentBlock,
   appendThinkingDeltaToBlocks,
+  attachThinkingEncryptedToBlocks,
+  attachThinkingReasoningIdToBlocks,
+  insertBackfilledThinkingIntoBlocks,
   sealIncompleteThinkingBlocks
 } from '@renderer/lib/content-blocks'
 import { useChatStore } from '@renderer/stores/chat-store'
@@ -326,6 +328,37 @@ export function appendRuntimeThinkingDelta(
   })
 }
 
+export function backfillRuntimeThinking(
+  sessionId: string,
+  messageId: string,
+  thinking: string
+): void {
+  const cleanedThinking = stripThinkTagMarkers(thinking)
+  if (!cleanedThinking) return
+  emitSessionRuntimeSync({
+    kind: 'backfill_thinking',
+    sessionId,
+    messageId,
+    thinking: cleanedThinking
+  })
+
+  if (isSessionForeground(sessionId)) {
+    flushPendingForegroundMutations()
+    useChatStore.getState().backfillThinking(sessionId, messageId, cleanedThinking)
+    return
+  }
+
+  mutateBufferedMessage(sessionId, messageId, (message) => {
+    const now = Date.now()
+    if (typeof message.content === 'string') {
+      message.content = [{ type: 'thinking', thinking: cleanedThinking, startedAt: now }]
+      return
+    }
+
+    insertBackfilledThinkingIntoBlocks(message.content as ContentBlock[], cleanedThinking, now)
+  })
+}
+
 export function setRuntimeThinkingEncryptedContent(
   sessionId: string,
   messageId: string,
@@ -351,52 +384,46 @@ export function setRuntimeThinkingEncryptedContent(
   }
 
   mutateBufferedMessage(sessionId, messageId, (message) => {
-    const now = Date.now()
     if (typeof message.content === 'string') {
       const existingText = message.content
-      message.content = [
-        {
-          type: 'thinking',
-          thinking: '',
-          encryptedContent,
-          encryptedContentProvider: provider,
-          startedAt: now
-        },
-        ...(existingText ? [{ type: 'text' as const, text: existingText }] : [])
-      ]
-      return
+      message.content = existingText ? [{ type: 'text' as const, text: existingText }] : []
     }
 
-    const blocks = message.content as ContentBlock[]
-    let targetThinkingBlock: ThinkingBlock | null = null
-    let providerMatchedThinkingBlock: ThinkingBlock | null = null
-
-    for (let index = blocks.length - 1; index >= 0; index -= 1) {
-      const block = blocks[index]
-      if (block.type !== 'thinking') continue
-      if (!block.encryptedContent) {
-        targetThinkingBlock = block
-        break
-      }
-      if (!providerMatchedThinkingBlock && block.encryptedContentProvider === provider) {
-        providerMatchedThinkingBlock = block
-      }
-    }
-
-    targetThinkingBlock = targetThinkingBlock ?? providerMatchedThinkingBlock
-    if (targetThinkingBlock) {
-      targetThinkingBlock.encryptedContent = encryptedContent
-      targetThinkingBlock.encryptedContentProvider = provider
-      return
-    }
-
-    blocks.push({
-      type: 'thinking',
-      thinking: '',
+    attachThinkingEncryptedToBlocks(
+      message.content as ContentBlock[],
       encryptedContent,
-      encryptedContentProvider: provider,
-      startedAt: now
-    })
+      provider
+    )
+  })
+}
+
+export function setRuntimeThinkingReasoningId(
+  sessionId: string,
+  messageId: string,
+  reasoningItemId: string
+): void {
+  if (!reasoningItemId) return
+  emitSessionRuntimeSync({
+    kind: 'set_thinking_reasoning_id',
+    sessionId,
+    messageId,
+    reasoningItemId
+  })
+
+  if (isSessionForeground(sessionId)) {
+    queueForegroundMutation(() =>
+      useChatStore.getState().setThinkingReasoningId(sessionId, messageId, reasoningItemId)
+    )
+    return
+  }
+
+  mutateBufferedMessage(sessionId, messageId, (message) => {
+    if (typeof message.content === 'string') {
+      const existingText = message.content
+      message.content = existingText ? [{ type: 'text' as const, text: existingText }] : []
+    }
+
+    attachThinkingReasoningIdToBlocks(message.content as ContentBlock[], reasoningItemId)
   })
 }
 

@@ -209,7 +209,8 @@ internal static partial class AgentRuntimeOpenAIResponsesProvider
                     .Select(call => new AgentRuntimeChatToolUse(call.Id, call.Name, call.Input, call.ExtraContent))
                     .ToList(),
                 [],
-                parseState.ProviderResponseId),
+                parseState.ProviderResponseId,
+                BuildResponsesContentBlocks(parseState)),
             parseState.ToolCalls,
             parseState.StopReason,
             parseState.Usage);

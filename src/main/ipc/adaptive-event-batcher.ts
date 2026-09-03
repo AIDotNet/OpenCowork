@@ -442,7 +442,11 @@ function mapContentBlock(raw: unknown): ContentBlockWire | null {
         block.encryptedContentProvider === 'openai-responses' ||
         block.encryptedContentProvider === 'google'
           ? { encryptedContentProvider: block.encryptedContentProvider }
-          : {})
+          : {}),
+        ...(typeof block.reasoningItemId === 'string'
+          ? { reasoningItemId: block.reasoningItemId }
+          : {}),
+        ...(block.redacted === true ? { redacted: true } : {})
       }
     default:
       return null
@@ -540,6 +544,8 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
       return { type: 'text_delta', text: str(raw.text) }
     case 'thinking_delta':
       return { type: 'thinking_delta', thinking: str(raw.thinking) }
+    case 'thinking_backfill':
+      return { type: 'thinking_backfill', thinking: str(raw.thinking) }
     case 'thinking_encrypted': {
       const provider = raw.thinkingEncryptedProvider
       if (provider !== 'anthropic' && provider !== 'openai-responses' && provider !== 'google')
@@ -549,6 +555,10 @@ function mapToStreamEvent(raw: Record<string, unknown>): AgentStreamEvent | null
         content: str(raw.thinkingEncryptedContent),
         provider
       }
+    }
+    case 'thinking_reasoning_id': {
+      const reasoningItemId = str(raw.reasoningItemId)
+      return reasoningItemId ? { type: 'thinking_reasoning_id', reasoningItemId } : null
     }
 
     // Image generation

@@ -347,7 +347,7 @@ internal static class DbProjectTools
 
     private const string ProjectSelectSql = """
         SELECT p.id, p.name, p.icon, p.working_folder, p.ssh_connection_id, p.plugin_id, p.pinned,
-               p.created_at, p.updated_at,
+               p.provider_id, p.model_id, p.created_at, p.updated_at,
                (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count
           FROM projects p
         """;
@@ -449,9 +449,11 @@ internal static class DbProjectTools
                 SshConnectionId = GetNullableString(reader, 4),
                 PluginId = GetNullableString(reader, 5),
                 Pinned = reader.IsDBNull(6) ? 0 : reader.GetInt32(6),
-                CreatedAt = reader.GetInt64(7),
-                UpdatedAt = reader.GetInt64(8),
-                SessionCount = reader.IsDBNull(9) ? 0 : reader.GetInt32(9)
+                ProviderId = GetNullableString(reader, 7),
+                ModelId = GetNullableString(reader, 8),
+                CreatedAt = reader.GetInt64(9),
+                UpdatedAt = reader.GetInt64(10),
+                SessionCount = reader.IsDBNull(11) ? 0 : reader.GetInt32(11)
             });
         }
 
@@ -468,9 +470,11 @@ internal static class DbProjectTools
             transaction,
             """
             INSERT INTO projects (
-              id, name, icon, working_folder, ssh_connection_id, plugin_id, pinned, created_at, updated_at
+              id, name, icon, working_folder, ssh_connection_id, plugin_id, pinned,
+              provider_id, model_id, created_at, updated_at
             ) VALUES (
-              $id, $name, $icon, $workingFolder, $sshConnectionId, $pluginId, $pinned, $createdAt, $updatedAt
+              $id, $name, $icon, $workingFolder, $sshConnectionId, $pluginId, $pinned,
+              $providerId, $modelId, $createdAt, $updatedAt
             )
             """,
             new DbSql.SqlParam("$id", row.Id),
@@ -480,6 +484,8 @@ internal static class DbProjectTools
             new DbSql.SqlParam("$sshConnectionId", row.SshConnectionId),
             new DbSql.SqlParam("$pluginId", row.PluginId),
             new DbSql.SqlParam("$pinned", row.Pinned),
+            new DbSql.SqlParam("$providerId", row.ProviderId),
+            new DbSql.SqlParam("$modelId", row.ModelId),
             new DbSql.SqlParam("$createdAt", row.CreatedAt),
             new DbSql.SqlParam("$updatedAt", row.UpdatedAt));
     }
@@ -500,6 +506,8 @@ internal static class DbProjectTools
                    ssh_connection_id = $sshConnectionId,
                    plugin_id = $pluginId,
                    pinned = $pinned,
+                   provider_id = $providerId,
+                   model_id = $modelId,
                    updated_at = $updatedAt
              WHERE id = $id
             """,
@@ -509,6 +517,8 @@ internal static class DbProjectTools
             new DbSql.SqlParam("$sshConnectionId", row.SshConnectionId),
             new DbSql.SqlParam("$pluginId", row.PluginId),
             new DbSql.SqlParam("$pinned", row.Pinned),
+            new DbSql.SqlParam("$providerId", row.ProviderId),
+            new DbSql.SqlParam("$modelId", row.ModelId),
             new DbSql.SqlParam("$updatedAt", row.UpdatedAt),
             new DbSql.SqlParam("$id", row.Id));
     }
@@ -568,6 +578,20 @@ internal static class DbProjectTools
                 JsonValueKind.Number when pinnedElement.TryGetInt32(out var value) => value == 0 ? 0 : 1,
                 _ => row.Pinned
             };
+        }
+
+        if (patch.TryGetProperty("providerId", out var providerElement))
+        {
+            row.ProviderId = providerElement.ValueKind == JsonValueKind.String
+                ? NormalizeOptional(providerElement.GetString())
+                : null;
+        }
+
+        if (patch.TryGetProperty("modelId", out var modelElement))
+        {
+            row.ModelId = modelElement.ValueKind == JsonValueKind.String
+                ? NormalizeOptional(modelElement.GetString())
+                : null;
         }
 
         if (JsonHelpers.GetLongNullable(patch, "updatedAt") is { } updatedAt)

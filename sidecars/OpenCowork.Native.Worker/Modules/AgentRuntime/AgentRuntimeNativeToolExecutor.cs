@@ -1082,138 +1082,152 @@ internal static class AgentRuntimeNativeToolExecutor
         var artifactsBefore = SnapshotArtifactFiles(cwd);
         using var process = CreateShellProcess(command, cwd);
         process.Start();
-
-        using var timeoutCts = new CancellationTokenSource(timeoutMs);
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken,
-            timeoutCts.Token);
-        var stdout = new ShellOutputCollector(ShellMaxOutputChars);
-        var stderr = new ShellOutputCollector(ShellMaxOutputChars);
-        var combinedOutput = new ShellOutputCollector(ShellMaxOutputChars);
-        var outputLock = new object();
-        using var emitLock = new SemaphoreSlim(1, 1);
-
-        async Task EmitLiveUpdateAsync()
+        var tracked = string.IsNullOrWhiteSpace(call.Id)
+            ? null
+            : RunningShellRegistry.Track(call.Id, process);
+        try
         {
-            await emitLock.WaitAsync(CancellationToken.None);
+            using var timeoutCts = new CancellationTokenSource(timeoutMs);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                timeoutCts.Token);
+            var stdout = new ShellOutputCollector(ShellMaxOutputChars);
+            var stderr = new ShellOutputCollector(ShellMaxOutputChars);
+            var combinedOutput = new ShellOutputCollector(ShellMaxOutputChars);
+            var outputLock = new object();
+            using var emitLock = new SemaphoreSlim(1, 1);
+
+            async Task EmitLiveUpdateAsync()
+            {
+                await emitLock.WaitAsync(CancellationToken.None);
+                try
+                {
+                    string stdoutSnapshot;
+                    string stderrSnapshot;
+                    string combinedSnapshot;
+                    lock (outputLock)
+                    {
+                        stdoutSnapshot = stdout.ToString();
+                        stderrSnapshot = stderr.ToString();
+                        combinedSnapshot = combinedOutput.ToString();
+                    }
+
+                    await EmitShellToolUpdateAsync(
+                        call,
+                        liveInput,
+                        stdoutSnapshot,
+                        stderrSnapshot,
+                        combinedSnapshot,
+                        cwd,
+                        command,
+                        state,
+                        context);
+                }
+                finally
+                {
+                    emitLock.Release();
+                }
+            }
+
+            await EmitLiveUpdateAsync();
+
+            var stdoutTask = ReadShellStreamAsync(
+                process.StandardOutput,
+                stdout,
+                combinedOutput,
+                outputLock,
+                call.Id,
+                "stdout",
+                context,
+                EmitLiveUpdateAsync,
+                linkedCts.Token);
+            var stderrTask = ReadShellStreamAsync(
+                process.StandardError,
+                stderr,
+                combinedOutput,
+                outputLock,
+                call.Id,
+                "stderr",
+                context,
+                EmitLiveUpdateAsync,
+                linkedCts.Token);
+            var timedOut = false;
+
             try
             {
-                string stdoutSnapshot;
-                string stderrSnapshot;
-                string combinedSnapshot;
-                lock (outputLock)
+                await process.WaitForExitAsync(linkedCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                timedOut = timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+                TryKillProcessTree(process);
+                if (!timedOut)
                 {
-                    stdoutSnapshot = stdout.ToString();
-                    stderrSnapshot = stderr.ToString();
-                    combinedSnapshot = combinedOutput.ToString();
-                }
-
-                await EmitShellToolUpdateAsync(
-                    call,
-                    liveInput,
-                    stdoutSnapshot,
-                    stderrSnapshot,
-                    combinedSnapshot,
-                    cwd,
-                    command,
-                    state,
-                    context);
-            }
-            finally
-            {
-                emitLock.Release();
-            }
-        }
-
-        await EmitLiveUpdateAsync();
-
-        var stdoutTask = ReadShellStreamAsync(
-            process.StandardOutput,
-            stdout,
-            combinedOutput,
-            outputLock,
-            call.Id,
-            "stdout",
-            context,
-            EmitLiveUpdateAsync,
-            linkedCts.Token);
-        var stderrTask = ReadShellStreamAsync(
-            process.StandardError,
-            stderr,
-            combinedOutput,
-            outputLock,
-            call.Id,
-            "stderr",
-            context,
-            EmitLiveUpdateAsync,
-            linkedCts.Token);
-        var timedOut = false;
-
-        try
-        {
-            await process.WaitForExitAsync(linkedCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            timedOut = timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
-            TryKillProcessTree(process);
-            if (!timedOut)
-            {
-                throw;
-            }
-        }
-
-        await CompleteShellReadTaskAsync(stdoutTask);
-        await CompleteShellReadTaskAsync(stderrTask);
-        var exitCode = timedOut ? 124 : process.ExitCode;
-        await EmitLiveUpdateAsync();
-
-        List<(string Path, long Size)>? artifacts = null;
-        var artifactsOverflow = 0;
-        try
-        {
-            var changed = DiffArtifactFiles(artifactsBefore, SnapshotArtifactFiles(cwd));
-            if (changed.Count > ArtifactMaxResults)
-            {
-                artifactsOverflow = changed.Count - ArtifactMaxResults;
-                changed = changed.GetRange(0, ArtifactMaxResults);
-            }
-            artifacts = changed;
-        }
-        catch
-        {
-            // ponytail: artifact detection is best-effort only; never let it fail the Bash result
-        }
-
-        return EncodeJsonObject(writer =>
-        {
-            writer.WriteNumber("exitCode", exitCode);
-            writer.WriteString("stdout", stdout.ToString());
-            writer.WriteString("stderr", stderr.ToString());
-            writer.WriteString("output", combinedOutput.ToString());
-            writer.WriteBoolean("timedOut", timedOut);
-            writer.WriteString("cwd", cwd);
-            writer.WriteString("command", command);
-            writer.WriteNumber("totalMs", ElapsedMs(startedAt));
-
-            if (artifacts is { Count: > 0 })
-            {
-                writer.WriteStartArray("artifacts");
-                foreach (var artifact in artifacts)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("path", artifact.Path);
-                    writer.WriteNumber("size", artifact.Size);
-                    writer.WriteEndObject();
-                }
-                writer.WriteEndArray();
-
-                if (artifactsOverflow > 0)
-                {
-                    writer.WriteNumber("artifactsTruncated", artifactsOverflow);
+                    throw;
                 }
             }
-        });
+
+            await CompleteShellReadTaskAsync(stdoutTask);
+            await CompleteShellReadTaskAsync(stderrTask);
+            var userAborted = tracked?.AbortReason == "user";
+            var exitCode = timedOut ? 124 : userAborted ? 130 : process.ExitCode;
+            await EmitLiveUpdateAsync();
+
+            List<(string Path, long Size)>? artifacts = null;
+            var artifactsOverflow = 0;
+            if (!timedOut && !userAborted)
+            {
+                try
+                {
+                    var changed = DiffArtifactFiles(artifactsBefore, SnapshotArtifactFiles(cwd));
+                    if (changed.Count > ArtifactMaxResults)
+                    {
+                        artifactsOverflow = changed.Count - ArtifactMaxResults;
+                        changed = changed.GetRange(0, ArtifactMaxResults);
+                    }
+                    artifacts = changed;
+                }
+                catch
+                {
+                    // ponytail: artifact detection is best-effort only; never let it fail the Bash result
+                }
+            }
+
+            return EncodeJsonObject(writer =>
+            {
+                writer.WriteNumber("exitCode", exitCode);
+                writer.WriteString("stdout", stdout.ToString());
+                writer.WriteString("stderr", stderr.ToString());
+                writer.WriteString("output", combinedOutput.ToString());
+                writer.WriteBoolean("timedOut", timedOut);
+                writer.WriteBoolean("aborted", userAborted);
+                writer.WriteString("cwd", cwd);
+                writer.WriteString("command", command);
+                writer.WriteNumber("totalMs", ElapsedMs(startedAt));
+
+                if (artifacts is { Count: > 0 })
+                {
+                    writer.WriteStartArray("artifacts");
+                    foreach (var artifact in artifacts)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteString("path", artifact.Path);
+                        writer.WriteNumber("size", artifact.Size);
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+
+                    if (artifactsOverflow > 0)
+                    {
+                        writer.WriteNumber("artifactsTruncated", artifactsOverflow);
+                    }
+                }
+            });
+        }
+        finally
+        {
+            RunningShellRegistry.Untrack(call.Id);
+        }
     }
 
     private const int ArtifactScanMaxDepth = 3;

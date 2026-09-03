@@ -424,6 +424,30 @@ async function executeHeadlessTask(task: HeadlessChannelTask): Promise<void> {
     assistantBlocks.push({ type: 'thinking', thinking, startedAt: Date.now() })
   }
 
+  // Reasoning disclosed only after the answer streamed belongs in front of that answer.
+  const backfillThinking = (thinking: string): void => {
+    if (!thinking) return
+    let insertAt = assistantBlocks.length
+    while (insertAt > 0 && assistantBlocks[insertAt - 1].type === 'text') insertAt -= 1
+    if (insertAt === assistantBlocks.length) {
+      appendThinking(thinking)
+      return
+    }
+    const now = Date.now()
+    const previous = assistantBlocks[insertAt - 1]
+    if (previous?.type === 'thinking') {
+      previous.thinking = previous.thinking ? `${previous.thinking}\n${thinking}` : thinking
+      previous.completedAt ??= now
+      return
+    }
+    assistantBlocks.splice(insertAt, 0, {
+      type: 'thinking',
+      thinking,
+      startedAt: now,
+      completedAt: now
+    })
+  }
+
   const completeThinking = (): void => {
     const open = [...assistantBlocks]
       .reverse()
@@ -463,6 +487,9 @@ async function executeHeadlessTask(task: HeadlessChannelTask): Promise<void> {
         break
       case 'thinking_delta':
         appendThinking(event.thinking ?? '')
+        break
+      case 'thinking_backfill':
+        backfillThinking(event.thinking ?? '')
         break
       case 'tool_use_streaming_start':
         completeThinking()

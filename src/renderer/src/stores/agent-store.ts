@@ -26,7 +26,11 @@ import { sendApprovalResponse, sendPlanApprovalResponse } from '../lib/agent/tea
 import { compactBashToolResultContent } from '../lib/tools/bash-output'
 import { summarizeToolInputForHistory } from '../lib/tools/tool-input-sanitizer'
 import { calculateCacheReadRatio } from '../lib/agent/cache-shape'
-import { appendThinkingDeltaToBlocks, sealIncompleteThinkingBlocks } from '../lib/content-blocks'
+import {
+  appendThinkingDeltaToBlocks,
+  attachThinkingEncryptedToBlocks,
+  sealIncompleteThinkingBlocks
+} from '../lib/content-blocks'
 import { toMessagePackChannel } from '../../../shared/messagepack/binary-ipc'
 
 // Approval resolvers live outside the store — they hold non-serializable
@@ -464,36 +468,8 @@ function appendThinkingEncryptedToSubAgent(
 ): void {
   const blocks = getCurrentAssistantBlocks(sa)
   if (!blocks || !encryptedContent) return
+  attachThinkingEncryptedToBlocks(blocks, encryptedContent, provider)
   const assistant = sa.transcript.find((message) => message.id === sa.currentAssistantMessageId)
-
-  let target: Extract<ContentBlock, { type: 'thinking' }> | null = null
-  let providerMatchedTarget: Extract<ContentBlock, { type: 'thinking' }> | null = null
-  for (let index = blocks.length - 1; index >= 0; index -= 1) {
-    const block = blocks[index]
-    if (block.type !== 'thinking') continue
-    if (!block.encryptedContent) {
-      target = block
-      break
-    }
-    if (!providerMatchedTarget && block.encryptedContentProvider === provider) {
-      providerMatchedTarget = block
-    }
-  }
-
-  target = target ?? providerMatchedTarget
-  if (target) {
-    target.encryptedContent = encryptedContent
-    target.encryptedContentProvider = provider
-    if (assistant) bumpMessageRevision(assistant)
-    return
-  }
-
-  blocks.push({
-    type: 'thinking',
-    thinking: '',
-    encryptedContent,
-    encryptedContentProvider: provider
-  })
   if (assistant) bumpMessageRevision(assistant)
 }
 
@@ -1697,6 +1673,13 @@ export const useAgentStore = create<AgentStore>()(
             ...(resolvedSessionId ? { sessionId: resolvedSessionId } : {})
           })
         })
+        if ((tc.name === 'Bash' || tc.name === 'Shell') && tc.id) {
+          get().registerForegroundShellExec(tc.id, tc.id, {
+            command: typeof tc.input?.command === 'string' ? tc.input.command : undefined,
+            cwd: typeof tc.input?.cwd === 'string' ? tc.input.cwd : undefined,
+            sessionId: resolvedSessionId ?? undefined
+          })
+        }
         if (!isAgentRuntimeSyncSuppressed()) {
           emitAgentRuntimeSync({
             kind: 'add_tool_call',
@@ -1736,6 +1719,12 @@ export const useAgentStore = create<AgentStore>()(
             }
           }
         })
+        if (
+          changed &&
+          (patch.status === 'completed' || patch.status === 'error' || patch.status === 'canceled')
+        ) {
+          get().clearForegroundShellExec(id)
+        }
         if (changed && !isAgentRuntimeSyncSuppressed()) {
           emitAgentRuntimeSync({
             kind: 'update_tool_call',
@@ -1788,8 +1777,9 @@ export const useAgentStore = create<AgentStore>()(
 
       abortForegroundShellExec: async (toolUseId) => {
         const exec = useAgentStore.getState().foregroundShellExecByToolUseId[toolUseId]
-        if (!exec?.execId) return
-        ipcClient.send(IPC.SHELL_ABORT, { execId: exec.execId })
+        const execId = exec?.execId?.trim() || toolUseId.trim()
+        if (!execId) return
+        ipcClient.send(IPC.SHELL_ABORT, { execId })
         set((state) => {
           delete state.foregroundShellExecByToolUseId[toolUseId]
         })

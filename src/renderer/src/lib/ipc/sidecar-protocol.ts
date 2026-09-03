@@ -75,6 +75,10 @@ export interface SidecarThinkingBlock {
   thinking: string
   encryptedContent?: string
   encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
+  /** OpenAI Responses reasoning item id — the replay handle on endpoints that never
+   *  return `reasoning.encrypted_content`. */
+  reasoningItemId?: string
+  redacted?: boolean
 }
 
 export interface SidecarAgentErrorBlock {
@@ -455,7 +459,9 @@ function mapSidecarContentBlock(block: ContentBlock): SidecarContentBlock | null
         ...(block.encryptedContent ? { encryptedContent: block.encryptedContent } : {}),
         ...(block.encryptedContentProvider
           ? { encryptedContentProvider: block.encryptedContentProvider }
-          : {})
+          : {}),
+        ...(block.reasoningItemId ? { reasoningItemId: block.reasoningItemId } : {}),
+        ...(block.redacted ? { redacted: true } : {})
       }
     case 'agent_error':
       return {
@@ -482,7 +488,13 @@ export function sanitizeSidecarMessageMeta(meta: MessageMeta | undefined): Messa
   }
 }
 
-function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | null {
+/**
+ * Also used on its own by the mid-run steering path, which appends a single
+ * message to a run that is already in flight and therefore never builds a full
+ * run request. Both paths must normalize identically, or the injected message
+ * reaches the worker in a shape `ReadConversation` silently drops.
+ */
+export function mapSidecarMessage(message: UnifiedMessage): SidecarUnifiedMessage | null {
   const meta = sanitizeSidecarMessageMeta(message.meta)
 
   if (typeof message.content === 'string') {

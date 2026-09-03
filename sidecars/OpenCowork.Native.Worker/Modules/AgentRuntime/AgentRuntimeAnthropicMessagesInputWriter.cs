@@ -291,34 +291,41 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             return wroteBlock;
         }
 
+        // Interleaved thinking (anthropic-beta interleaved-thinking-2025-05-14)
+        // must be written in the original block order. Moving tool_use to the
+        // end rewrites thinking positions and the Messages API rejects the last
+        // assistant turn with "thinking blocks cannot be modified".
+        var omitThinking = AnthropicAssistantThinkingIsUnreplayable(blocks);
         for (var blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
             var block = blocks[blockIndex];
             var shouldCache = cacheTargets.Contains($"block:{messageIndex}:{blockIndex}");
             switch (JsonHelpers.GetString(block, "type"))
             {
-                case "text":
                 case "thinking":
+                case "redacted_thinking":
+                    if (omitThinking)
+                    {
+                        break;
+                    }
+
+                    wroteBlock = TryWriteAnthropicNonToolBlock(writer, block, shouldCache, cacheBudget, role) ||
+                        wroteBlock;
+                    break;
+                case "text":
                 case "image":
                     wroteBlock = TryWriteAnthropicNonToolBlock(writer, block, shouldCache, cacheBudget, role) ||
                         wroteBlock;
                     break;
+                case "tool_use":
+                    if (ReadAnthropicToolUse(block) is { } toolUse)
+                    {
+                        wroteBlock = TryWriteAnthropicToolUse(writer, toolUse, writeState) || wroteBlock;
+                    }
+                    break;
                 case "tool_result":
                     writeState.DropInvalidRoleToolBlocks(1);
                     break;
-            }
-        }
-
-        for (var blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
-        {
-            var block = blocks[blockIndex];
-            if (JsonHelpers.GetString(block, "type") != "tool_use")
-            {
-                continue;
-            }
-            if (ReadAnthropicToolUse(block) is { } toolUse)
-            {
-                wroteBlock = TryWriteAnthropicToolUse(writer, toolUse, writeState) || wroteBlock;
             }
         }
         return wroteBlock;
@@ -333,20 +340,27 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
     {
         switch (JsonHelpers.GetString(block, "type"))
         {
+            case "redacted_thinking":
+                return TryWriteAnthropicRedactedThinking(writer, block, role);
             case "thinking":
                 if (role != "assistant")
+                {
+                    return false;
+                }
+                if (JsonHelpers.GetBool(block, "redacted", false) ||
+                    (string.IsNullOrWhiteSpace(JsonHelpers.GetString(block, "thinking")) &&
+                        ReadAnthropicThinkingEncrypted(block) is { Length: > 0 }))
+                {
+                    return TryWriteAnthropicRedactedThinking(writer, block, role);
+                }
+                if (ReadAnthropicThinkingEncrypted(block) is not { Length: > 0 } signature)
                 {
                     return false;
                 }
                 writer.WriteStartObject();
                 writer.WriteString("type", "thinking");
                 writer.WriteString("thinking", JsonHelpers.GetString(block, "thinking") ?? string.Empty);
-                var encryptedProvider = JsonHelpers.GetString(block, "encryptedContentProvider");
-                if (JsonHelpers.GetString(block, "encryptedContent") is { Length: > 0 } encrypted &&
-                    (encryptedProvider is null or "anthropic"))
-                {
-                    writer.WriteString("signature", encrypted);
-                }
+                writer.WriteString("signature", signature);
                 writer.WriteEndObject();
                 return true;
             case "text":
@@ -368,6 +382,36 @@ internal static partial class AgentRuntimeAnthropicMessagesProvider
             default:
                 return false;
         }
+    }
+
+    private static bool TryWriteAnthropicRedactedThinking(
+        Utf8JsonWriter writer,
+        JsonElement block,
+        string role)
+    {
+        if (role != "assistant" || ReadAnthropicThinkingEncrypted(block) is not { Length: > 0 } data)
+        {
+            return false;
+        }
+
+        writer.WriteStartObject();
+        writer.WriteString("type", "redacted_thinking");
+        writer.WriteString("data", data);
+        writer.WriteEndObject();
+        return true;
+    }
+
+    private static string? ReadAnthropicThinkingEncrypted(JsonElement block)
+    {
+        var encryptedProvider = JsonHelpers.GetString(block, "encryptedContentProvider");
+        if (encryptedProvider is { Length: > 0 } && encryptedProvider != "anthropic")
+        {
+            return null;
+        }
+
+        return JsonHelpers.GetString(block, "encryptedContent") ??
+            JsonHelpers.GetString(block, "data") ??
+            JsonHelpers.GetString(block, "signature");
     }
 
     private static bool TryWriteAnthropicToolUse(

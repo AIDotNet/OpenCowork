@@ -142,6 +142,14 @@ export interface ThinkingBlock {
   encryptedContent?: string
   /** Which provider emitted encryptedContent (used to replay only to compatible APIs) */
   encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
+  /**
+   * OpenAI Responses: the id of the reasoning item this block came from. Endpoints that
+   * do not return `reasoning.encrypted_content` accept a reasoning item replayed by id
+   * instead, so without this the reasoning cannot be sent back on a later turn.
+   */
+  reasoningItemId?: string
+  /** Anthropic `redacted_thinking` — replay as `{type:redacted_thinking,data}` */
+  redacted?: boolean
   startedAt?: number
   completedAt?: number
 }
@@ -330,7 +338,9 @@ export type StreamEventType =
   | 'message_start'
   | 'text_delta'
   | 'thinking_delta'
+  | 'thinking_backfill'
   | 'thinking_encrypted'
+  | 'thinking_reasoning_id'
   | 'tool_call_start'
   | 'tool_call_delta'
   | 'tool_call_end'
@@ -348,6 +358,7 @@ export interface StreamEvent {
   thinking?: string
   thinkingEncryptedContent?: string
   thinkingEncryptedProvider?: 'anthropic' | 'openai-responses' | 'google'
+  reasoningItemId?: string
   toolCallId?: string
   toolName?: string
   argumentsDelta?: string

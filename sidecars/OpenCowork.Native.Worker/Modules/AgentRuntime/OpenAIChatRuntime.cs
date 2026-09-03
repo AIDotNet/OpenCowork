@@ -895,12 +895,14 @@ internal static class OpenAIChatRuntime
 
         await using var responseStream = await response.Content.ReadAsStreamAsync(state.CancellationToken);
         using var reader = new StreamReader(responseStream, Encoding.UTF8);
+        using var idleGate = new AgentRuntimeStreamIdleGate(state.CancellationToken);
         var dataBuilder = new StringBuilder();
         var rawResponseBuilder = new StringBuilder();
         var sawSsePayload = false;
         string? line;
         while ((line = await AgentRuntimeRequestTimeout.ReadLineAsync(
             reader,
+            idleGate,
             provider,
             "OpenAI-compatible chat",
             url,

@@ -349,7 +349,25 @@ function appendOverlaySuffix(
         ? { ...block, completedAt: block.startedAt ?? 1 }
         : block
     )
-    return [...sealed, { type: 'thinking', thinking: extra }]
+    // Reasoning that surfaces after the answer text still belongs to that answer —
+    // providers emit it first and some only disclose it once the turn completes. It
+    // goes in front of the trailing text run so the Thought card stays above the reply
+    // instead of trailing it, which is also what the resident timeline records.
+    let insertAt = sealed.length
+    while (insertAt > 0 && sealed[insertAt - 1].type === 'text') insertAt -= 1
+    const precedingThinking = sealed[insertAt - 1]
+    if (precedingThinking?.type === 'thinking') {
+      return [
+        ...sealed.slice(0, insertAt - 1),
+        { ...precedingThinking, thinking: `${precedingThinking.thinking}${extra}` },
+        ...sealed.slice(insertAt)
+      ]
+    }
+    return [
+      ...sealed.slice(0, insertAt),
+      { type: 'thinking', thinking: extra },
+      ...sealed.slice(insertAt)
+    ]
   }
 
   if (last?.type === 'text') {

@@ -150,6 +150,8 @@ type ThinkingBlock = {
   thinking: string
   encryptedContent?: string
   encryptedContentProvider?: 'anthropic' | 'openai-responses' | 'google'
+  reasoningItemId?: string
+  redacted?: boolean
   startedAt?: number
   completedAt?: number
 }
@@ -445,6 +447,7 @@ type NativeAgentStreamEvent = {
   thinking?: string
   content?: string
   provider?: 'anthropic' | 'openai-responses' | 'google'
+  reasoningItemId?: string
   message?: string
   errorType?: string
   details?: string
@@ -495,6 +498,8 @@ function mapNativeAgentEventToInteractiveEvent(
       return { type: 'iteration_start', iteration: event.iteration ?? 0 }
     case 'thinking_delta':
       return { type: 'thinking_delta', thinking: event.thinking ?? '' }
+    case 'thinking_backfill':
+      return { type: 'thinking_backfill', thinking: event.thinking ?? '' }
     case 'thinking_encrypted':
       return event.content && event.provider
         ? {
@@ -502,6 +507,10 @@ function mapNativeAgentEventToInteractiveEvent(
             thinkingEncryptedContent: event.content,
             thinkingEncryptedProvider: event.provider
           }
+        : null
+    case 'thinking_reasoning_id':
+      return event.reasoningItemId
+        ? { type: 'thinking_reasoning_id', reasoningItemId: event.reasoningItemId }
         : null
     case 'text_delta':
       return { type: 'text_delta', text: event.text ?? '' }
@@ -1074,6 +1083,28 @@ function appendThinking(messages: UnifiedMessage[], thinking: string): void {
   blocks.push({ type: 'thinking', thinking, startedAt: Date.now() })
 }
 
+/** Reasoning a provider disclosed only after its answer streamed belongs in front of
+ *  that answer, not appended below it. Mirrors the renderer's content-block placement. */
+function backfillThinking(messages: UnifiedMessage[], thinking: string): void {
+  if (!thinking) return
+  const message = ensureAssistantMessage(messages)
+  const blocks = getAssistantBlocks(message)
+  let insertAt = blocks.length
+  while (insertAt > 0 && blocks[insertAt - 1].type === 'text') insertAt -= 1
+  if (insertAt === blocks.length) {
+    appendThinking(messages, thinking)
+    return
+  }
+  const now = Date.now()
+  const previous = blocks[insertAt - 1]
+  if (previous?.type === 'thinking') {
+    previous.thinking = previous.thinking ? `${previous.thinking}\n${thinking}` : thinking
+    previous.completedAt ??= now
+    return
+  }
+  blocks.splice(insertAt, 0, { type: 'thinking', thinking, startedAt: now, completedAt: now })
+}
+
 function completeThinking(messages: UnifiedMessage[]): void {
   const last = messages[messages.length - 1]
   if (!last || last.role !== 'assistant') return
@@ -1620,7 +1651,13 @@ async function runCronAgentInternal(
           appendThinking(transcriptMessages, event.thinking)
           markTranscriptDirty()
           break
+        case 'thinking_backfill':
+          backfillThinking(transcriptMessages, event.thinking)
+          markTranscriptDirty()
+          break
+        // Replay bookkeeping with no place in a background transcript.
         case 'thinking_encrypted':
+        case 'thinking_reasoning_id':
           break
         case 'text_delta':
           appendText(transcriptMessages, event.text)

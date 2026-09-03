@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-09-03
+
+### Added
+
+- Sign in to a RoutIn desktop account from the sidebar. Tokens stay encrypted in Main (`safeStorage`); the window only sees the profile, never the access or refresh token.
+- Phone remote control from the account menu: enable, scan a QR, and pair a phone over SignalR. Remote terminal execution and git commits from the phone are off by default.
+- Added Claude Fable 5.1, Gemini 3.8 Flash (official `thinking_level` LOW/MEDIUM/HIGH), Gemini 3.7/3.6 Flash, and Gemini 2.5 Pro/Flash/Flash-Lite to the Routin AI catalog.
+- Anthropic models now expose a thinking-budget slider on the model switcher (minimum 1024 tokens, default 10K, capped by the model's output limit).
+
+### Changed
+
+- A quoted prompt typed while a run is in flight is injected into that run (`agent/append-messages`) instead of waiting for a brand-new turn after the current one finishes.
+- New sessions pick a model in this order: the composer selection, the project binding, a fixed new-session default, then the global active model.
+- Native Worker outbound HTTP now uses the same OS/system proxy Electron resolved (Clash, Surge, a corporate PAC). Provider traffic no longer bypasses the proxy the renderer already honors.
+- Channel auto-reply and cron background runs now persist late-disclosed thinking in front of the answer, matching the desktop transcript.
+
+### Fixed
+
+- Fixed Anthropic interleaved thinking signatures overwriting an earlier block. Each signature stays on the thinking block it belongs to, so the next user turn is no longer rejected by the Messages API.
+- Fixed OpenAI Responses reasoning item ids being dropped from persisted thinking blocks, which broke cross-turn reasoning replay on endpoints that never return `encrypted_content`.
+- Fixed Copilot-only local model fields leaking onto other providers when a Copilot row was copied or restored.
+
 ## [1.3.27] - 2026-09-01
 
 ### Changed
